@@ -3,8 +3,8 @@ set -e
 
 TOOLS_DIR="$(dirname "${0}")"
 
-RUST_TARGET="$("${TOOLS_DIR}/target.sh")"
-TARGET_ARCH="$(echo "${RUST_TARGET}" | awk -F '-' '{print $1}')"
+C_TARGET="$("${TOOLS_DIR}/target.sh")"
+TARGET_ARCH="$(echo "${C_TARGET}" | awk -F '-' '{print $1}')"
 
 HOST_ARCH="$(uname -m)"
 
@@ -22,10 +22,7 @@ then
   HOST_OS="windows"
 fi
 
-if [ -z "${TARGET_OS}" ]
-then
-  TARGET_OS="${HOST_OS}"
-fi
+TARGET_OS="linux"
 
 # Darwin can cross compile on all architectures to all other supported
 # architectures without cross compilation consideration. For cross-compile

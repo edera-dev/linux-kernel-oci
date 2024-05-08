@@ -1,2 +1,3 @@
 # kernels
-Linux kernels for consumption by Krata, published to OCI
+
+krata guest kernels, built and published to OCI.

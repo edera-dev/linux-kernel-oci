@@ -1,0 +1,7 @@
+#!/bin/sh
+
+KERNEL_RELEASES_JSON="$(mktemp)"
+curl -sfL https://www.kernel.org/releases.json > "${KERNEL_RELEASES_JSON}"
+KERNEL_VERSION="$(jq -r '.latest_stable.version' < "${KERNEL_RELEASES_JSON}")"
+KERNEL_SRC_URL="$(jq -r '.releases[] | select(.version == "'"${KERNEL_VERSION}"'") | .source' < "${KERNEL_RELEASES_JSON}")"
+rm "${KERNEL_RELEASES_JSON}"

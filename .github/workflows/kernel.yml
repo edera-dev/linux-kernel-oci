@@ -1,4 +1,4 @@
-name: kernel
+name: build
 on:
   push:
     branches:
@@ -12,17 +12,14 @@ jobs:
         arch:
         - x86_64
         - aarch64
-        flavor:
-        - latest
     env:
       TARGET_ARCH: "${{ matrix.arch }}"
-    name: kernel build ${{ matrix.arch }} ${{ matrix.flavor }}
+    name: build ${{ matrix.arch }}
     steps:
     - uses: actions/checkout@v4
       with:
         submodules: recursive
-    - uses: dtolnay/rust-toolchain@stable
     - run: ./hack/ci/install-linux-deps.sh
-    - run: ./build.sh "${{ matrix.flavor }}"
+    - run: ./hack/build.sh
       env:
-        KRATA_KERNEL_BUILD_JOBS: "5"
+        KERNEL_BUILD_JOBS: "5"
