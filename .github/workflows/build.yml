@@ -1,0 +1,56 @@
+name: build
+on:
+  push:
+    branches:
+    - main
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        version:
+        - config: stable
+          version: latest
+        - config: custom-release
+          version: 6.7
+        - config: custom-release
+          version: 6.6
+        - config: custom-release
+          version: 6.5
+        - config: custom-release
+          version: 6.4
+        - config: custom-release
+          version: 6.3
+        - config: custom-release
+          version: 6.2
+        - config: custom-release
+          version: 6.1
+        - config: custom-release
+          version: 6.0
+        arch:
+        - x86_64
+        - aarch64
+    env:
+      TARGET_ARCH: "${{ matrix.arch }}"
+      KERNEL_VERSION: "${{ matrix.version.version }}"
+      KERNEL_VERSION_CONFIG: "${{ matrix.version.config }}"
+    name: "kernel build ${{ matrix.version.version }} ${{ matrix.version.config }} ${{ matrix.arch }}"
+    steps:
+    - uses: actions/checkout@v4
+      with:
+        submodules: recursive
+    - run: ./hack/ci/install-linux-deps.sh
+    - run: ./hack/build.sh
+      env:
+        KERNEL_BUILD_JOBS: "5"
+    - uses: actions/upload-artifact@v4
+      with:
+        name: kernel
+        path: "target/kernel"
+        compression-level: 0
+    - uses: actions/upload-artifact@v4
+      with:
+        name: addons
+        path: "target/addons.squashfs"
+        compression-level: 0

@@ -8,6 +8,12 @@ KERNEL_DIR="$(realpath "${PWD}")"
 cd "${KERNEL_DIR}"
 
 TARGET_ARCH_STANDARD="$(./hack/build/arch.sh)"
+
+if [ "${TARGET_ARCH_STANDARD}" = "arm64" ]
+then
+  TARGET_ARCH_STANDARD="aarch64"
+fi
+
 TARGET_ARCH_KERNEL="$(./hack/build/arch.sh)"
 C_TARGET="$(./hack/build/target.sh)"
 IS_CROSS_COMPILE="$(./hack/build/cross-compile.sh)"
@@ -21,7 +27,7 @@ fi
 
 if [ -z "${KERNEL_VERSION_CONFIG}" ]
 then
-  KERNEL_VERSION_CONFIG="latest"
+  KERNEL_VERSION_CONFIG="stable"
 fi
 
 KERNEL_VERSION_CONFIG_FILE="${KERNEL_DIR}/versions/${KERNEL_VERSION_CONFIG}"
@@ -76,10 +82,10 @@ then
 fi
 
 # shellcheck disable=SC2034
-MODULES_INSTALL_PATH="${OUTPUT_DIR}/modules-install-${TARGET_ARCH_STANDARD}"
+MODULES_INSTALL_PATH="${OUTPUT_DIR}/modules-install"
 # shellcheck disable=SC2034
-ADDONS_OUTPUT_PATH="${OUTPUT_DIR}/addons-${TARGET_ARCH_STANDARD}"
+ADDONS_OUTPUT_PATH="${OUTPUT_DIR}/addons"
 # shellcheck disable=SC2034
 MODULES_OUTPUT_PATH="${ADDONS_OUTPUT_PATH}/modules"
 # shellcheck disable=SC2034
-ADDONS_SQUASHFS_PATH="${OUTPUT_DIR}/addons-${TARGET_ARCH_STANDARD}.squashfs"
+ADDONS_SQUASHFS_PATH="${OUTPUT_DIR}/addons.squashfs"

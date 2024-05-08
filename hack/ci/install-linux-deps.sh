@@ -4,4 +4,4 @@ set -e
 sudo apt-get update
 sudo apt-get install -y \
     build-essential libssl-dev libelf-dev \
-    flex bison bc protobuf-compiler gcc-aarch64-linux-gnu
+    flex bison bc gcc-aarch64-linux-gnu rsync

@@ -1,0 +1,26 @@
+#!/bin/sh
+
+if [ -z "${KERNEL_VERSION}" ]
+then
+  echo "ERROR: KERNEL_VERSION not specified." >> /dev/stderr
+  exit 1
+fi
+
+KERNEL_MAJOR="$(echo "${KERNEL_VERSION}" | awk -F '.' '{print $1}')"
+
+KERNEL_VERSION_FILE="$(mktemp)"
+rsync "rsync://rsync.kernel.org/pub/linux/kernel/v${KERNEL_MAJOR}.x/" | \
+  awk '{print $5}' | grep '.xz$' | grep "linux-" | \
+  awk -F '-' '{print $2}' | awk -F '.tar' '{print $1}' | sort --version-sort | \
+  grep -E '^'"${KERNEL_VERSION}"'($|.)' > "${KERNEL_VERSION_FILE}"
+KERNEL_VERSION_EXACT="$(cat "${KERNEL_VERSION_FILE}")"
+rm "${KERNEL_VERSION_FILE}"
+
+if [ -z "${KERNEL_VERSION_EXACT}" ]
+then
+  echo "ERROR: Unable to find exact kernel version for release '${KERNEL_VERSION}'" > /dev/stderr
+  exit 1
+fi
+
+KERNEL_VERSION="${KERNEL_VERSION_EXACT}"
+KERNEL_SRC_URL="https://cdn.kernel.org/pub/linux/kernel/v${KERNEL_MAJOR}.x/linux-${KERNEL_VERSION}.tar.xz"
