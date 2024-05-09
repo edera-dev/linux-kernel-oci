@@ -35,15 +35,15 @@ jobs:
         KERNEL_BUILD_JOBS: "5"
     - name: identify kernel
       id: identify
-      run: ./hack/identify-kernel.sh target/kernel
+      run: echo "version=$(./hack/identify-kernel.sh target/kernel)" >> "${GITHUB_OUTPUT}"
     - name: write metadata
       run: |
         echo "KERNEL_ARCH=${{ matrix.arch }}" > target/metadata
-        echo "KERNEL_VERSION=${{ steps.identify.outputs.stdout }}" >> target/metadata
+        echo "KERNEL_VERSION=${{ steps.identify.outputs.version }}" >> target/metadata
     - name: upload artifacts
       uses: actions/upload-artifact@v4
       with:
-        name: "kernel-${{ matrix.arch }}-${{ steps.identify.outputs.stdout }}"
+        name: "kernel-${{ matrix.arch }}-${{ steps.identify.outputs.version }}"
         path: "target/*"
         compression-level: 0
   bundle:
