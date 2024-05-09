@@ -21,7 +21,7 @@ jobs:
     outputs:
       matrix: "${{ steps.capture-matrix.outputs.matrix }}"
   build:
-    name: "build ${{ matrix.arch }} ${{ matrix.versions.version }}"
+    name: "build ${{ matrix.arch }} ${{ matrix.builds.version }}"
     needs: matrix
     strategy:
       fail-fast: false
@@ -29,8 +29,8 @@ jobs:
     runs-on: ubuntu-latest
     env:
       TARGET_ARCH: "${{ matrix.arch }}"
-      KERNEL_VERSION: "${{ matrix.versions.version }}"
-      KERNEL_SRC_URL: "${{ matrix.versions.source }}"
+      KERNEL_VERSION: "${{ matrix.builds.version }}"
+      KERNEL_SRC_URL: "${{ matrix.builds.source }}"
     steps:
     - name: checkout repository
       uses: actions/checkout@v4
@@ -44,7 +44,7 @@ jobs:
         KERNEL_BUILD_JOBS: "5"
     - name: append tags to metadata
       run: >
-        echo "KERNEL_TAGS=${{ join(matrix.versions.tags) }}" >> "target/metadata"
+        echo "KERNEL_TAGS=${{ join(matrix.builds.tags) }}" >> "target/metadata"
     - name: capture metadata
       id: capture-metadata
       run: >
@@ -52,7 +52,7 @@ jobs:
     - name: upload artifacts
       uses: actions/upload-artifact@v4
       with:
-        name: "kernel-${{ matrix.arch }}-${{ matrix.versions.version }}"
+        name: "kernel-${{ matrix.arch }}-${{ matrix.builds.version }}"
         path: "target/*"
         compression-level: 0
     outputs:
