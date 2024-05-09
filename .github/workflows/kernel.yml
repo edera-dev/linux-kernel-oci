@@ -6,6 +6,7 @@ on:
 jobs:
   matrix:
     name: matrix
+    runs-on: ubuntu-latest
     steps:
     - name: checkout repository
       uses: actions/checkout@v4
