@@ -26,10 +26,10 @@ mksquashfs "${ADDONS_OUTPUT_PATH}" "${ADDONS_SQUASHFS_PATH}" -all-root
 
 if [ "${TARGET_ARCH_STANDARD}" = "x86_64" ]
 then
-  cp "${KERNEL_SRC}/arch/x86/boot/bzImage" "${OUTPUT_DIR}/kernel-${TARGET_ARCH_STANDARD}"
+  cp "${KERNEL_SRC}/arch/x86/boot/bzImage" "${OUTPUT_DIR}/kernel"
 elif [ "${TARGET_ARCH_STANDARD}" = "aarch64" ]
 then
-  cp "${KERNEL_SRC}/arch/arm64/boot/Image.gz" "${OUTPUT_DIR}/kernel-${TARGET_ARCH_STANDARD}"
+  cp "${KERNEL_SRC}/arch/arm64/boot/Image.gz" "${OUTPUT_DIR}/kernel"
 else
   echo "ERROR: unable to determine what file is the vmlinuz for ${TARGET_ARCH_STANDARD}" > /dev/stderr
   exit 1

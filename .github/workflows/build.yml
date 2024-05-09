@@ -5,30 +5,16 @@ on:
     - main
 jobs:
   build:
-    name: "kernel build ${{ matrix.version.version }} ${{ matrix.version.config }} ${{ matrix.arch }}"
+    name: "build ${{ matrix.arch }} ${{ matrix.version.version }}"
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
         version:
         - config: stable
-          version: "latest"
+          version: "stable"
         - config: custom-release
           version: "6.7"
-        - config: custom-release
-          version: "6.6"
-        - config: custom-release
-          version: "6.5"
-        - config: custom-release
-          version: "6.4"
-        - config: custom-release
-          version: "6.3"
-        - config: custom-release
-          version: "6.2"
-        - config: custom-release
-          version: "6.1"
-        - config: custom-release
-          version: "6.0"
         arch:
         - x86_64
         - aarch64
@@ -37,19 +23,25 @@ jobs:
       KERNEL_VERSION: "${{ matrix.version.version }}"
       KERNEL_VERSION_CONFIG: "${{ matrix.version.config }}"
     steps:
-    - uses: actions/checkout@v4
+    - name: checkout repository
+      uses: actions/checkout@v4
       with:
         submodules: recursive
-    - run: ./hack/ci/install-linux-deps.sh
-    - run: ./hack/build.sh
+    - name: install dependencies
+      run: ./hack/ci/install-linux-deps.sh
+    - name: build kernel
+      run: ./hack/build.sh
       env:
         KERNEL_BUILD_JOBS: "5"
-    - run: ./hack/identify-kernel.sh target/kernel
+    - name: identify kernel
       id: identify
-    - run: |
+      run: ./hack/identify-kernel.sh target/kernel
+    - name: write metadata
+      run: |
         echo "KERNEL_ARCH=${{ matrix.arch }}" > target/metadata
         echo "KERNEL_VERSION=${{ steps.identify.outputs.stdout }}" >> target/metadata
-    - uses: actions/upload-artifact@v4
+    - name: upload artifacts
+      uses: actions/upload-artifact@v4
       with:
         name: "kernel-${{ matrix.arch }}-${{ steps.identify.outputs.stdout }}"
         path: "target/*"
@@ -59,7 +51,8 @@ jobs:
     runs-on: ubuntu-latest
     needs: build
     steps:
-    - uses: actions/upload-artifact/merge@v4
+    - name: bundle artifacts
+      uses: actions/upload-artifact/merge@v4
       with:
         name: kernels
         separate-directories: true
