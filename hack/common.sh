@@ -25,18 +25,17 @@ else
   CROSS_COMPILE_MAKE="CROSS_COMPILE="
 fi
 
-if [ -z "${KERNEL_VERSION_CONFIG}" ]
+if [ -z "${KERNEL_VERSION}" ]
 then
-  KERNEL_VERSION_CONFIG="stable"
-fi
-
-KERNEL_VERSION_CONFIG_FILE="${KERNEL_DIR}/versions/${KERNEL_VERSION_CONFIG}"
-if [ ! -f "${KERNEL_VERSION_CONFIG_FILE}" ]
-then
-  echo "ERROR: version config '${KERNEL_VERSION_CONFIG}' does not exist!" > /dev/stderr
+  echo "ERROR: KERNEL_VERSION must be specified." > /dev/stderr
   exit 1
 fi
-. "${KERNEL_VERSION_CONFIG_FILE}"
+
+if [ -z "${KERNEL_SRC_URL}" ]
+then
+  echo "ERROR: KERNEL_SRC_URL must be specified." > /dev/stderr
+  exit 1
+fi
 
 KERNEL_SRC="${KERNEL_DIR}/build/linux-${KERNEL_VERSION}-${TARGET_ARCH_STANDARD}"
 

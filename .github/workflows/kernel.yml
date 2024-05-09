@@ -4,24 +4,32 @@ on:
   schedule:
   - cron: "0 10 * * *"
 jobs:
+  matrix:
+    name: matrix
+    steps:
+    - name: checkout repository
+      uses: actions/checkout@v4
+      with:
+        submodules: recursive
+    - name: generate matrix
+      run: ./hack/ci/generate-matrix.sh
+    - name: capture matrix
+      id: capture-matrix
+      run: >
+        echo "matrix=$(cat target/matrix.json)" >> "${GITHUB_OUTPUT}"
+    outputs:
+      matrix: "${{ steps.capture-matrix.outputs.matrix }}"
   build:
-    name: "build ${{ matrix.version.version }} ${{ matrix.arch }}"
-    runs-on: ubuntu-latest
+    name: "build ${{ matrix.arch }} ${{ matrix.versions.version }}"
+    needs: matrix
     strategy:
       fail-fast: false
-      matrix:
-        version:
-        - config: stable
-          version: "stable"
-        - config: custom-release
-          version: "6.7"
-        arch:
-        - x86_64
-        - aarch64
+      matrix: ${{ fromJSON(needs.matrix.outputs.matrix) }}
+    runs-on: ubuntu-latest
     env:
       TARGET_ARCH: "${{ matrix.arch }}"
-      KERNEL_VERSION: "${{ matrix.version.version }}"
-      KERNEL_VERSION_CONFIG: "${{ matrix.version.config }}"
+      KERNEL_VERSION: "${{ matrix.versions.version }}"
+      KERNEL_SRC_URL: "${{ matrix.versions.source }}"
     steps:
     - name: checkout repository
       uses: actions/checkout@v4
@@ -33,15 +41,23 @@ jobs:
       run: ./hack/build.sh
       env:
         KERNEL_BUILD_JOBS: "5"
+    - name: append tags to metadata
+      run: >
+        echo "KERNEL_TAGS=${{ join(matrix.versions.tags) }}" >> "target/metadata"
     - name: capture metadata
-      id: metadata
-      run: cat target/metadata >> "${GITHUB_OUTPUT}"
+      id: capture-metadata
+      run: >
+        cat "target/metadata" >> "${GITHUB_OUTPUT}"
     - name: upload artifacts
       uses: actions/upload-artifact@v4
       with:
-        name: "kernel-${{ steps.metadata.outputs.KERNEL_VERSION }}-${{ steps.metadata.outputs.KERNEL_ARCH }}"
+        name: "kernel-${{ matrix.arch }}-${{ matrix.versions.version }}"
         path: "target/*"
         compression-level: 0
+    outputs:
+      arch: "${{ steps.capture-metadata.outputs.KERNEL_ARCH }}"
+      version: "${{ steps.capture-metadata.outputs.KERNEL_VERSION }}"
+      tags: "${{ steps.capture-metadata.outputs.KERNEL_TAGS }}"
   bundle:
     name: bundle
     runs-on: ubuntu-latest
