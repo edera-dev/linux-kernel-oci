@@ -13,6 +13,7 @@ make -C "${KERNEL_SRC}" ARCH="${TARGET_ARCH_KERNEL}" -j"${KERNEL_BUILD_JOBS}" "$
 rm -rf "${MODULES_INSTALL_PATH}"
 rm -rf "${ADDONS_OUTPUT_PATH}"
 rm -rf "${ADDONS_SQUASHFS_PATH}"
+rm -rf "${METADATA_PATH}"
 
 make -C "${KERNEL_SRC}" ARCH="${TARGET_ARCH_KERNEL}" -j"${KERNEL_BUILD_JOBS}" "${CROSS_COMPILE_MAKE}" INSTALL_MOD_PATH="${MODULES_INSTALL_PATH}" modules_install
 KERNEL_MODULES_VER="$(ls "${MODULES_INSTALL_PATH}/lib/modules")"
@@ -34,3 +35,5 @@ else
   echo "ERROR: unable to determine what file is the vmlinuz for ${TARGET_ARCH_STANDARD}" > /dev/stderr
   exit 1
 fi
+echo "KERNEL_ARCH=${TARGET_ARCH_STANDARD}" > "${METADATA_PATH}"
+echo "KERNEL_VERSION=${KERNEL_VERSION}" >> "${METADATA_PATH}"

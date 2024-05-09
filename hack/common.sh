@@ -89,3 +89,5 @@ ADDONS_OUTPUT_PATH="${OUTPUT_DIR}/addons"
 MODULES_OUTPUT_PATH="${ADDONS_OUTPUT_PATH}/modules"
 # shellcheck disable=SC2034
 ADDONS_SQUASHFS_PATH="${OUTPUT_DIR}/addons.squashfs"
+# shellcheck disable=SC2034
+METADATA_PATH="${OUTPUT_DIR}/metadata"

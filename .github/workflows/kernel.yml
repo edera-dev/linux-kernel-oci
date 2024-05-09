@@ -1,11 +1,11 @@
-name: build
+name: kernel
 on:
-  push:
-    branches:
-    - main
+  workflow_dispatch:
+  schedule:
+  - cron: "0 10 * * *"
 jobs:
   build:
-    name: "build ${{ matrix.arch }} ${{ matrix.version.version }}"
+    name: "build ${{ matrix.version.version }} ${{ matrix.arch }}"
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -33,17 +33,13 @@ jobs:
       run: ./hack/build.sh
       env:
         KERNEL_BUILD_JOBS: "5"
-    - name: identify kernel
-      id: identify
-      run: echo "version=$(./hack/identify-kernel.sh target/kernel)" >> "${GITHUB_OUTPUT}"
-    - name: write metadata
-      run: |
-        echo "KERNEL_ARCH=${{ matrix.arch }}" > target/metadata
-        echo "KERNEL_VERSION=${{ steps.identify.outputs.version }}" >> target/metadata
+    - name: capture metadata
+      id: metadata
+      run: cat target/metadata >> "${GITHUB_OUTPUT}"
     - name: upload artifacts
       uses: actions/upload-artifact@v4
       with:
-        name: "kernel-${{ matrix.arch }}-${{ steps.identify.outputs.version }}"
+        name: "kernel-${{ steps.metadata.outputs.KERNEL_VERSION }}-${{ steps.metadata.outputs.KERNEL_ARCH }}"
         path: "target/*"
         compression-level: 0
   bundle:
