@@ -41,6 +41,8 @@ for kernel in os.listdir(sys.argv[1]):
         }
     )
 
+pushes = []
+
 print("#!/bin/sh")
 print("set -e")
 for build in list(builds.values()):
@@ -65,7 +67,7 @@ for build in list(builds.values()):
             "-f",
             "hack/ci/kernel.dockerfile",
             "--annotation",
-            "dev.edera.kernel.format.version=1",
+            "dev.edera.kernel.format=1",
             "--annotation",
             "dev.edera.kernel.version=%s" % build["version"],
             "--annotation",
@@ -76,7 +78,15 @@ for build in list(builds.values()):
         ]
         command = list(shlex.quote(item) for item in command)
         print(" ".join(command))
+        if not root in pushes:
+            pushes.append(root)
         for tag in build["tags"]:
             if tag == build["version"]:
                 continue
-            print("docker tag %s %s:%s" % (root, repository, tag))
+            item = "%s:%s" % (repository, tag)
+            print("docker tag %s %s" % (root, item))
+            if not item in pushes:
+                pushes.append(item)
+
+for push in pushes:
+    print("docker push %s" % push)
