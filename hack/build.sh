@@ -35,6 +35,12 @@ else
   echo "ERROR: unable to determine what file is the vmlinuz for ${TARGET_ARCH_STANDARD}" > /dev/stderr
   exit 1
 fi
-echo "KERNEL_ARCH=${TARGET_ARCH_STANDARD}" > "${METADATA_PATH}"
-echo "KERNEL_VERSION=${KERNEL_VERSION}" >> "${METADATA_PATH}"
+
 rm -rf "${ADDONS_OUTPUT_PATH}"
+
+{ 
+  echo "KERNEL_ARCH=${TARGET_ARCH_STANDARD}";
+  echo "KERNEL_VERSION=${KERNEL_VERSION}";
+  echo "KERNEL_FLAVOR=${KERNEL_FLAVOR}";
+  sha256sum "${KERNEL_SRC}/.config" | awk '{print "KERNEL_CONFIG=sha256:"$1}';
+} > "${METADATA_PATH}"

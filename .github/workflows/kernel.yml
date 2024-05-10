@@ -59,14 +59,25 @@ jobs:
       arch: "${{ steps.capture-metadata.outputs.KERNEL_ARCH }}"
       version: "${{ steps.capture-metadata.outputs.KERNEL_VERSION }}"
       tags: "${{ steps.capture-metadata.outputs.KERNEL_TAGS }}"
-  bundle:
-    name: bundle
+  assemble:
+    name: assemble
     runs-on: ubuntu-latest
     needs: build
     steps:
-    - name: bundle artifacts
-      uses: actions/upload-artifact/merge@v4
+    - name: checkout repository
+      uses: actions/checkout@v4
       with:
-        name: kernels
-        separate-directories: true
-        compression-level: 0
+        submodules: recursive
+    - name: download artifacts
+      uses: actions/download-artifact@v4
+      with:
+        pattern: "kernel-*"
+        path: "target/kernels"
+    - name: docker setup qemu
+      uses: docker/setup-qemu-action@v3
+    - name: docker setup buildx
+      uses: docker/setup-buildx-action@v3
+    - name: generate docker script
+      run: ./hack/ci/generate-docker-script.sh ghcr.io/edera-dev/kernels-demo > target/build.sh
+    - name: run docker script
+      run: sh target/build.sh

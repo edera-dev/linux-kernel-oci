@@ -37,6 +37,11 @@ then
   exit 1
 fi
 
+if [ -z "${KERNEL_FLAVOR}" ]
+then
+  KERNEL_FLAVOR="krata-standard"
+fi
+
 KERNEL_SRC="${KERNEL_DIR}/build/linux-${KERNEL_VERSION}-${TARGET_ARCH_STANDARD}"
 
 if [ -z "${KERNEL_BUILD_JOBS}" ]
@@ -56,7 +61,7 @@ fi
 OUTPUT_DIR="${KERNEL_DIR}/target"
 mkdir -p "${OUTPUT_DIR}"
 
-KERNEL_CONFIG_FILE="${KERNEL_DIR}/configs/krata-${TARGET_ARCH_STANDARD}.config"
+KERNEL_CONFIG_FILE="${KERNEL_DIR}/configs/${KERNEL_FLAVOR}-${TARGET_ARCH_STANDARD}.config"
 
 if [ ! -f "${KERNEL_CONFIG_FILE}" ]
 then
