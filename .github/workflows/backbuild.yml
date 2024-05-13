@@ -85,6 +85,6 @@ jobs:
         username: "${{github.actor}}"
         password: "${{secrets.GITHUB_TOKEN}}"
     - name: generate docker script
-      run: ./hack/ci/generate-docker-script.sh ghcr.io/edera-dev/kernels-demo > target/build.sh
+      run: ./hack/ci/generate-docker-script.sh ghcr.io/edera-dev/kernels > target/build.sh
     - name: run docker script
       run: sh target/build.sh
