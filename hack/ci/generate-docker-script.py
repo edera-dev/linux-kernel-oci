@@ -41,11 +41,12 @@ for kernel in os.listdir(sys.argv[1]):
         }
     )
 
-pushes = []
-
 print("#!/bin/sh")
 print("set -e")
+print("docker buildx create --name edera")
+print('trap "docker buildx rm edera" EXIT')
 for build in list(builds.values()):
+    platforms = []
     for arch in build["arch"]:
         platform = ""
         if arch["arch"] == "aarch64":
@@ -55,38 +56,43 @@ for build in list(builds.values()):
         if len(platform) == 0:
             print("unknown platform %s" % arch["arch"], file=sys.stderr)
             sys.exit(1)
+        platforms.append(platform)
 
-        root = "%s:%s" % (repository, build["version"])
-        command = [
-            "docker",
-            "build",
-            "--tag",
-            root,
-            "--platform",
-            platform,
-            "-f",
-            "hack/ci/kernel.dockerfile",
-            "--annotation",
-            "dev.edera.kernel.format=1",
-            "--annotation",
-            "dev.edera.kernel.version=%s" % build["version"],
-            "--annotation",
-            "dev.edera.kernel.flavor=%s" % arch["flavor"],
-            "--annotation",
-            "dev.edera.kernel.config=%s" % arch["config"],
-            arch["context"],
-        ]
-        command = list(shlex.quote(item) for item in command)
-        print(" ".join(command))
-        if not root in pushes:
-            pushes.append(root)
-        for tag in build["tags"]:
-            if tag == build["version"]:
-                continue
-            item = "%s:%s" % (repository, tag)
-            print("docker tag %s %s" % (root, item))
-            if not item in pushes:
-                pushes.append(item)
+    root = "%s:%s" % (repository, build["version"])
+    command = [
+        "docker",
+        "buildx",
+        "build",
+        "--builder",
+        "edera",
+        "--push",
+    ]
 
-for push in pushes:
-    print("docker push %s" % push)
+    for platform in platforms:
+        command += ["--platform", platform]
+
+    tags = [root]
+    for tag in build["tags"]:
+        if tag == build["version"]:
+            continue
+        item = "%s:%s" % (repository, tag)
+        tags.append(tag)
+
+    for tag in tags:
+        command += ["--tag", tag]
+
+    command += [
+        "-f",
+        "hack/ci/kernel.dockerfile",
+        "--build-arg",
+        "KERNEL_VERSION=%s" % build["version"],
+        "--annotation",
+        "dev.edera.kernel.format=1",
+        "--annotation",
+        "dev.edera.kernel.version=%s" % build["version"],
+        "--annotation",
+        "dev.edera.kernel.flavor=%s" % arch["flavor"],
+        sys.argv[1],
+    ]
+    command = list(shlex.quote(item) for item in command)
+    print(" ".join(command))
