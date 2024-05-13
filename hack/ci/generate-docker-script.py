@@ -2,6 +2,8 @@ import os
 import sys
 import shlex
 
+DEFAULT_FLAVOR = "standard"
+
 
 def read_metadata(path) -> dict[str, str]:
     metadata = {}
@@ -31,13 +33,12 @@ for kernel in os.listdir(sys.argv[1]):
             "version": kernel_version,
             "arch": [],
             "tags": kernel_tags,
+            "flavor": kernel_flavor,
         }
     builds[kernel_version]["arch"].append(
         {
             "arch": kernel_arch,
-            "context": kernel_path,
             "config": kernel_config,
-            "flavor": kernel_flavor,
         }
     )
 
@@ -59,6 +60,10 @@ for build in list(builds.values()):
         platforms.append(platform)
 
     root = "%s:%s" % (repository, build["version"])
+
+    if build["flavor"] != DEFAULT_FLAVOR:
+        root += "-%s" % build["flavor"]
+
     command = [
         "docker",
         "buildx",
@@ -76,7 +81,9 @@ for build in list(builds.values()):
         if tag == build["version"]:
             continue
         item = "%s:%s" % (repository, tag)
-        tags.append(tag)
+        if build["flavor"] != DEFAULT_FLAVOR:
+            item += "-%s" % build["flavor"]
+        tags.append(item)
 
     for tag in tags:
         command += ["--tag", tag]
@@ -91,7 +98,7 @@ for build in list(builds.values()):
         "--annotation",
         "dev.edera.kernel.version=%s" % build["version"],
         "--annotation",
-        "dev.edera.kernel.flavor=%s" % arch["flavor"],
+        "dev.edera.kernel.flavor=%s" % build["flavor"],
         sys.argv[1],
     ]
     command = list(shlex.quote(item) for item in command)

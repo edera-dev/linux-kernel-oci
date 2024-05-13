@@ -39,7 +39,7 @@ fi
 
 if [ -z "${KERNEL_FLAVOR}" ]
 then
-  KERNEL_FLAVOR="krata-standard"
+  KERNEL_FLAVOR="standard"
 fi
 
 KERNEL_SRC="${KERNEL_DIR}/build/linux-${KERNEL_VERSION}-${TARGET_ARCH_STANDARD}"
