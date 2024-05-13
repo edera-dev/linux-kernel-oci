@@ -17,7 +17,7 @@ def read_metadata(path) -> dict[str, str]:
 builds = {}
 
 repository = sys.argv[2]
-for kernel in os.listdir(sys.argv[1]):
+for kernel in sorted(os.listdir(sys.argv[1])):
     kernel_path = os.path.join(sys.argv[1], kernel)
     metadata_path = os.path.join(kernel_path, "metadata")
     if not os.path.isfile(metadata_path):
@@ -85,6 +85,7 @@ for build in list(builds.values()):
             item += "-%s" % build["flavor"]
         tags.append(item)
 
+    tags.sort()
     for tag in tags:
         command += ["--tag", tag]
 
