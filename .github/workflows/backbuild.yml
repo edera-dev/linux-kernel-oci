@@ -13,7 +13,7 @@ jobs:
       with:
         submodules: recursive
     - name: generate matrix
-      run: ./hack/ci/generate-matrix.sh
+      run: ./hack/ci/generate-backbuild-matrix.sh
     - name: capture matrix
       id: capture-matrix
       run: >
