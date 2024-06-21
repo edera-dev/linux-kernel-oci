@@ -2,7 +2,9 @@ name: backbuild
 on:
   workflow_dispatch:
 permissions:
+  contents: read
   packages: write
+  id-token: write
 jobs:
   matrix:
     name: matrix
