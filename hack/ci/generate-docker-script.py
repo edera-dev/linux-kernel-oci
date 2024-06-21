@@ -64,7 +64,7 @@ for build in list(builds.values()):
     if build["flavor"] != DEFAULT_FLAVOR:
         root += "-%s" % build["flavor"]
 
-    command = [
+    build_command = [
         "docker",
         "buildx",
         "build",
@@ -74,7 +74,7 @@ for build in list(builds.values()):
     ]
 
     for platform in platforms:
-        command += ["--platform", platform]
+        build_command += ["--platform", platform]
 
     tags = [root]
     for tag in build["tags"]:
@@ -87,9 +87,9 @@ for build in list(builds.values()):
 
     tags.sort()
     for tag in tags:
-        command += ["--tag", tag]
+        build_command += ["--tag", tag]
 
-    command += [
+    build_command += [
         "-f",
         "hack/ci/kernel.dockerfile",
         "--build-arg",
@@ -102,5 +102,18 @@ for build in list(builds.values()):
         "dev.edera.kernel.flavor=%s" % build["flavor"],
         sys.argv[1],
     ]
-    command = list(shlex.quote(item) for item in command)
-    print(" ".join(command))
+    build_command = list(shlex.quote(item) for item in build_command)
+    print(" ".join(build_command))
+
+    base_signing_command = [
+      "cosign",
+      "sign",
+      "--yes",
+    ]
+
+    for tag in tags:
+      signing_command = base_signing_command + [
+        '%s@$(cat kernel-image-id-%s-%s)' % (tag, build["version"], build["flavor"]),
+      ]
+      signing_command = list(shlex.quote(item) for item in signing_command)
+      print(" ".join(signing_command))
