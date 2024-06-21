@@ -100,6 +100,8 @@ for build in list(builds.values()):
         "dev.edera.kernel.version=%s" % build["version"],
         "--annotation",
         "dev.edera.kernel.flavor=%s" % build["flavor"],
+        "--iidfile",
+        "kernel-image-id-%s-%s" % (build["version"], build["flavor"]),
         sys.argv[1],
     ]
     build_command = list(shlex.quote(item) for item in build_command)
@@ -115,5 +117,4 @@ for build in list(builds.values()):
       signing_command = base_signing_command + [
         '%s@$(cat kernel-image-id-%s-%s)' % (tag, build["version"], build["flavor"]),
       ]
-      signing_command = list(shlex.quote(item) for item in signing_command)
       print(" ".join(signing_command))
