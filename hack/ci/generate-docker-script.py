@@ -94,6 +94,8 @@ for build in list(builds.values()):
         "hack/ci/kernel.dockerfile",
         "--build-arg",
         "KERNEL_VERSION=%s" % build["version"],
+        "--build-arg",
+        "KERNEL_FLAVOR=%s" % build["flavor"],
         "--annotation",
         "dev.edera.kernel.format=1",
         "--annotation",
@@ -108,13 +110,14 @@ for build in list(builds.values()):
     print(" ".join(build_command))
 
     base_signing_command = [
-      "cosign",
-      "sign",
-      "--yes",
+        "cosign",
+        "sign",
+        "--yes",
     ]
 
     for tag in tags:
-      signing_command = base_signing_command + [
-        '%s@$(cat kernel-image-id-%s-%s)' % (tag, build["version"], build["flavor"]),
-      ]
-      print(" ".join(signing_command))
+        signing_command = base_signing_command + [
+            "%s@$(cat kernel-image-id-%s-%s)"
+            % (tag, build["version"], build["flavor"]),
+        ]
+        print(" ".join(signing_command))

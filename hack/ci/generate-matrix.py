@@ -2,6 +2,8 @@ import sys
 import json
 from packaging.version import Version, parse
 
+flavors = ["standard", "dom0"]
+
 data_path = sys.argv[1]
 matrix_path = sys.argv[2]
 
@@ -65,13 +67,15 @@ for version in unique_versions:
         parts.major,
         version,
     )
-    version_builds.append(
-        {
-            "version": version,
-            "tags": version_tags,
-            "source": src_url,
-        }
-    )
+    for flavor in flavors:
+        version_builds.append(
+            {
+                "version": version,
+                "tags": version_tags,
+                "source": src_url,
+                "flavor": flavor,
+            }
+        )
 
 matrix = {
     "arch": ["x86_64", "aarch64"],
