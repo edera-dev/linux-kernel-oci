@@ -44,3 +44,4 @@ rm -rf "${ADDONS_OUTPUT_PATH}"
   echo "KERNEL_FLAVOR=${KERNEL_FLAVOR}";
   sha256sum "${KERNEL_SRC}/.config" | awk '{print "KERNEL_CONFIG=sha256:"$1}';
 } > "${METADATA_PATH}"
+gzip -9 < "${KERNEL_SRC}/.config" > "${CONFIG_GZ_PATH}"
