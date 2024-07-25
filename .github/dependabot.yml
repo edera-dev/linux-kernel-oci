@@ -4,3 +4,10 @@ updates:
   directory: "/"
   schedule:
     interval: "daily"
+  groups:
+    actions-updates:
+      dependency-type: "production"
+      applies-to: "version-updates"
+    actions-dev-updates:
+      dependency-type: "development"
+      applies-to: "version-updates"

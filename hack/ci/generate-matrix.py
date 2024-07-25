@@ -1,6 +1,7 @@
 import sys
 import json
-from packaging.version import Version, parse
+from packaging.version import parse
+from matrix import generate_matrix
 
 flavors = ["standard", "dom0"]
 
@@ -51,36 +52,4 @@ for tag in list(tags.keys()):
     version = tags[tag]
     tags[version] = version
 
-unique_versions = list(set(tags.values()))
-unique_versions.sort(key=Version)
-
-version_builds = []
-
-for version in unique_versions:
-    version_tags = []
-    for tag in tags:
-        tag_version = tags[tag]
-        if tag_version == version:
-            version_tags.append(tag)
-    parts = parse(version)
-    src_url = "https://cdn.kernel.org/pub/linux/kernel/v%s.x/linux-%s.tar.xz" % (
-        parts.major,
-        version,
-    )
-    for flavor in flavors:
-        version_builds.append(
-            {
-                "version": version,
-                "tags": version_tags,
-                "source": src_url,
-                "flavor": flavor,
-            }
-        )
-
-matrix = {
-    "arch": ["x86_64", "aarch64"],
-    "builds": version_builds,
-}
-
-matrix_file = open(matrix_path, "w")
-matrix_file.write(json.dumps(matrix) + "\n")
+generate_matrix(matrix_path, tags)
