@@ -1,7 +1,7 @@
 FROM alpine:latest AS builder
 COPY . /all
 ARG KERNEL_VERSION=unknown
-ARG KERNEL_FLAVOR=standard
+ARG KERNEL_FLAVOR=zone
 RUN mkdir -p /kernel && \
     cp "/all/kernel-$(uname -m)-${KERNEL_VERSION}-${KERNEL_FLAVOR}/kernel" /kernel/image && \
     cp "/all/kernel-$(uname -m)-${KERNEL_VERSION}-${KERNEL_FLAVOR}/addons.squashfs" /kernel/addons.squashfs && \

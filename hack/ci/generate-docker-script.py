@@ -2,7 +2,7 @@ import os
 import sys
 import shlex
 
-DEFAULT_FLAVOR = "standard"
+DEFAULT_FLAVOR = "zone"
 
 
 def read_metadata(path) -> dict[str, str]:
@@ -28,14 +28,15 @@ for kernel in sorted(os.listdir(sys.argv[1])):
     kernel_config = metadata["KERNEL_CONFIG"]
     kernel_flavor = metadata["KERNEL_FLAVOR"]
     kernel_tags = metadata["KERNEL_TAGS"].split(",")
-    if not kernel_version in builds:
-        builds[kernel_version] = {
+    kernel_id = "%s-%s" % (kernel_version, kernel_flavor)
+    if not kernel_id in builds:
+        builds[kernel_id] = {
             "version": kernel_version,
             "arch": [],
             "tags": kernel_tags,
             "flavor": kernel_flavor,
         }
-    builds[kernel_version]["arch"].append(
+    builds[kernel_id]["arch"].append(
         {
             "arch": kernel_arch,
             "config": kernel_config,

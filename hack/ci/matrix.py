@@ -2,7 +2,7 @@ import json
 
 from packaging.version import Version, parse
 
-BUILD_FLAVORS = ["standard", "dom0"]
+BUILD_FLAVORS = ["zone", "host"]
 BUILD_ARCHITECTURES = ["x86_64", "aarch64"]
 
 

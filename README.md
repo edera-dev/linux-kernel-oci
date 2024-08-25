@@ -1,3 +1,3 @@
-# kernels
+# linux-kernel-oci
 
-krata guest kernels, built and published to OCI.
+Build the Linux kernel in various flavors suitable for Edera into OCI images.

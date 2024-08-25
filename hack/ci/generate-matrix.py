@@ -3,8 +3,6 @@ import json
 from packaging.version import parse
 from matrix import generate_matrix
 
-flavors = ["standard", "dom0"]
-
 data_path = sys.argv[1]
 matrix_path = sys.argv[2]
 
