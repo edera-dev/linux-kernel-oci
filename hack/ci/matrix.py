@@ -2,8 +2,11 @@ import json
 
 from packaging.version import Version, parse
 
-BUILD_FLAVORS = ["zone", "host"]
+BUILD_FLAVORS = ["zone", "host", "zone-openpax"]
 BUILD_ARCHITECTURES = ["x86_64", "aarch64"]
+BUILD_CONSTRAINTS = {
+    'zone-openpax': Version('6.10'),
+}
 
 
 def generate_matrix(matrix_path, tags):
@@ -24,6 +27,8 @@ def generate_matrix(matrix_path, tags):
             version,
         )
         for flavor in BUILD_FLAVORS:
+            if flavor in BUILD_CONSTRAINTS and parts < BUILD_CONSTRAINTS[flavor]:
+                continue
             version_builds.append(
                 {
                     "version": version,
