@@ -49,6 +49,17 @@ then
   KERNEL_BUILD_JOBS="$(nproc)"
 fi
 
+# In the case of a stable release, e.g. 6.10.7, this becomes 6.10.
+MAINLINE_VERSION="${KERNEL_VERSION%.*}"
+# In the case of a mainline release, e.g. 6.10, this will collapse to
+# 6 -> 6.  In that case, ${KERNEL_VERSION} is the mainline version.
+if [ "${MAINLINE_VERSION}" = "${MAINLINE_VERSION%.*}" ]
+then
+  MAINLINE_VERSION="${KERNEL_VERSION}"
+fi
+
+SERIES_FILE="${KERNEL_DIR}/patches/${MAINLINE_VERSION}/${KERNEL_FLAVOR}/series"
+
 if [ ! -f "${KERNEL_SRC}/Makefile" ]
 then
   rm -rf "${KERNEL_SRC}"
@@ -56,6 +67,15 @@ then
   curl --progress-bar -L -o "${KERNEL_SRC}.txz" "${KERNEL_SRC_URL}"
   tar xf "${KERNEL_SRC}.txz" --strip-components 1 -C "${KERNEL_SRC}"
   rm "${KERNEL_SRC}.txz"
+
+  if [ -f "${SERIES_FILE}" ]
+  then
+    cd "${KERNEL_SRC}"
+    while read patch; do
+      patch -p1 < "${KERNEL_DIR}/patches/${MAINLINE_VERSION}/${KERNEL_FLAVOR}/$patch"
+    done < "${SERIES_FILE}"
+    cd "${KERNEL_DIR}"
+  fi
 fi
 
 OUTPUT_DIR="${KERNEL_DIR}/target"
