@@ -58,6 +58,7 @@ then
   MAINLINE_VERSION="${KERNEL_VERSION}"
 fi
 
+BASE_SERIES_FILE="${KERNEL_DIR}/patches/${MAINLINE_VERSION}/base/series"
 SERIES_FILE="${KERNEL_DIR}/patches/${MAINLINE_VERSION}/${KERNEL_FLAVOR}/series"
 
 if [ ! -f "${KERNEL_SRC}/Makefile" ]
@@ -67,6 +68,15 @@ then
   curl --progress-bar -L -o "${KERNEL_SRC}.txz" "${KERNEL_SRC_URL}"
   tar xf "${KERNEL_SRC}.txz" --strip-components 1 -C "${KERNEL_SRC}"
   rm "${KERNEL_SRC}.txz"
+
+  if [ -f "${BASE_SERIES_FILE}" ]
+  then
+    cd "${KERNEL_SRC}"
+    while read patch; do
+      patch -p1 < "${KERNEL_DIR}/patches/${MAINLINE_VERSION}/base/$patch"
+    done < "${BASE_SERIES_FILE}"
+    cd "${KERNEL_DIR}"
+  fi
 
   if [ -f "${SERIES_FILE}" ]
   then
