@@ -1,0 +1,33 @@
+From 1826ef30bf0f780235245e1a02c5a50675344338 Mon Sep 17 00:00:00 2001
+From: Ariadne Conill <ariadne@ariadne.space>
+Date: Tue, 3 Sep 2024 10:31:47 -0700
+Subject: [PATCH] x86/topology: Tolerate lack of APIC when booting as Xen domU
+
+Xen domU instances do not boot on x86 with ACPI enabled, so the entire
+ACPI subsystem is ultimately disabled.  This causes acpi_mps_check()
+to trigger a warning that the ACPI MPS table is not present, which then
+disables APIC support on domU, breaking the CPU topology detection for
+all vCPUs other than the boot vCPU.
+
+Fixes: 7c0edad3643f ("x86/cpu/topology: Rework possible CPU management")
+Signed-off-by: Ariadne Conill <ariadne@ariadne.space>
+---
+ arch/x86/kernel/cpu/topology.c | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/arch/x86/kernel/cpu/topology.c b/arch/x86/kernel/cpu/topology.c
+index 621a151ccf7d..38fa5ed816d6 100644
+--- a/arch/x86/kernel/cpu/topology.c
++++ b/arch/x86/kernel/cpu/topology.c
+@@ -429,7 +429,7 @@ void __init topology_apply_cmdline_limits_early(void)
+ 	unsigned int possible = nr_cpu_ids;
+ 
+ 	/* 'maxcpus=0' 'nosmp' 'nolapic' 'disableapic' 'noapic' */
+-	if (!setup_max_cpus || ioapic_is_disabled || apic_is_disabled)
++	if (!setup_max_cpus || ioapic_is_disabled || (apic_is_disabled && !xen_pv_domain()))
+ 		possible = 1;
+ 
+ 	/* 'possible_cpus=N' */
+-- 
+2.39.2
+
