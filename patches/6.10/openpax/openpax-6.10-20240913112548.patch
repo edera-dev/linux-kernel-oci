@@ -333,7 +333,7 @@ index e6c469b323cc..5522c862ca76 100644
  		goto lock_mmap;
  
 diff --git a/fs/binfmt_elf.c b/fs/binfmt_elf.c
-index a43897b03ce9..99d83fdab21b 100644
+index 777405719de8..dd8523f332a6 100644
 --- a/fs/binfmt_elf.c
 +++ b/fs/binfmt_elf.c
 @@ -47,6 +47,7 @@
@@ -384,14 +384,14 @@ index a43897b03ce9..99d83fdab21b 100644
 +}
 +#endif
 +
-+static int openpax_set_flags(struct file * const file)
++static int openpax_set_flags(struct file * const file, const int snapshot_randomize_va_space)
 +{
 +#ifdef CONFIG_OPENPAX_XATTR_PAX_FLAGS
 +	int error;
 +#endif
 +	current->mm->pax_flags = 0;
 +
-+	if (randomize_va_space) {
++	if (snapshot_randomize_va_space) {
 +		set_bit(PAXF_RANDMMAP, &current->mm->pax_flags);
 +	}
 +
@@ -417,13 +417,15 @@ index a43897b03ce9..99d83fdab21b 100644
  static int load_elf_binary(struct linux_binprm *bprm)
  {
  	struct file *interpreter = NULL; /* to shut gcc up */
-@@ -1000,10 +1067,26 @@ static int load_elf_binary(struct linux_binprm *bprm)
+@@ -1000,11 +1067,28 @@ static int load_elf_binary(struct linux_binprm *bprm)
  	/* Do this immediately, since STACK_TOP as used in setup_arg_pages
  	   may depend on the personality.  */
  	SET_PERSONALITY2(*elf_ex, &arch_state);
 +
++	const int snapshot_randomize_va_space = READ_ONCE(randomize_va_space);
++
 +#ifdef CONFIG_OPENPAX
-+	retval = openpax_set_flags(bprm->file);
++	retval = openpax_set_flags(bprm->file, snapshot_randomize_va_space);
 +	if (retval)
 +		goto out_free_dentry;
 +
@@ -436,8 +438,9 @@ index a43897b03ce9..99d83fdab21b 100644
  	if (elf_read_implies_exec(*elf_ex, executable_stack))
  		current->personality |= READ_IMPLIES_EXEC;
  
--	if (!(current->personality & ADDR_NO_RANDOMIZE) && randomize_va_space)
-+	if (!(current->personality & ADDR_NO_RANDOMIZE) && randomize_va_space
+-	const int snapshot_randomize_va_space = READ_ONCE(randomize_va_space);
+-	if (!(current->personality & ADDR_NO_RANDOMIZE) && snapshot_randomize_va_space)
++	if (!(current->personality & ADDR_NO_RANDOMIZE) && snapshot_randomize_va_space
 +#ifdef CONFIG_OPENPAX
 +	    && test_bit(PAXF_RANDMMAP, &current->mm->pax_flags)
 +#endif
@@ -502,7 +505,7 @@ index 34a47fb0c57f..cf22281d6fd9 100644
  	}
  	task_sig(m, task);
 diff --git a/fs/xattr.c b/fs/xattr.c
-index f8b643f91a98..943b096ffbdb 100644
+index 7672ce5486c5..f3a2fd7c7a09 100644
 --- a/fs/xattr.c
 +++ b/fs/xattr.c
 @@ -424,6 +424,22 @@ __vfs_getxattr(struct dentry *dentry, struct inode *inode, const char *name,
