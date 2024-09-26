@@ -127,3 +127,5 @@ ADDONS_SQUASHFS_PATH="${OUTPUT_DIR}/addons.squashfs"
 METADATA_PATH="${OUTPUT_DIR}/metadata"
 # shellcheck disable=SC2034
 CONFIG_GZ_PATH="${OUTPUT_DIR}/config.gz"
+# shellcheck disable=SC2034
+SDK_PATH="${OUTPUT_DIR}/sdk.tar.gz"

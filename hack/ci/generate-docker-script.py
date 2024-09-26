@@ -65,7 +65,7 @@ for build in list(builds.values()):
     if build["flavor"] != DEFAULT_FLAVOR:
         root += "-%s" % build["flavor"]
 
-    build_command = [
+    base_build_command = [
         "docker",
         "buildx",
         "build",
@@ -75,7 +75,7 @@ for build in list(builds.values()):
     ]
 
     for platform in platforms:
-        build_command += ["--platform", platform]
+        base_build_command += ["--platform", platform]
 
     tags = [root]
     for tag in build["tags"]:
@@ -86,11 +86,13 @@ for build in list(builds.values()):
             item += "-%s" % build["flavor"]
         tags.append(item)
 
+    image_build_command = base_build_command
+
     tags.sort()
     for tag in tags:
-        build_command += ["--tag", tag]
+        image_build_command += ["--tag", tag]
 
-    build_command += [
+    image_build_command += [
         "-f",
         "hack/ci/kernel.dockerfile",
         "--build-arg",
@@ -107,8 +109,43 @@ for build in list(builds.values()):
         "kernel-image-id-%s-%s" % (build["version"], build["flavor"]),
         sys.argv[1],
     ]
-    build_command = list(shlex.quote(item) for item in build_command)
-    print(" ".join(build_command))
+    image_build_command = list(shlex.quote(item) for item in image_build_command)
+    print(" ".join(image_build_command))
+
+    sdk_tags = ["%s-sdk:%s" % (repository, build["version"])]
+    for tag in build["tags"]:
+        if tag == build["version"]:
+            continue
+        item = "%s-sdk:%s" % (repository, tag)
+        if build["flavor"] != DEFAULT_FLAVOR:
+            item += "-%s" % build["flavor"]
+        sdk_tags.append(item)
+
+    sdk_build_command = base_build_command
+
+    sdk_tags.sort()
+    for tag in sdk_tags:
+        sdk_build_command += ["--tag", tag]
+
+    sdk_build_command += [
+        "-f",
+        "hack/ci/sdk.dockerfile",
+        "--build-arg",
+        "KERNEL_VERSION=%s" % build["version"],
+        "--build-arg",
+        "KERNEL_FLAVOR=%s" % build["flavor"],
+        "--annotation",
+        "dev.edera.kernel.format=1",
+        "--annotation",
+        "dev.edera.kernel.version=%s" % build["version"],
+        "--annotation",
+        "dev.edera.kernel.flavor=%s" % build["flavor"],
+        "--iidfile",
+        "kernel-sdk-id-%s-%s" % (build["version"], build["flavor"]),
+        sys.argv[1],
+    ]
+    sdk_build_command = list(shlex.quote(item) for item in sdk_build_command)
+    print(" ".join(sdk_build_command))
 
     base_signing_command = [
         "cosign",
@@ -119,6 +156,13 @@ for build in list(builds.values()):
     for tag in tags:
         signing_command = base_signing_command + [
             "%s@$(cat kernel-image-id-%s-%s)"
+            % (tag, build["version"], build["flavor"]),
+        ]
+        print(" ".join(signing_command))
+
+    for tag in sdk_tags:
+        signing_command = base_signing_command + [
+            "%s@$(cat kernel-sdk-id-%s-%s)"
             % (tag, build["version"], build["flavor"]),
         ]
         print(" ".join(signing_command))

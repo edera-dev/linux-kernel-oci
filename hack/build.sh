@@ -38,6 +38,45 @@ fi
 
 rm -rf "${ADDONS_OUTPUT_PATH}"
 
+# Prepare SDK by copying kernel config, signing key, and relevant kbuild/header files.
+SDK_OUTPUT_PATH="$(mktemp -d)"
+
+mkdir -p "${SDK_OUTPUT_PATH}"
+
+cp -a "${KERNEL_SRC}/.config" "${SDK_OUTPUT_PATH}/.config"
+install -D -t "${SDK_OUTPUT_PATH}"/certs "${KERNEL_SRC}"/certs/signing_key.x509 || :
+make -C "${KERNEL_SRC}" O="${SDK_OUTPUT_PATH}" ARCH="${TARGET_ARCH_KERNEL}" prepare modules_prepare scripts
+
+# Delete links to "real" kernel sources as we will copy them in place as needed.
+rm "${SDK_OUTPUT_PATH}"/Makefile "${SDK_OUTPUT_PATH}"/source
+
+cd "${KERNEL_SRC}"
+find . -path './include/*' -prune \
+	-o -path './scripts/*' -prune -o -type f \
+	\( -name 'Makefile*' -o -name 'Kconfig*' -o -name 'Kbuild*' -o \
+	   -name '*.sh' -o -name '*.pl' -o -name '*.lds' -o -name 'Platform' \) \
+	-print | cpio -pdm "${SDK_OUTPUT_PATH}"
+cp -a scripts include "${SDK_OUTPUT_PATH}"
+find "arch/${TARGET_ARCH_KERNEL}" -name include -type d -print | while IFS='' read -r folder; do
+	find "$folder" -type f
+done | sort -u | cpio -pdm "${SDK_OUTPUT_PATH}"
+cd "${KERNEL_DIR}"
+
+install -Dm644 "${KERNEL_SRC}"/Module.symvers "${SDK_OUTPUT_PATH}"/Module.symvers
+
+rm -r "${SDK_OUTPUT_PATH}"/Documentation
+find "${SDK_OUTPUT_PATH}" -type f -name '*.o' -printf 'Removing %P\n' -delete
+
+for i in "${SDK_OUTPUT_PATH}"/arch/*; do
+	if [ "${i##*/}" != "${TARGET_ARCH_KERNEL}" ]; then
+		echo "Removing unused SDK architecture headers: $i"
+		rm -r "$i"
+	fi
+done
+
+tar -zc --strip-components=2 -f "${SDK_PATH}" "${SDK_OUTPUT_PATH}"
+rm -rf "${SDK_OUTPUT_PATH}"
+
 { 
   echo "KERNEL_ARCH=${TARGET_ARCH_STANDARD}";
   echo "KERNEL_VERSION=${KERNEL_VERSION}";
