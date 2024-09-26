@@ -100,6 +100,7 @@ then
   exit 1
 fi
 
+mkdir -p "${KERNEL_OBJ}"
 cp "${KERNEL_CONFIG_FILE}" "${KERNEL_OBJ}/.config"
 make -C "${KERNEL_SRC}" O="${KERNEL_OBJ}" ARCH="${TARGET_ARCH_KERNEL}" "${CROSS_COMPILE_MAKE}" olddefconfig
 
