@@ -100,7 +100,7 @@ then
   exit 1
 fi
 
-cp "${KERNEL_CONFIG_FILE}" "${KERNEL_SRC}/.config"
+cp "${KERNEL_CONFIG_FILE}" "${KERNEL_OBJ}/.config"
 make -C "${KERNEL_SRC}" O="${KERNEL_OBJ}" ARCH="${TARGET_ARCH_KERNEL}" "${CROSS_COMPILE_MAKE}" olddefconfig
 
 # shellcheck disable=SC2034
