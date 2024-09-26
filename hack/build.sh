@@ -45,7 +45,7 @@ mkdir -p "${SDK_OUTPUT_PATH}"
 
 cp -a "${KERNEL_OBJ}/.config" "${SDK_OUTPUT_PATH}/.config"
 install -D -t "${SDK_OUTPUT_PATH}"/certs "${KERNEL_OBJ}"/certs/signing_key.x509 || :
-make -C "${KERNEL_SRC}" O="${SDK_OUTPUT_PATH}" ARCH="${TARGET_ARCH_KERNEL}" prepare modules_prepare scripts
+make -C "${KERNEL_SRC}" O="${SDK_OUTPUT_PATH}" ARCH="${TARGET_ARCH_KERNEL}" -j"${KERNEL_BUILD_JOBS}" "${CROSS_COMPILE_MAKE}" prepare modules_prepare scripts
 
 # Delete links to "real" kernel sources as we will copy them in place as needed.
 rm "${SDK_OUTPUT_PATH}"/Makefile "${SDK_OUTPUT_PATH}"/source
