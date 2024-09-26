@@ -42,7 +42,8 @@ then
   KERNEL_FLAVOR="standard"
 fi
 
-KERNEL_SRC="${KERNEL_DIR}/build/linux-${KERNEL_VERSION}-${TARGET_ARCH_STANDARD}"
+KERNEL_SRC="${KERNEL_DIR}/src/linux-${KERNEL_VERSION}-${TARGET_ARCH_STANDARD}"
+KERNEL_OBJ="${KERNEL_DIR}/obj/linux-${KERNEL_VERSION}-${TARGET_ARCH_STANDARD}"
 
 if [ -z "${KERNEL_BUILD_JOBS}" ]
 then
@@ -100,7 +101,7 @@ then
 fi
 
 cp "${KERNEL_CONFIG_FILE}" "${KERNEL_SRC}/.config"
-make -C "${KERNEL_SRC}" ARCH="${TARGET_ARCH_KERNEL}" "${CROSS_COMPILE_MAKE}" olddefconfig
+make -C "${KERNEL_SRC}" O="${KERNEL_OBJ}" ARCH="${TARGET_ARCH_KERNEL}" "${CROSS_COMPILE_MAKE}" olddefconfig
 
 # shellcheck disable=SC2034
 IMAGE_TARGET="bzImage"

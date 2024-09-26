@@ -8,14 +8,14 @@ KERNEL_DIR="$(realpath "${PWD}")"
 # shellcheck source-path=SCRIPTDIR source=common.sh
 . "${KERNEL_DIR}/hack/common.sh"
 
-make -C "${KERNEL_SRC}" ARCH="${TARGET_ARCH_KERNEL}" -j"${KERNEL_BUILD_JOBS}" "${CROSS_COMPILE_MAKE}" "${IMAGE_TARGET}" modules
+make -C "${KERNEL_OBJ}" ARCH="${TARGET_ARCH_KERNEL}" -j"${KERNEL_BUILD_JOBS}" "${CROSS_COMPILE_MAKE}" "${IMAGE_TARGET}" modules
 
 rm -rf "${MODULES_INSTALL_PATH}"
 rm -rf "${ADDONS_OUTPUT_PATH}"
 rm -rf "${ADDONS_SQUASHFS_PATH}"
 rm -rf "${METADATA_PATH}"
 
-make -C "${KERNEL_SRC}" ARCH="${TARGET_ARCH_KERNEL}" -j"${KERNEL_BUILD_JOBS}" "${CROSS_COMPILE_MAKE}" INSTALL_MOD_PATH="${MODULES_INSTALL_PATH}" modules_install
+make -C "${KERNEL_OBJ}" ARCH="${TARGET_ARCH_KERNEL}" -j"${KERNEL_BUILD_JOBS}" "${CROSS_COMPILE_MAKE}" INSTALL_MOD_PATH="${MODULES_INSTALL_PATH}" modules_install
 KERNEL_MODULES_VER="$(ls "${MODULES_INSTALL_PATH}/lib/modules")"
 
 mkdir -p "${ADDONS_OUTPUT_PATH}"
@@ -27,10 +27,10 @@ mksquashfs "${ADDONS_OUTPUT_PATH}" "${ADDONS_SQUASHFS_PATH}" -all-root
 
 if [ "${TARGET_ARCH_STANDARD}" = "x86_64" ]
 then
-  cp "${KERNEL_SRC}/arch/x86/boot/bzImage" "${OUTPUT_DIR}/kernel"
+  cp "${KERNEL_OBJ}/arch/x86/boot/bzImage" "${OUTPUT_DIR}/kernel"
 elif [ "${TARGET_ARCH_STANDARD}" = "aarch64" ]
 then
-  cp "${KERNEL_SRC}/arch/arm64/boot/Image.gz" "${OUTPUT_DIR}/kernel"
+  cp "${KERNEL_OBJ}/arch/arm64/boot/Image.gz" "${OUTPUT_DIR}/kernel"
 else
   echo "ERROR: unable to determine what file is the vmlinuz for ${TARGET_ARCH_STANDARD}" > /dev/stderr
   exit 1
@@ -43,8 +43,8 @@ SDK_OUTPUT_PATH="$(mktemp -d)"
 
 mkdir -p "${SDK_OUTPUT_PATH}"
 
-cp -a "${KERNEL_SRC}/.config" "${SDK_OUTPUT_PATH}/.config"
-install -D -t "${SDK_OUTPUT_PATH}"/certs "${KERNEL_SRC}"/certs/signing_key.x509 || :
+cp -a "${KERNEL_OBJ}/.config" "${SDK_OUTPUT_PATH}/.config"
+install -D -t "${SDK_OUTPUT_PATH}"/certs "${KERNEL_OBJ}"/certs/signing_key.x509 || :
 make -C "${KERNEL_SRC}" O="${SDK_OUTPUT_PATH}" ARCH="${TARGET_ARCH_KERNEL}" prepare modules_prepare scripts
 
 # Delete links to "real" kernel sources as we will copy them in place as needed.
@@ -62,7 +62,7 @@ find "arch/${TARGET_ARCH_KERNEL}" -name include -type d -print | while IFS='' re
 done | sort -u | cpio -pdm "${SDK_OUTPUT_PATH}"
 cd "${KERNEL_DIR}"
 
-install -Dm644 "${KERNEL_SRC}"/Module.symvers "${SDK_OUTPUT_PATH}"/Module.symvers
+install -Dm644 "${KERNEL_OBJ}"/Module.symvers "${SDK_OUTPUT_PATH}"/Module.symvers
 
 rm -r "${SDK_OUTPUT_PATH}"/Documentation
 find "${SDK_OUTPUT_PATH}" -type f -name '*.o' -printf 'Removing %P\n' -delete
@@ -81,6 +81,6 @@ rm -rf "${SDK_OUTPUT_PATH}"
   echo "KERNEL_ARCH=${TARGET_ARCH_STANDARD}";
   echo "KERNEL_VERSION=${KERNEL_VERSION}";
   echo "KERNEL_FLAVOR=${KERNEL_FLAVOR}";
-  sha256sum "${KERNEL_SRC}/.config" | awk '{print "KERNEL_CONFIG=sha256:"$1}';
+  sha256sum "${KERNEL_OBJ}/.config" | awk '{print "KERNEL_CONFIG=sha256:"$1}';
 } > "${METADATA_PATH}"
-gzip -9 < "${KERNEL_SRC}/.config" > "${CONFIG_GZ_PATH}"
+gzip -9 < "${KERNEL_OBJ}/.config" > "${CONFIG_GZ_PATH}"
