@@ -86,7 +86,7 @@ for build in list(builds.values()):
             item += "-%s" % build["flavor"]
         tags.append(item)
 
-    image_build_command = base_build_command
+    image_build_command = list(base_build_command)
 
     tags.sort()
     for tag in tags:
@@ -121,7 +121,7 @@ for build in list(builds.values()):
             item += "-%s" % build["flavor"]
         sdk_tags.append(item)
 
-    sdk_build_command = base_build_command
+    sdk_build_command = list(base_build_command)
 
     sdk_tags.sort()
     for tag in sdk_tags:
