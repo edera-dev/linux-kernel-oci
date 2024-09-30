@@ -74,7 +74,7 @@ for i in "${SDK_OUTPUT_PATH}"/arch/*; do
 	fi
 done
 
-tar -zc --strip-components=2 -f "${SDK_PATH}" "${SDK_OUTPUT_PATH}"
+tar -zc -C "${SDK_OUTPUT_PATH}" -f "${SDK_PATH}" .
 rm -rf "${SDK_OUTPUT_PATH}"
 
 { 
