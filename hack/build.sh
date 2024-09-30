@@ -68,7 +68,7 @@ rm -r "${SDK_OUTPUT_PATH}"/Documentation
 find "${SDK_OUTPUT_PATH}" -type f -name '*.o' -printf 'Removing %P\n' -delete
 
 PRUNE_ARCH="${TARGET_ARCH_KERNEL}"
-[ "${TARGET_ARCH_KERNEL}" == "x86_64" ] && PRUNE_ARCH="x86"
+[ "${TARGET_ARCH_KERNEL}" = "x86_64" ] && PRUNE_ARCH="x86"
 
 for i in "${SDK_OUTPUT_PATH}"/arch/*; do
 	if [ "${i##*/}" != "${PRUNE_ARCH}" ]; then
