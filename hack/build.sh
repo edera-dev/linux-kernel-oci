@@ -50,6 +50,9 @@ make -C "${KERNEL_SRC}" O="${SDK_OUTPUT_PATH}" ARCH="${TARGET_ARCH_KERNEL}" -j"$
 # Delete links to "real" kernel sources as we will copy them in place as needed.
 rm "${SDK_OUTPUT_PATH}"/Makefile "${SDK_OUTPUT_PATH}"/source
 
+PRUNE_ARCH="${TARGET_ARCH_KERNEL}"
+[ "${TARGET_ARCH_KERNEL}" = "x86_64" ] && PRUNE_ARCH="x86"
+
 cd "${KERNEL_SRC}"
 find . -path './include/*' -prune \
 	-o -path './scripts/*' -prune -o -type f \
@@ -57,7 +60,7 @@ find . -path './include/*' -prune \
 	   -name '*.sh' -o -name '*.pl' -o -name '*.lds' -o -name 'Platform' \) \
 	-print | cpio -pdm "${SDK_OUTPUT_PATH}"
 cp -a scripts include "${SDK_OUTPUT_PATH}"
-find "arch/${TARGET_ARCH_KERNEL}" -name include -type d -print | while IFS='' read -r folder; do
+find "arch/${PRUNE_ARCH}" -name include -type d -print | while IFS='' read -r folder; do
 	find "$folder" -type f
 done | sort -u | cpio -pdm "${SDK_OUTPUT_PATH}"
 cd "${KERNEL_DIR}"
@@ -66,9 +69,6 @@ install -Dm644 "${KERNEL_OBJ}"/Module.symvers "${SDK_OUTPUT_PATH}"/Module.symver
 
 rm -r "${SDK_OUTPUT_PATH}"/Documentation
 find "${SDK_OUTPUT_PATH}" -type f -name '*.o' -printf 'Removing %P\n' -delete
-
-PRUNE_ARCH="${TARGET_ARCH_KERNEL}"
-[ "${TARGET_ARCH_KERNEL}" = "x86_64" ] && PRUNE_ARCH="x86"
 
 for i in "${SDK_OUTPUT_PATH}"/arch/*; do
 	if [ "${i##*/}" != "${PRUNE_ARCH}" ]; then
