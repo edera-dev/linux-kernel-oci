@@ -1,3 +1,2 @@
 0001-Revert-ALSA-memalloc-Workaround-for-Xen-PV.patch
 0001-Revert-net-ena-Add-dynamic-recycling-mechanism-for-r.patch
-0001-ena-disable-MSI-X-mode-always-use-polling-mode.patch
