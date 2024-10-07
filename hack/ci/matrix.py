@@ -22,9 +22,14 @@ def generate_matrix(matrix_path, tags):
             if tag_version == version:
                 version_tags.append(tag)
         parts = parse(version)
+
+        version_for_url = version
+        if parts.micro == 0:
+            version_for_url = "%s.%s" % (parts.major, parts.minor)
+
         src_url = "https://cdn.kernel.org/pub/linux/kernel/v%s.x/linux-%s.tar.xz" % (
             parts.major,
-            version,
+            version_for_url,
         )
         for flavor in BUILD_FLAVORS:
             if flavor in BUILD_CONSTRAINTS and parts < BUILD_CONSTRAINTS[flavor]:

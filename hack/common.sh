@@ -66,7 +66,7 @@ if [ ! -f "${KERNEL_SRC}/Makefile" ]
 then
   rm -rf "${KERNEL_SRC}"
   mkdir -p "${KERNEL_SRC}"
-  curl --progress-bar -L -o "${KERNEL_SRC}.txz" "${KERNEL_SRC_URL}"
+  curl --progress-bar -Lf -o "${KERNEL_SRC}.txz" "${KERNEL_SRC_URL}"
   tar xf "${KERNEL_SRC}.txz" --strip-components 1 -C "${KERNEL_SRC}"
   rm "${KERNEL_SRC}.txz"
 
