@@ -25,5 +25,5 @@ do
   release_versions "${MAJOR_VERSION}"
 done | sort --version-sort > "${DATA_TMP_DIR}/all-versions"
 
-rm -rf "target/matrix.json"
+rm -f "target/matrix.json"
 python3 "$(dirname "${0}")/generate-backbuild-matrix.py" "${DATA_TMP_DIR}" "target/matrix.json"
