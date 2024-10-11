@@ -23,7 +23,7 @@ jobs:
       env:
         KERNEL_VERSIONS: "${{ github.event.inputs.kernel_versions }}"
     - name: upload matrix
-      uses: actions/upload-artifact@604373da6381bf24206979c74d06a550515601b9 # v4
+      uses: actions/upload-artifact@b4b15b8c7c6ac21ea08fcf65892d2ee8f75cf882 # v4
       with:
         name: matrix
         path: "target/matrix.json"
@@ -66,7 +66,7 @@ jobs:
       run: >
         cat "target/metadata" >> "${GITHUB_OUTPUT}"
     - name: upload artifacts
-      uses: actions/upload-artifact@604373da6381bf24206979c74d06a550515601b9 # v4
+      uses: actions/upload-artifact@b4b15b8c7c6ac21ea08fcf65892d2ee8f75cf882 # v4
       with:
         name: "kernel-${{ matrix.arch }}-${{ matrix.builds.version }}-${{ matrix.builds.flavor }}"
         path: "target/*"
@@ -105,7 +105,7 @@ jobs:
     - name: generate docker script
       run: ./hack/ci/generate-docker-script.sh ghcr.io/edera-dev/linux-kernel > target/docker.sh
     - name: upload docker script
-      uses: actions/upload-artifact@604373da6381bf24206979c74d06a550515601b9 # v4
+      uses: actions/upload-artifact@b4b15b8c7c6ac21ea08fcf65892d2ee8f75cf882 # v4
       with:
         name: docker-script
         path: "target/docker.sh"
