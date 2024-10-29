@@ -100,14 +100,6 @@ then
   exit 1
 fi
 
-# check for pahole, Required to embed btf data and enable ebpf.
-if [ ! -f "/usr/bin/pahole" ]
-then
-  echo "ERROR: pahole not found at /usr/bin/pahole. Unable to enable bpf." > /dev/stderr
-  exit 1
-fi
-
-
 mkdir -p "${KERNEL_OBJ}"
 cp "${KERNEL_CONFIG_FILE}" "${KERNEL_OBJ}/.config"
 make -C "${KERNEL_SRC}" O="${KERNEL_OBJ}" ARCH="${TARGET_ARCH_KERNEL}" "${CROSS_COMPILE_MAKE}" olddefconfig
