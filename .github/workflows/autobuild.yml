@@ -68,4 +68,4 @@ jobs:
       - name: generate docker script
         run: ./hack/ci/generate-docker-script.sh ghcr.io/edera-dev/linux-kernel-testing > target/docker.sh
       - name: run docker script
-        run: sh target/docker.sh
+        run: sh -x target/docker.sh
