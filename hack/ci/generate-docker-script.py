@@ -15,7 +15,7 @@ kernel_tags = os.getenv("KERNEL_TAGS", "").split(",")
 kernel_architectures = os.getenv("KERNEL_ARCHITECTURES").split(",")
 
 
-def docker_build_and_sign(target, tags, suffix="", format_type=None):
+def docker_build(target, tags, suffix="", format_type=None):
     platforms = []
     for arch in kernel_architectures:
         platform = ""
@@ -101,5 +101,6 @@ print("#!/bin/sh")
 print("set -e")
 print("docker buildx create --name edera")
 print('trap "docker buildx rm edera" EXIT')
-docker_build_and_sign("kernel", kernel_tags, format_type="kernel")
-docker_build_and_sign("sdk", kernel_tags, format_type="kernel.sdk")
+docker_build("buildenv", kernel_tags, suffix="-buildenv")
+docker_build("kernel", kernel_tags, format_type="kernel")
+docker_build("sdk", kernel_tags, suffix="-sdk", format_type="kernel.sdk")
