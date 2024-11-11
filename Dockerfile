@@ -1,7 +1,7 @@
 FROM alpine:3.20@sha256:beefdbd8a1da6d2915566fde36db9db0b524eb737fc57cd1367effd16dc0d06d AS buildenv
 RUN apk add perl gmp-dev mpc1-dev mpfr-dev elfutils-dev bash flex bison pahole \
             sed mawk diffutils findutils zstd python3 gcc curl make musl-dev \
-            squashfs-tools linux-headers openssl openssl-dev py3-packaging
+            squashfs-tools linux-headers openssl openssl-dev py3-packaging patch
 RUN adduser -s /bin/sh -D build
 COPY --chown=build:build . /build
 USER build
