@@ -5,7 +5,7 @@ from packaging.version import Version, parse
 BUILD_FLAVORS = ["zone", "host", "zone-openpax"]
 BUILD_ARCHITECTURES = ["x86_64", "aarch64"]
 BUILD_CONSTRAINTS = {
-    'zone-openpax': Version('6.10'),
+    "zone-openpax": Version("6.10"),
 }
 
 

@@ -14,6 +14,7 @@ kernel_src_url = os.getenv("KERNEL_SRC_URL")
 kernel_tags = os.getenv("KERNEL_TAGS", "").split(",")
 kernel_architectures = os.getenv("KERNEL_ARCHITECTURES").split(",")
 
+
 def docker_build_and_sign(target, tags, suffix="", format_type=None):
     platforms = []
     for arch in kernel_architectures:
@@ -47,6 +48,7 @@ def docker_build_and_sign(target, tags, suffix="", format_type=None):
         "dev.edera.kernel.flavor=%s" % kernel_flavor,
         "--iidfile",
         "image-id-%s-%s-%s" % (kernel_version, kernel_flavor, target),
+        "--load",
     ]
 
     if format_type is not None:
@@ -55,10 +57,9 @@ def docker_build_and_sign(target, tags, suffix="", format_type=None):
             "dev.edera.%s.format=1" % format_type,
         ]
 
-    if os.getenv("KERNEL_PUBLISH") == "1":
+    publish = os.getenv("KERNEL_PUBLISH") == "1"
+    if publish:
         image_build_command += ["--push"]
-    elif len(kernel_architectures) == 1:
-        image_build_command += ["--load"]
 
     for platform in platforms:
         image_build_command += ["--platform", platform]
@@ -83,18 +84,18 @@ def docker_build_and_sign(target, tags, suffix="", format_type=None):
     image_build_command += ["."]
     image_build_command = list(shlex.quote(item) for item in image_build_command)
     print(" ".join(image_build_command))
-    
-    # base_signing_command = [
-    #     "cosign",
-    #     "sign",
-    #     "--yes",
-    # ]
 
-    # signing_command = base_signing_command + [
-    #     "%s@$(cat image-id-%s-%s)"
-    #     % (tag, build["version"], build["flavor"]),
-    # ]
-    # print(" ".join(signing_command))
+    if publish:
+        for tag in tags:
+            signing_command = [
+                "cosign",
+                "sign",
+                "--yes",
+                "%s@$(cat image-id-%s-%s-%s)"
+                % (tag, kernel_version, kernel_flavor, target),
+            ]
+            print(" ".join(signing_command))
+
 
 print("#!/bin/sh")
 print("set -e")

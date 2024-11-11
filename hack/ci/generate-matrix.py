@@ -12,7 +12,9 @@ latest_stable = release_info["latest_stable"]["version"]
 known_releases = []
 
 for release in release_info["releases"]:
-    if (release["moniker"] in ["stable", "longterm"]) or release["version"] == latest_stable:
+    if (release["moniker"] in ["stable", "longterm"]) or release[
+        "version"
+    ] == latest_stable:
         known_releases.append(release["version"])
 
 tags = {}

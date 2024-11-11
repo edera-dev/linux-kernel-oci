@@ -18,11 +18,13 @@ with open("patches/patches.json") as f:
 
 apply_patches = []
 
+
 def maybe(m, k):
     if k in m:
         return m[k]
     else:
         return None
+
 
 for patch in common_patches:
     file_name = patch["patch"]
@@ -61,10 +63,12 @@ for patch in common_patches:
         apply = False
 
     if apply:
-        apply_patches.append({
-            "patch": file_name,
-            "order": order,
-        })
+        apply_patches.append(
+            {
+                "patch": file_name,
+                "order": order,
+            }
+        )
 
 apply_patches.sort(key=lambda patch: patch["order"])
 
