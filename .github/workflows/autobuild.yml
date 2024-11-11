@@ -61,6 +61,8 @@ jobs:
           registry: ghcr.io
           username: "${{github.actor}}"
           password: "${{secrets.GITHUB_TOKEN}}"
+      - name: create target directory
+        run: mkdir -p target
       - name: generate docker script
         run: ./hack/ci/generate-docker-script.sh ghcr.io/edera-dev/linux-kernel-testing > target/docker.sh
       - name: upload docker script
