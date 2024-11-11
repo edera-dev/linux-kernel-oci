@@ -57,7 +57,7 @@ def docker_build_and_sign(target, tags, suffix="", format_type=None):
 
     if os.getenv("KERNEL_PUBLISH") == "1":
         image_build_command += ["--push"]
-    else:
+    elif len(kernel_architectures) == 1:
         image_build_command += ["--load"]
 
     for platform in platforms:

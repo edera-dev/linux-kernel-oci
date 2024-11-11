@@ -65,10 +65,5 @@ jobs:
         run: mkdir -p target
       - name: generate docker script
         run: ./hack/ci/generate-docker-script.sh ghcr.io/edera-dev/linux-kernel-testing > target/docker.sh
-      - name: upload docker script
-        uses: actions/upload-artifact@b4b15b8c7c6ac21ea08fcf65892d2ee8f75cf882 # v4
-        with:
-          name: docker-script
-          path: "target/docker.sh"
       - name: run docker script
         run: sh target/docker.sh
