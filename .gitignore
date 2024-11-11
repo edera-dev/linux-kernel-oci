@@ -3,4 +3,6 @@
 /venv
 /obj
 /src
+/.vscode
+/.idea
 **/__pycache__/**

@@ -8,11 +8,11 @@ then
 fi
 
 REAL_SCRIPT="$(realpath "${0}")"
-cd "$(dirname "${REAL_SCRIPT}")/.."
+cd "$(dirname "${REAL_SCRIPT}")/../.."
 KERNEL_DIR="$(realpath "${PWD}")"
 
 # shellcheck source-path=SCRIPTDIR source=common.sh
-. "${KERNEL_DIR}/hack/common.sh"
+. "${KERNEL_DIR}/hack/build/common.sh"
 
 rm -rf "${MODULES_INSTALL_PATH}"
 rm -rf "${ADDONS_OUTPUT_PATH}"

@@ -2,7 +2,7 @@
 set -e
 
 REAL_SCRIPT="$(realpath "${0}")"
-cd "$(dirname "${REAL_SCRIPT}")/.."
+cd "$(dirname "${REAL_SCRIPT}")/../.."
 KERNEL_DIR="$(realpath "${PWD}")"
 
 cd "${KERNEL_DIR}"
@@ -33,7 +33,7 @@ fi
 
 if [ -z "${KERNEL_SRC_URL}" ]
 then
-  KERNEL_SRC_URL="$(./hack/cdn-url.sh "${KERNEL_VERSION}")"
+  KERNEL_SRC_URL="$(./hack/build/cdn-url.sh "${KERNEL_VERSION}")"
 fi
 
 if [ -z "${KERNEL_FLAVOR}" ]
@@ -66,7 +66,7 @@ then
   tar xf "${KERNEL_SRC}.txz" --strip-components 1 -C "${KERNEL_SRC}"
   rm "${KERNEL_SRC}.txz"
 
-  python3 "hack/patchlist.py" "${KERNEL_VERSION}" "${KERNEL_FLAVOR}" | while read patch; do
+  python3 "hack/build/patchlist.py" "${KERNEL_VERSION}" "${KERNEL_FLAVOR}" | while read patch; do
     cd "${KERNEL_SRC}"
     patch -p1 < "${KERNEL_DIR}/${patch}"
     cd "${KERNEL_DIR}"

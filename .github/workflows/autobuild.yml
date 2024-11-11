@@ -50,7 +50,7 @@ jobs:
     - name: install dependencies
       run: ./hack/ci/install-linux-deps.sh
     - name: build kernel
-      run: ./hack/build.sh
+      run: ./hack/build/build.sh
       env:
         KERNEL_BUILD_JOBS: "5"
     - name: append tags to metadata
@@ -98,7 +98,7 @@ jobs:
         username: "${{github.actor}}"
         password: "${{secrets.GITHUB_TOKEN}}"
     - name: generate docker script
-      run: ./hack/ci/generate-docker-script.sh ghcr.io/edera-dev/linux-kernel > target/docker.sh
+      run: ./hack/ci/generate-docker-script.sh ghcr.io/edera-dev/linux-kernel-testing > target/docker.sh
     - name: upload docker script
       uses: actions/upload-artifact@b4b15b8c7c6ac21ea08fcf65892d2ee8f75cf882 # v4
       with:

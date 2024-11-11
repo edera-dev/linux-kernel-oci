@@ -2,11 +2,11 @@
 set -e
 
 REAL_SCRIPT="$(realpath "${0}")"
-cd "$(dirname "${REAL_SCRIPT}")/.."
+cd "$(dirname "${REAL_SCRIPT}")/../.."
 KERNEL_DIR="$(realpath "${PWD}")"
 
 # shellcheck source-path=SCRIPTDIR source=common.sh
-. "${KERNEL_DIR}/hack/common.sh"
+. "${KERNEL_DIR}/hack/build/common.sh"
 
 make -C "${KERNEL_OBJ}" ARCH="${TARGET_ARCH_KERNEL}" -j"${KERNEL_BUILD_JOBS}" "${CROSS_COMPILE_MAKE}" "${IMAGE_TARGET}" modules
 
@@ -80,7 +80,7 @@ done
 tar -zc -C "${SDK_OUTPUT_PATH}" -f "${SDK_PATH}" .
 rm -rf "${SDK_OUTPUT_PATH}"
 
-{ 
+{
   echo "KERNEL_ARCH=${TARGET_ARCH_STANDARD}";
   echo "KERNEL_VERSION=${KERNEL_VERSION}";
   echo "KERNEL_FLAVOR=${KERNEL_FLAVOR}";

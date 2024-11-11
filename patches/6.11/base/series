@@ -1,2 +1,0 @@
-0001-x86-topology-Tolerate-lack-of-APIC-when-booting-as-X.patch
-0001-Revert-ALSA-memalloc-Workaround-for-Xen-PV.patch
