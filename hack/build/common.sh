@@ -62,7 +62,12 @@ if [ ! -f "${KERNEL_SRC}/Makefile" ]
 then
   rm -rf "${KERNEL_SRC}"
   mkdir -p "${KERNEL_SRC}"
-  curl --progress-bar -Lf -o "${KERNEL_SRC}.txz" "${KERNEL_SRC_URL}"
+  if [ ! -f "${KERNEL_DIR}/override-kernel-src.tar.gz" ]
+  then
+    curl --progress-bar -Lf -o "${KERNEL_SRC}.txz" "${KERNEL_SRC_URL}"
+  else
+    mv "${KERNEL_DIR}/override-kernel-src.tar.gz" "${KERNEL_SRC}.txz"
+  fi
   tar xf "${KERNEL_SRC}.txz" --strip-components 1 -C "${KERNEL_SRC}"
   rm "${KERNEL_SRC}.txz"
 

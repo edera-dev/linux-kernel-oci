@@ -40,11 +40,11 @@ def generate_matrix(matrix_path, tags):
                     "tags": version_tags,
                     "source": src_url,
                     "flavor": flavor,
+                    "architectures": BUILD_ARCHITECTURES,
                 }
             )
 
     matrix = {
-        "arch": BUILD_ARCHITECTURES,
         "builds": version_builds,
     }
 

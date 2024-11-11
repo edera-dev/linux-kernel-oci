@@ -5,4 +5,5 @@
 /src
 /.vscode
 /.idea
+/image-id-*
 **/__pycache__/**

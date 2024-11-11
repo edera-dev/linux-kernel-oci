@@ -4,165 +4,101 @@ import shlex
 
 DEFAULT_FLAVOR = "zone"
 
-
-def read_metadata(path) -> dict[str, str]:
-    metadata = {}
-    lines = open(path, "r").read().strip().splitlines()
-    for line in lines:
-        parts = line.split("=", 1)
-        metadata[parts[0]] = parts[1]
-    return metadata
-
-
 builds = {}
 
-repository = sys.argv[2]
-for kernel in sorted(os.listdir(sys.argv[1])):
-    kernel_path = os.path.join(sys.argv[1], kernel)
-    metadata_path = os.path.join(kernel_path, "metadata")
-    if not os.path.isfile(metadata_path):
-        continue
-    metadata = read_metadata(metadata_path)
-    kernel_arch = metadata["KERNEL_ARCH"]
-    kernel_version = metadata["KERNEL_VERSION"]
-    kernel_config = metadata["KERNEL_CONFIG"]
-    kernel_flavor = metadata["KERNEL_FLAVOR"]
-    kernel_tags = metadata["KERNEL_TAGS"].split(",")
-    kernel_id = "%s-%s" % (kernel_version, kernel_flavor)
-    if not kernel_id in builds:
-        builds[kernel_id] = {
-            "version": kernel_version,
-            "arch": [],
-            "tags": kernel_tags,
-            "flavor": kernel_flavor,
-        }
-    builds[kernel_id]["arch"].append(
-        {
-            "arch": kernel_arch,
-            "config": kernel_config,
-        }
-    )
+repository = sys.argv[1]
 
-print("#!/bin/sh")
-print("set -e")
-print("docker buildx create --name edera")
-print('trap "docker buildx rm edera" EXIT')
-for build in list(builds.values()):
+kernel_version = os.getenv("KERNEL_VERSION")
+kernel_flavor = os.getenv("KERNEL_FLAVOR")
+kernel_src_url = os.getenv("KERNEL_SRC_URL")
+kernel_tags = os.getenv("KERNEL_TAGS", "").split(",")
+kernel_architectures = os.getenv("KERNEL_ARCHITECTURES").split(",")
+
+def docker_build_and_sign(target, tags, suffix="", format_type=None):
     platforms = []
-    for arch in build["arch"]:
+    for arch in kernel_architectures:
         platform = ""
-        if arch["arch"] == "aarch64":
+        if arch == "aarch64":
             platform = "linux/aarch64"
-        elif arch["arch"] == "x86_64":
+        elif arch == "x86_64":
             platform = "linux/amd64"
         if len(platform) == 0:
-            print("unknown platform %s" % arch["arch"], file=sys.stderr)
+            print("unknown platform %s" % arch, file=sys.stderr)
             sys.exit(1)
         platforms.append(platform)
 
-    root = "%s:%s" % (repository, build["version"])
-
-    if build["flavor"] != DEFAULT_FLAVOR:
-        root += "-%s" % build["flavor"]
-
-    base_build_command = [
+    image_build_command = [
         "docker",
         "buildx",
         "build",
         "--builder",
         "edera",
-        "--push",
+        "-f",
+        "Dockerfile",
+        "--build-arg",
+        "KERNEL_VERSION=%s" % kernel_version,
+        "--build-arg",
+        "KERNEL_SRC_URL=%s" % kernel_src_url,
+        "--build-arg",
+        "KERNEL_FLAVOR=%s" % kernel_flavor,
+        "--annotation",
+        "dev.edera.kernel.version=%s" % kernel_version,
+        "--annotation",
+        "dev.edera.kernel.flavor=%s" % kernel_flavor,
+        "--iidfile",
+        "image-id-%s-%s-%s" % (kernel_version, kernel_flavor, target),
     ]
+
+    if format_type is not None:
+        image_build_command += [
+            "--annotation",
+            "dev.edera.%s.format=1" % format_type,
+        ]
+
+    if os.getenv("KERNEL_PUBLISH") == "1":
+        image_build_command += ["--push"]
+    else:
+        image_build_command += ["--load"]
 
     for platform in platforms:
-        base_build_command += ["--platform", platform]
+        image_build_command += ["--platform", platform]
 
+    root = "%s%s:%s" % (repository, suffix, kernel_version)
     tags = [root]
-    for tag in build["tags"]:
-        if tag == build["version"]:
+
+    for tag in kernel_tags:
+        if tag == kernel_version:
             continue
-        item = "%s:%s" % (repository, tag)
-        if build["flavor"] != DEFAULT_FLAVOR:
-            item += "-%s" % build["flavor"]
-        tags.append(item)
+        tag = "%s%s:%s" % (repository, suffix, tag)
+        if kernel_flavor != DEFAULT_FLAVOR:
+            tag += "-%s" % kernel_flavor
+        tags.append(tag)
 
-    image_build_command = list(base_build_command)
-
-    tags.sort()
     for tag in tags:
-        image_build_command += ["--tag", tag]
+        image_build_command += [
+            "--tag",
+            tag,
+        ]
 
-    image_build_command += [
-        "-f",
-        "hack/ci/kernel.dockerfile",
-        "--build-arg",
-        "KERNEL_VERSION=%s" % build["version"],
-        "--build-arg",
-        "KERNEL_FLAVOR=%s" % build["flavor"],
-        "--annotation",
-        "dev.edera.kernel.format=1",
-        "--annotation",
-        "dev.edera.kernel.version=%s" % build["version"],
-        "--annotation",
-        "dev.edera.kernel.flavor=%s" % build["flavor"],
-        "--iidfile",
-        "kernel-image-id-%s-%s" % (build["version"], build["flavor"]),
-        sys.argv[1],
-    ]
+    image_build_command += ["."]
     image_build_command = list(shlex.quote(item) for item in image_build_command)
     print(" ".join(image_build_command))
+    
+    # base_signing_command = [
+    #     "cosign",
+    #     "sign",
+    #     "--yes",
+    # ]
 
-    sdk_tags = ["%s-sdk:%s" % (repository, build["version"])]
-    for tag in build["tags"]:
-        if tag == build["version"]:
-            continue
-        item = "%s-sdk:%s" % (repository, tag)
-        if build["flavor"] != DEFAULT_FLAVOR:
-            item += "-%s" % build["flavor"]
-        sdk_tags.append(item)
+    # signing_command = base_signing_command + [
+    #     "%s@$(cat image-id-%s-%s)"
+    #     % (tag, build["version"], build["flavor"]),
+    # ]
+    # print(" ".join(signing_command))
 
-    sdk_build_command = list(base_build_command)
-
-    sdk_tags.sort()
-    for tag in sdk_tags:
-        sdk_build_command += ["--tag", tag]
-
-    sdk_build_command += [
-        "-f",
-        "hack/ci/sdk.dockerfile",
-        "--build-arg",
-        "KERNEL_VERSION=%s" % build["version"],
-        "--build-arg",
-        "KERNEL_FLAVOR=%s" % build["flavor"],
-        "--annotation",
-        "dev.edera.kernel.format=1",
-        "--annotation",
-        "dev.edera.kernel.version=%s" % build["version"],
-        "--annotation",
-        "dev.edera.kernel.flavor=%s" % build["flavor"],
-        "--iidfile",
-        "kernel-sdk-id-%s-%s" % (build["version"], build["flavor"]),
-        sys.argv[1],
-    ]
-    sdk_build_command = list(shlex.quote(item) for item in sdk_build_command)
-    print(" ".join(sdk_build_command))
-
-    base_signing_command = [
-        "cosign",
-        "sign",
-        "--yes",
-    ]
-
-    for tag in tags:
-        signing_command = base_signing_command + [
-            "%s@$(cat kernel-image-id-%s-%s)"
-            % (tag, build["version"], build["flavor"]),
-        ]
-        print(" ".join(signing_command))
-
-    for tag in sdk_tags:
-        signing_command = base_signing_command + [
-            "%s@$(cat kernel-sdk-id-%s-%s)"
-            % (tag, build["version"], build["flavor"]),
-        ]
-        print(" ".join(signing_command))
+print("#!/bin/sh")
+print("set -e")
+print("docker buildx create --name edera")
+print('trap "docker buildx rm edera" EXIT')
+docker_build_and_sign("kernel", kernel_tags, format_type="kernel")
+docker_build_and_sign("sdk", kernel_tags, format_type="kernel.sdk")

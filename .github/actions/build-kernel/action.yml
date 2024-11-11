@@ -1,0 +1,11 @@
+name: build-kernel
+description: |
+  Build the Linux kernel into OCI images
+
+inputs:
+  version:
+    description: 'Kernel version to build'
+  
+  publish:
+    description: 'Whether to publish the image'
+    required: true
