@@ -27,19 +27,18 @@ fi
 
 if [ -z "${KERNEL_VERSION}" ]
 then
-  echo "ERROR: KERNEL_VERSION must be specified." > /dev/stderr
+  echo "ERROR: KERNEL_VERSION must be specified." >&2
   exit 1
 fi
 
 if [ -z "${KERNEL_SRC_URL}" ]
 then
-  echo "ERROR: KERNEL_SRC_URL must be specified." > /dev/stderr
-  exit 1
+  KERNEL_SRC_URL="$(./hack/cdn-url.sh "${KERNEL_VERSION}")"
 fi
 
 if [ -z "${KERNEL_FLAVOR}" ]
 then
-  KERNEL_FLAVOR="standard"
+  KERNEL_FLAVOR="zone"
 fi
 
 KERNEL_SRC="${KERNEL_DIR}/src/linux-${KERNEL_VERSION}-${TARGET_ARCH_STANDARD}"
@@ -59,9 +58,6 @@ then
   MAINLINE_VERSION="${KERNEL_VERSION}"
 fi
 
-BASE_SERIES_FILE="${KERNEL_DIR}/patches/${MAINLINE_VERSION}/base/series"
-SERIES_FILE="${KERNEL_DIR}/patches/${MAINLINE_VERSION}/${KERNEL_FLAVOR}/series"
-
 if [ ! -f "${KERNEL_SRC}/Makefile" ]
 then
   rm -rf "${KERNEL_SRC}"
@@ -70,23 +66,12 @@ then
   tar xf "${KERNEL_SRC}.txz" --strip-components 1 -C "${KERNEL_SRC}"
   rm "${KERNEL_SRC}.txz"
 
-  if [ -f "${BASE_SERIES_FILE}" ]
-  then
+  python3 "hack/patchlist.py" "${KERNEL_VERSION}" "${KERNEL_FLAVOR}" | while read patch; do
     cd "${KERNEL_SRC}"
-    while read patch; do
-      patch -p1 < "${KERNEL_DIR}/patches/${MAINLINE_VERSION}/base/$patch"
-    done < "${BASE_SERIES_FILE}"
+    patch -p1 < "${KERNEL_DIR}/${patch}"
     cd "${KERNEL_DIR}"
-  fi
-
-  if [ -f "${SERIES_FILE}" ]
-  then
-    cd "${KERNEL_SRC}"
-    while read patch; do
-      patch -p1 < "${KERNEL_DIR}/patches/${MAINLINE_VERSION}/${KERNEL_FLAVOR}/$patch"
-    done < "${SERIES_FILE}"
-    cd "${KERNEL_DIR}"
-  fi
+  done
+  cd "${KERNEL_DIR}"
 fi
 
 OUTPUT_DIR="${KERNEL_DIR}/target"
@@ -96,7 +81,7 @@ KERNEL_CONFIG_FILE="${KERNEL_DIR}/configs/${KERNEL_FLAVOR}-${TARGET_ARCH_STANDAR
 
 if [ ! -f "${KERNEL_CONFIG_FILE}" ]
 then
-  echo "ERROR: kernel config file not found for ${TARGET_ARCH_STANDARD}" > /dev/stderr
+  echo "ERROR: kernel config file not found for ${TARGET_ARCH_STANDARD}" >&2
   exit 1
 fi
 

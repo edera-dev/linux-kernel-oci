@@ -32,7 +32,7 @@ elif [ "${TARGET_ARCH_STANDARD}" = "aarch64" ]
 then
   cp "${KERNEL_OBJ}/arch/arm64/boot/Image.gz" "${OUTPUT_DIR}/kernel"
 else
-  echo "ERROR: unable to determine what file is the vmlinuz for ${TARGET_ARCH_STANDARD}" > /dev/stderr
+  echo "ERROR: unable to determine what file is the vmlinuz for ${TARGET_ARCH_STANDARD}" >&2
   exit 1
 fi
 
