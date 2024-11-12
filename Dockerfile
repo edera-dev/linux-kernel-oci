@@ -1,6 +1,6 @@
 FROM --platform=$BUILDPLATFORM scratch AS kernelsrc
 ARG KERNEL_SRC_URL=
-ADD ${KERNEL_SRC_URL} /src.tar.gz
+ADD ${KERNEL_SRC_URL} /src.tar.xz
 
 FROM --platform=$BUILDPLATFORM debian:bookworm@sha256:10901ccd8d249047f9761845b4594f121edef079cfd8224edebd9ea726f0a7f6 AS buildenv
 RUN export DEBIAN_FRONTEND=noninteractive && apt-get update && apt-get install -y \
