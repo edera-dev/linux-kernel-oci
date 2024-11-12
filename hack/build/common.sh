@@ -41,6 +41,7 @@ KERNEL_OBJ="${KERNEL_DIR}/obj/linux-${KERNEL_VERSION}-${TARGET_ARCH_STANDARD}"
 
 if [ -z "${KERNEL_BUILD_JOBS}" ]; then
 	KERNEL_BUILD_JOBS="$(nproc)"
+	KERNEL_BUILD_JOBS="$((KERNEL_BUILD_JOBS + 1))"
 fi
 
 # In the case of a stable release, e.g. 6.10.7, this becomes 6.10.
