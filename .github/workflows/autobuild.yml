@@ -26,12 +26,12 @@ jobs:
       uses: actions/upload-artifact@b4b15b8c7c6ac21ea08fcf65892d2ee8f75cf882 # v4
       with:
         name: matrix
-        path: "target/matrix.json"
+        path: "matrix.json"
         compression-level: 0
     - name: capture matrix
       id: capture-matrix
       run: >
-        echo "matrix=$(cat target/matrix.json)" >> "${GITHUB_OUTPUT}"
+        echo "matrix=$(cat matrix.json)" >> "${GITHUB_OUTPUT}"
     outputs:
       matrix: "${{ steps.capture-matrix.outputs.matrix }}"
   build:
