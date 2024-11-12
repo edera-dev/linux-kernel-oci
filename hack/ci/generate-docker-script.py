@@ -15,7 +15,7 @@ kernel_tags = os.getenv("KERNEL_TAGS", "").split(",")
 kernel_architectures = os.getenv("KERNEL_ARCHITECTURES").split(",")
 
 
-def docker_build(target, tags, suffix="", format_type=None):
+def docker_build(target, tags, suffix="", format_type=None, publish_override=None):
     platforms = []
     for arch in kernel_architectures:
         platform = ""
@@ -60,6 +60,9 @@ def docker_build(target, tags, suffix="", format_type=None):
         ]
 
     publish = os.getenv("KERNEL_PUBLISH") == "1"
+    if publish_override is not None:
+        publish = publish_override
+
     if publish:
         image_build_command += ["--push"]
 
@@ -103,6 +106,7 @@ print("#!/bin/sh")
 print("set -e")
 print("docker buildx create --name edera")
 print('trap "docker buildx rm edera" EXIT')
-docker_build("buildenv", kernel_tags, suffix="-buildenv")
+docker_build("kernelsrc", ["local"], suffix="-src", publish_override=False)
+docker_build("buildenv", ["local"], suffix="-buildenv", publish_override=False)
 docker_build("kernel", kernel_tags, format_type="kernel")
 docker_build("sdk", kernel_tags, suffix="-sdk", format_type="kernel.sdk")
