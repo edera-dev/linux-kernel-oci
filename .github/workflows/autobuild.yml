@@ -23,7 +23,7 @@ jobs:
     - name: install dependencies
       run: ./hack/ci/install-matrix-deps.sh
     - name: generate matrix
-      run: './hack/ci/generate-autobuild-matrix.sh "${KERNEL_IMAGE_NAME_FORMAT}"'
+      run: 'PATH="${HOME}/go/bin:${PATH}" ./hack/ci/generate-autobuild-matrix.sh "${KERNEL_IMAGE_NAME_FORMAT}"'
     - name: upload matrix
       uses: actions/upload-artifact@b4b15b8c7c6ac21ea08fcf65892d2ee8f75cf882 # v4
       with:
