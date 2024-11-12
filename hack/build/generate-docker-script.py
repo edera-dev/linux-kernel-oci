@@ -135,7 +135,7 @@ def docker_build(
 
 print("#!/bin/sh")
 print("set -e")
-print("docker buildx create --name edera --config hack/ci/buildkitd.toml")
+print("docker buildx create --name edera --config hack/build/buildkitd.toml")
 print('trap "docker buildx rm edera" EXIT')
 docker_build(
     target="kernelsrc",
