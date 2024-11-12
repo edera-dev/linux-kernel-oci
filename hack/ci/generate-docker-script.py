@@ -2,6 +2,7 @@ import os
 import sys
 import shlex
 from packaging.version import parse
+from util import format_image_name
 
 DEFAULT_FLAVOR = "zone"
 
@@ -33,17 +34,9 @@ for arch in root_kernel_architectures:
 
 
 def make_image_name(name, tag):
-    result = repository
-    result = result.replace("[image]", name)
-    result = result.replace("[flavor]", root_kernel_flavor)
-    result = result.replace("[major]", str(kernel_version_info.major))
-    result = result.replace("[minor]", str(kernel_version_info.minor))
-    result = result.replace("[patch]", str(kernel_version_info.micro))
-    result = result.replace(
-        "[series]", "%s.%s" % (kernel_version_info.major, kernel_version_info.minor)
+    return format_image_name(
+        repository, root_kernel_flavor, kernel_version_info, name, tag
     )
-    result = result.replace("[tag]", tag)
-    return result
 
 
 def docker_build(

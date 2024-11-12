@@ -25,14 +25,10 @@ for i, arg in enumerate(sys.argv):
 builds = list(all.values())
 builds.sort(key=lambda build: parse(build["version"]))
 
-if len(builds) > 250:
-    builds = builds[-250:]
-
 print(
     json.dumps(
         {
             "builds": builds,
         },
-        indent=2,
     )
 )

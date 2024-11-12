@@ -2,7 +2,6 @@ import json
 import sys
 import os
 
-from packaging.version import parse
 from matrix import generate_matrix
 
 matrix_path = sys.argv[1]

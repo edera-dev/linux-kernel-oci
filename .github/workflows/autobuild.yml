@@ -7,6 +7,8 @@ permissions:
   contents: read
   packages: write
   id-token: write
+env:
+  KERNEL_IMAGE_NAME_FORMAT: "ghcr.io/edera-dev/[image]-testing:[tag]"
 jobs:
   matrix:
     name: matrix
@@ -16,8 +18,10 @@ jobs:
       uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4
       with:
         submodules: recursive
+    - name: install dependencies
+      run: ./hack/ci/install-matrix-deps.sh
     - name: generate matrix
-      run: ./hack/ci/generate-matrix.sh
+      run: './hack/ci/generate-autobuild-matrix.sh "${KERNEL_IMAGE_NAME_FORMAT}"'
     - name: upload matrix
       uses: actions/upload-artifact@b4b15b8c7c6ac21ea08fcf65892d2ee8f75cf882 # v4
       with:
@@ -64,6 +68,6 @@ jobs:
       - name: create target directory
         run: mkdir -p target
       - name: generate docker script
-        run: "./hack/ci/generate-docker-script.sh 'ghcr.io/edera-dev/[image]-testing:[tag]' > target/docker.sh"
+        run: './hack/ci/generate-docker-script.sh "${KERNEL_IMAGE_NAME_FORMAT}" > target/docker.sh'
       - name: run docker script
         run: sh -x target/docker.sh
