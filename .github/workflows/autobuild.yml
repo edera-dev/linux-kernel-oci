@@ -8,7 +8,7 @@ permissions:
   packages: write
   id-token: write
 concurrency:
-  group: "kernel-builder"
+  group: "kernel-autobuild"
 jobs:
   matrix:
     name: matrix
@@ -19,9 +19,9 @@ jobs:
       with:
         submodules: recursive
     - name: install dependencies
-      run: ./hack/ci/install-matrix-deps.sh
+      run: ./hack/build/install-matrix-deps.sh
     - name: generate matrix
-      run: 'PATH="${HOME}/go/bin:${PATH}" ./hack/ci/generate-matrix.sh'
+      run: 'PATH="${HOME}/go/bin:${PATH}" ./hack/build/generate-matrix.sh'
     - name: upload matrix
       uses: actions/upload-artifact@b4b15b8c7c6ac21ea08fcf65892d2ee8f75cf882 # v4
       with:
@@ -56,7 +56,7 @@ jobs:
       - name: install cosign
         uses: sigstore/cosign-installer@dc72c7d5c4d10cd6bcb8cf6e3fd625a9e5e537da # v3.7.0
       - name: docker setup linux-kernel-oci
-        run: sudo python3 ./hack/ci/docker-setup.py
+        run: sudo python3 ./hack/build/docker-setup.py
       - name: docker setup buildx
         uses: docker/setup-buildx-action@c47758b77c9736f4b2ef4073d4d51994fabfe349 # v3
       - name: docker login ghcr.io
@@ -68,6 +68,6 @@ jobs:
       - name: create target directory
         run: mkdir -p target
       - name: generate docker script
-        run: './hack/ci/generate-docker-script.sh > target/docker.sh'
+        run: './hack/build/generate-docker-script.sh > target/docker.sh'
       - name: run docker script
         run: sh -x target/docker.sh
