@@ -6,4 +6,5 @@
 /.vscode
 /.idea
 /image-id-*
+/matrix.json
 **/__pycache__/**

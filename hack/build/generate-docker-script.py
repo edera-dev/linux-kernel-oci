@@ -1,6 +1,7 @@
 import os
 import sys
 import shlex
+import json
 from packaging.version import parse
 from util import format_image_name
 
@@ -8,7 +9,9 @@ DEFAULT_FLAVOR = "zone"
 
 builds = {}
 
-repository = sys.argv[1]
+with open("config.json", "r") as f:
+    CONFIG = json.load(f)
+    image_name_format = CONFIG["imageNameFormat"]
 
 root_kernel_version = os.getenv("KERNEL_VERSION")
 root_kernel_flavor = os.getenv("KERNEL_FLAVOR")
@@ -35,19 +38,21 @@ for arch in root_kernel_architectures:
 
 def make_image_name(name, tag):
     return format_image_name(
-        repository, root_kernel_flavor, kernel_version_info, name, tag
+        image_name_format, root_kernel_flavor, kernel_version_info, name, tag
     )
 
 
 def docker_build(
     target,
     name,
-    tags=root_kernel_tags,
+    tags=None,
     version=root_kernel_version,
-    format=None,
+    mark_format=None,
     publish=root_publish,
     pass_build_args=True,
 ):
+    if tags is None:
+        tags = root_kernel_tags
     root = make_image_name(name, version)
 
     image_build_command = [
@@ -67,10 +72,10 @@ def docker_build(
         "image-id-%s-%s-%s" % (version, root_kernel_flavor, target),
     ]
 
-    for platform in platforms:
-        image_build_command += ["--platform", platform]
+    for build_platform in platforms:
+        image_build_command += ["--platform", build_platform]
 
-    if format is not None:
+    if mark_format is not None:
         image_build_command += [
             "--annotation",
             "dev.edera.kernel.version=%s" % version,
@@ -88,10 +93,10 @@ def docker_build(
             "KERNEL_FLAVOR=%s" % root_kernel_flavor,
         ]
 
-    if format is not None:
+    if mark_format is not None:
         image_build_command += [
             "--annotation",
-            "dev.edera.%s.format=1" % format,
+            "dev.edera.%s.format=1" % mark_format,
         ]
 
     if publish:
@@ -147,5 +152,5 @@ docker_build(
     publish=False,
     pass_build_args=False,
 )
-docker_build("kernel", "[flavor]-kernel", root_kernel_tags, format="kernel")
-docker_build("sdk", "[flavor]-kernel-sdk", root_kernel_tags, format="kernel.sdk")
+docker_build("kernel", "[flavor]-kernel", root_kernel_tags, mark_format="kernel")
+docker_build("sdk", "[flavor]-kernel-sdk", root_kernel_tags, mark_format="kernel.sdk")
