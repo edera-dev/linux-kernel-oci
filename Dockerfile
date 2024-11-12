@@ -25,8 +25,8 @@ ARG KERNEL_VERSION=
 ARG KERNEL_FLAVOR=zone
 ARG BUILDPLATFORM
 ARG TARGETPLATFORM
-COPY --from=kernelsrc --chown=build:build /src.tar.gz /build/override-kernel-src.tar.gz
-RUN KERNEL_SRC_URL="/build/override-kernel-src.tar.gz" ./hack/build/docker-build-internal.sh
+COPY --from=kernelsrc --chown=build:build /src.tar.xz /build/override-kernel-src.tar.xz
+RUN KERNEL_SRC_URL="/build/override-kernel-src.tar.xz" ./hack/build/docker-build-internal.sh
 
 FROM alpine:3.20@sha256:beefdbd8a1da6d2915566fde36db9db0b524eb737fc57cd1367effd16dc0d06d AS sdkbuild
 ARG KERNEL_VERSION=

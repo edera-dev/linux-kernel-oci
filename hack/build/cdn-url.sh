@@ -15,4 +15,4 @@ if [ "${PATCH_VERSION}" = "0" ]; then
 	KERNEL_VERSION="${MAJOR_VERSION}.${MINOR_VERSION}"
 fi
 
-echo "https://cdn.kernel.org/pub/linux/kernel/v${MAJOR_VERSION}.x/linux-${KERNEL_VERSION}.tar.gz"
+echo "https://cdn.kernel.org/pub/linux/kernel/v${MAJOR_VERSION}.x/linux-${KERNEL_VERSION}.tar.xz"
