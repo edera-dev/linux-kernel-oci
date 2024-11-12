@@ -40,6 +40,8 @@ def matches_constraints(
         lower = Version(lower)
     if upper is not None:
         upper = Version(upper)
+    if exact is str:
+        exact = [exact]
 
     applies = True
 
@@ -67,7 +69,8 @@ def matches_constraints(
     if flavors is not None and flavor not in flavors:
         applies = False
 
-    if exact is not None and exact != str(version):
+    version_string = str(version)
+    if exact is not None and not version_string in exact:
         applies = False
 
     return applies
@@ -108,10 +111,12 @@ def parse_text_constraint(text) -> dict[str, any]:
         value = parts[1]
         if key == "current":
             constraint[key] = parse_text_bool(value)
-        elif key == "lower" or key == "upper" or key == "exact":
+        elif key == "lower" or key == "upper":
             constraint[key] = value
-        elif key == "flavors" or key == "flavor" or key == "series":
+        elif key == "flavors" or key == "flavor" or key == "series" or key == "exact":
             if key == "flavor":
                 key = "flavors"
             constraint[key] = value.split(",")
+        else:
+            raise Exception("unknown constraint key: %s" % key)
     return constraint

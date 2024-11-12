@@ -2,7 +2,32 @@ import json
 import os
 
 import matrix
-from util import parse_text_constraint
+from util import parse_text_constraint, maybe
+
+
+def construct_stable_matrix():
+    stable_matrix = matrix.generate_stable_matrix()
+    return stable_matrix
+
+
+def construct_backbuild_matrix():
+    backbuild_matrix = matrix.generate_backbuild_matrix()
+    return backbuild_matrix
+
+
+def construct_all_matrix():
+    stable_matrix = construct_stable_matrix()
+    backbuild_matrix = construct_backbuild_matrix()
+    all_matrix = matrix.merge_matrix([stable_matrix, backbuild_matrix])
+    return all_matrix
+
+
+def construct_manual_matrix(exact_versions):
+    reflective = {}
+    for version in exact_versions:
+        reflective[version] = version
+    return matrix.generate_matrix(reflective)
+
 
 DEFAULT_BUILD_SPEC = "new"
 
@@ -13,20 +38,29 @@ if ":" in build_spec:
 else:
     build_spec_data = ""
 
-stable_matrix = matrix.generate_stable_matrix()
-backbuild_matrix = matrix.generate_backbuild_matrix()
-all_matrix = matrix.merge_matrix([stable_matrix, backbuild_matrix])
+constraint = {}
+if len(build_spec_data) > 0:
+    constraint = parse_text_constraint(build_spec_data)
 
 apply_config_versions = True
 
 if build_spec_type == "new":
-    first_matrix = matrix.filter_new_builds(all_matrix)
+    first_matrix = matrix.filter_new_builds(construct_all_matrix())
 elif build_spec_type == "rebuild":
-    first_matrix = all_matrix
+    first_matrix = construct_all_matrix()
+elif build_spec_type == "unsafe-all":
+    first_matrix = construct_all_matrix()
+    apply_config_versions = False
 elif build_spec_type == "stable":
-    first_matrix = stable_matrix
+    first_matrix = construct_stable_matrix()
 elif build_spec_type == "override":
-    first_matrix = all_matrix
+    first_matrix = construct_all_matrix()
+    apply_config_versions = False
+elif build_spec_type == "manual":
+    versions = maybe(constraint, "exact")
+    if versions is None:
+        versions = []
+    first_matrix = construct_manual_matrix(versions)
     apply_config_versions = False
 else:
     raise Exception("unknown build spec type: %s" % build_spec_type)

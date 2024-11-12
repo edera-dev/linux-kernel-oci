@@ -228,19 +228,28 @@ def generate_backbuild_matrix():
     return generate_matrix(tags)
 
 
+def is_release_current(version: str):
+    latest_stable = current_kernel_releases["latest_stable"]["version"]
+    is_current = False
+    if latest_stable is not None and version == latest_stable:
+        is_current = True
+        return is_current
+    for release in current_kernel_releases["releases"]:
+        if not release["moniker"] in ["stable", "longterm"]:
+            continue
+        if release["version"] == version:
+            is_current = True
+            break
+    return is_current
+
+
 def filter_matrix(matrix, constraint):
     builds = []
     for build in matrix["builds"]:
         version = build["version"]
         version_info = parse(version)
         flavor = build["flavor"]
-        is_current_release = False
-        for release in current_kernel_releases["releases"]:
-            if not release["moniker"] in ["stable", "longterm"]:
-                continue
-            if release["version"] == version:
-                is_current_release = True
-                break
+        is_current_release = is_release_current(version)
         should_build = matches_constraints(
             version_info, flavor, constraint, is_current_release=is_current_release
         )
@@ -257,13 +266,7 @@ def filter_config_versions(matrix):
         version = build["version"]
         version_info = parse(version)
         flavor = build["flavor"]
-        is_current_release = False
-        for release in current_kernel_releases["releases"]:
-            if not release["moniker"] in ["stable", "longterm"]:
-                continue
-            if release["version"] == version:
-                is_current_release = True
-                break
+        is_current_release = is_release_current(version)
         should_build = False
         for constraint in CONFIG["versions"]:
             if matches_constraints(
@@ -337,7 +340,23 @@ def generate_matrix(tags):
 
 def summarize_matrix(matrix):
     for build in matrix["builds"]:
+        tags = []
+        image_names = []
+        for produce in build["produces"]:
+            tag = produce.split(":")[-1]
+            image_name = produce.split(":")[-2]
+            if tag not in tags:
+                tags.append(tag)
+            if image_name not in image_names:
+                image_names.append(image_name)
+        tags.sort()
         print(
-            "build %s %s for [%s]"
-            % (build["flavor"], build["version"], ", ".join(build["architectures"]))
+            "build %s %s for %s with tags %s on %s"
+            % (
+                build["flavor"],
+                build["version"],
+                ", ".join(build["architectures"]),
+                ", ".join(tags),
+                ", ".join(image_names),
+            )
         )
