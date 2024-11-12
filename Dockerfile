@@ -6,7 +6,7 @@ FROM --platform=$BUILDPLATFORM debian:bookworm@sha256:10901ccd8d249047f9761845b4
 RUN export DEBIAN_FRONTEND=noninteractive && apt-get update && apt-get install -y \
       build-essential squashfs-tools \
       patch diffutils sed mawk findutils zstd \
-      python3 python3-packaging curl rsync \
+      python3 python3-packaging curl rsync cpio \
       flex bison pahole libssl-dev libelf-dev bc && \
       rm -rf /var/lib/apt/lists/*
 ARG BUILDPLATFORM
