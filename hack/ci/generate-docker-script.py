@@ -34,8 +34,13 @@ def docker_build(target, tags, suffix="", format_type=None, publish_override=Non
         "build",
         "--builder",
         "edera",
+        "--load",
         "-f",
         "Dockerfile",
+        "--target",
+        target,
+        "--iidfile",
+        "image-id-%s-%s-%s" % (kernel_version, kernel_flavor, target),
         "--build-arg",
         "KERNEL_VERSION=%s" % kernel_version,
         "--build-arg",
@@ -46,11 +51,6 @@ def docker_build(target, tags, suffix="", format_type=None, publish_override=Non
         "dev.edera.kernel.version=%s" % kernel_version,
         "--annotation",
         "dev.edera.kernel.flavor=%s" % kernel_flavor,
-        "--iidfile",
-        "image-id-%s-%s-%s" % (kernel_version, kernel_flavor, target),
-        "--target",
-        target,
-        "--load",
     ]
 
     if format_type is not None:
@@ -104,7 +104,7 @@ def docker_build(target, tags, suffix="", format_type=None, publish_override=Non
 
 print("#!/bin/sh")
 print("set -e")
-print("docker buildx create --name edera")
+print("docker buildx create --name edera --config hack/ci/buildkitd.toml")
 print('trap "docker buildx rm edera" EXIT')
 docker_build("kernelsrc", ["local"], suffix="-src", publish_override=False)
 docker_build("buildenv", ["local"], suffix="-buildenv", publish_override=False)
