@@ -26,7 +26,9 @@ existing = {}
 for image in images:
     # ignore return code, we just want stdout
     result = subprocess.run(
-        ["crane", "ls", image], stdout=subprocess.PIPE, stderr=subprocess.DEVNULL
+        ["~/go/bin/crane", "ls", image],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.DEVNULL,
     )
     tags = result.stdout.splitlines(keepends=False)
     existing[image] = tags
