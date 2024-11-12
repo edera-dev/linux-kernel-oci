@@ -89,11 +89,11 @@ def find_existing_tags(images):
     for image in images:
         # ignore return code, we just want stdout
         result = subprocess.run(
-            ["crane", "ls", image],
+            ["crane", "ls", "-O", image],
             stdout=subprocess.PIPE,
             stderr=subprocess.DEVNULL,
         )
-        tags = result.stdout.splitlines(keepends=False)
+        tags = result.stdout.decode("utf-8").splitlines(keepends=False)
         existing[image] = tags
     return existing
 
@@ -124,8 +124,6 @@ def filter_new_builds(matrix):
             elif tag not in existing[image]:
                 should_build = True
         if should_build:
-            build = copy.copy(build)
-            del build["produces"]
             should_builds.append(build)
     return {
         "builds": should_builds,
@@ -288,7 +286,7 @@ def generate_matrix(tags):
                 continue
 
             produces = []
-            for tag in tags:
+            for tag in version_tags:
                 kernel_output = format_image_name(
                     image_name_format, flavor, version_info, "[flavor]-kernel", tag
                 )
