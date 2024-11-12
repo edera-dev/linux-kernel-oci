@@ -7,7 +7,7 @@ RUN export DEBIAN_FRONTEND=noninteractive && apt-get update && apt-get install -
       build-essential squashfs-tools \
       patch diffutils sed mawk findutils zstd \
       python3 python3-packaging curl rsync cpio \
-      flex bison pahole libssl-dev libelf-dev bc && \
+      flex bison pahole libssl-dev libelf-dev bc kmod && \
       rm -rf /var/lib/apt/lists/*
 ARG BUILDPLATFORM
 RUN if [ "${BUILDPLATFORM}" = "linux/amd64" ]; then \

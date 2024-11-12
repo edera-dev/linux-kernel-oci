@@ -64,6 +64,6 @@ jobs:
       - name: create target directory
         run: mkdir -p target
       - name: generate docker script
-        run: ./hack/ci/generate-docker-script.sh ghcr.io/edera-dev/linux-kernel-testing > target/docker.sh
+        run: "./hack/ci/generate-docker-script.sh 'ghcr.io/edera-dev/[image]-testing:[tag]' > target/docker.sh"
       - name: run docker script
         run: sh -x target/docker.sh
