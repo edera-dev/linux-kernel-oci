@@ -2,9 +2,8 @@
 set -e
 
 CMD="${1}"
-if [ -z "${CMD}" ]
-then
-  CMD="nconfig"
+if [ -z "${CMD}" ]; then
+	CMD="nconfig"
 fi
 
 REAL_SCRIPT="$(realpath "${0}")"

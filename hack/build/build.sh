@@ -25,15 +25,13 @@ rm -rf "${MODULES_INSTALL_PATH}"
 
 mksquashfs "${ADDONS_OUTPUT_PATH}" "${ADDONS_SQUASHFS_PATH}" -all-root
 
-if [ "${TARGET_ARCH_STANDARD}" = "x86_64" ]
-then
-  cp "${KERNEL_OBJ}/arch/x86/boot/bzImage" "${OUTPUT_DIR}/kernel"
-elif [ "${TARGET_ARCH_STANDARD}" = "aarch64" ]
-then
-  cp "${KERNEL_OBJ}/arch/arm64/boot/Image.gz" "${OUTPUT_DIR}/kernel"
+if [ "${TARGET_ARCH_STANDARD}" = "x86_64" ]; then
+	cp "${KERNEL_OBJ}/arch/x86/boot/bzImage" "${OUTPUT_DIR}/kernel"
+elif [ "${TARGET_ARCH_STANDARD}" = "aarch64" ]; then
+	cp "${KERNEL_OBJ}/arch/arm64/boot/Image.gz" "${OUTPUT_DIR}/kernel"
 else
-  echo "ERROR: unable to determine what file is the vmlinuz for ${TARGET_ARCH_STANDARD}" >&2
-  exit 1
+	echo "ERROR: unable to determine what file is the vmlinuz for ${TARGET_ARCH_STANDARD}" >&2
+	exit 1
 fi
 
 rm -rf "${ADDONS_OUTPUT_PATH}"
@@ -57,7 +55,7 @@ cd "${KERNEL_SRC}"
 find . -path './include/*' -prune \
 	-o -path './scripts/*' -prune -o -type f \
 	\( -name 'Makefile*' -o -name 'Kconfig*' -o -name 'Kbuild*' -o \
-	   -name '*.sh' -o -name '*.pl' -o -name '*.lds' -o -name 'Platform' \) \
+	-name '*.sh' -o -name '*.pl' -o -name '*.lds' -o -name 'Platform' \) \
 	-print | cpio -pdm "${SDK_OUTPUT_PATH}"
 cp -a scripts include "${SDK_OUTPUT_PATH}"
 find "arch/${PRUNE_ARCH}" -name include -type d -print | while IFS='' read -r folder; do
@@ -81,9 +79,9 @@ tar -zc -C "${SDK_OUTPUT_PATH}" -f "${SDK_PATH}" .
 rm -rf "${SDK_OUTPUT_PATH}"
 
 {
-  echo "KERNEL_ARCH=${TARGET_ARCH_STANDARD}";
-  echo "KERNEL_VERSION=${KERNEL_VERSION}";
-  echo "KERNEL_FLAVOR=${KERNEL_FLAVOR}";
-  sha256sum "${KERNEL_OBJ}/.config" | awk '{print "KERNEL_CONFIG=sha256:"$1}';
-} > "${METADATA_PATH}"
-gzip -9 < "${KERNEL_OBJ}/.config" > "${CONFIG_GZ_PATH}"
+	echo "KERNEL_ARCH=${TARGET_ARCH_STANDARD}"
+	echo "KERNEL_VERSION=${KERNEL_VERSION}"
+	echo "KERNEL_FLAVOR=${KERNEL_FLAVOR}"
+	sha256sum "${KERNEL_OBJ}/.config" | awk '{print "KERNEL_CONFIG=sha256:"$1}'
+} >"${METADATA_PATH}"
+gzip -9 <"${KERNEL_OBJ}/.config" >"${CONFIG_GZ_PATH}"

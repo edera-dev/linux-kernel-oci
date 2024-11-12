@@ -48,6 +48,8 @@ def docker_build(target, tags, suffix="", format_type=None):
         "dev.edera.kernel.flavor=%s" % kernel_flavor,
         "--iidfile",
         "image-id-%s-%s-%s" % (kernel_version, kernel_flavor, target),
+        "--target",
+        target,
         "--load",
     ]
 

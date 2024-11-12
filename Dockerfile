@@ -1,8 +1,20 @@
-FROM alpine:3.20@sha256:beefdbd8a1da6d2915566fde36db9db0b524eb737fc57cd1367effd16dc0d06d AS buildenv
-RUN apk add perl gmp-dev mpc1-dev mpfr-dev elfutils-dev bash flex bison pahole \
-            sed mawk diffutils findutils zstd python3 gcc curl make musl-dev \
-            squashfs-tools linux-headers openssl openssl-dev py3-packaging patch
-RUN adduser -s /bin/sh -D build
+FROM --platform=$BUILDPLATFORM scratch AS kernelsrc
+ARG KERNEL_SRC_URL=
+ADD ${KERNEL_SRC_URL} /src.tar.gz
+
+FROM --platform=$BUILDPLATFORM debian:bookworm@sha256:10901ccd8d249047f9761845b4594f121edef079cfd8224edebd9ea726f0a7f6 AS buildenv
+RUN export DEBIAN_FRONTEND=noninteractive && apt-get update && apt-get install -y \
+      build-essential squashfs-tools \
+      patch diffutils sed mawk findutils zstd \
+      python3 python3-packaging curl rsync \
+      flex bison pahole libssl-dev libelf-dev bc && \
+      rm -rf /var/lib/apt/lists/*
+ARG BUILDPLATFORM
+RUN if [ "${BUILDPLATFORM}" = "linux/amd64" ]; then \
+      apt-get update && apt-get install -y linux-headers-amd64 gcc-aarch64-linux-gnu && rm -rf /var/lib/apt/lists/*; fi
+RUN if [ "${BUILDPLATFORM}" = "linux/arm64" ] || [ "${BUILDPLATFORM}" = "linux/aarch64" ]; then \
+      apt-get update && apt-get install -y linux-headers-aarch64 gcc-x86_64-linux-gnu && rm -rf /var/lib/apt/lists/*; fi
+RUN useradd -ms /bin/sh build
 COPY --chown=build:build . /build
 USER build
 WORKDIR /build
@@ -11,9 +23,10 @@ RUN chmod +x hack/build/docker-build-internal.sh
 FROM buildenv AS build
 ARG KERNEL_VERSION=
 ARG KERNEL_FLAVOR=zone
-ARG KERNEL_SRC_URL=
-ADD --chown=build:build ${KERNEL_SRC_URL} /build/override-kernel-src.tar.gz
-RUN ./hack/build/docker-build-internal.sh
+ARG BUILDPLATFORM
+ARG TARGETPLATFORM
+COPY --from=kernelsrc --chown=build:build /src.tar.gz /build/override-kernel-src.tar.gz
+RUN KERNEL_SRC_URL="/build/override-kernel-src.tar.gz" ./hack/build/docker-build-internal.sh
 
 FROM alpine:3.20@sha256:beefdbd8a1da6d2915566fde36db9db0b524eb737fc57cd1367effd16dc0d06d AS sdkbuild
 ARG KERNEL_VERSION=
@@ -28,11 +41,11 @@ RUN mkdir -p /usr/src/kernel-sdk-${KERNEL_VERSION}-${KERNEL_FLAVOR} && \
 FROM scratch AS sdk
 COPY --from=sdkbuild /usr/src /usr/src    
 
-FROM scratch AS kernel-intermediate
+FROM scratch AS kernelcopy
 COPY --from=build /build/target/kernel /kernel/image
 COPY --from=build /build/target/config.gz /kernel/config.gz
 COPY --from=build /build/target/addons.squashfs /kernel/addons.squashfs
 COPY --from=build /build/target/metadata /kernel/metadata
 
 FROM scratch AS kernel
-COPY --from=kernel-intermediate /kernel /kernel
+COPY --from=kernelcopy /kernel /kernel
