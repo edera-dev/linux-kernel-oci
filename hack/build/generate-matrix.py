@@ -9,5 +9,5 @@ only_new_matrix = matrix.filter_new_builds(all_matrix)
 final_matrix = matrix.generate_final_matrix(only_new_matrix)
 
 with open("matrix.json", "w") as f:
-    json.dump(final_matrix, f, indent=2)
+    json.dump(final_matrix, f)
     f.write("\n")
