@@ -91,3 +91,27 @@ def list_rsync_dir(url):
         if file_name != ".":
             files.append(file_name)
     return files
+
+
+def parse_text_bool(text: str) -> bool:
+    return text.lower() in ["1", "true", "yes"]
+
+
+def parse_text_constraint(text) -> dict[str, any]:
+    constraint = {}
+    for item in text.split(";"):
+        item = item.strip()
+        parts = item.split("=", maxsplit=1)
+        if len(parts) != 2:
+            parts = [parts[0], ""]
+        key = parts[0]
+        value = parts[1]
+        if key == "current":
+            constraint[key] = parse_text_bool(value)
+        elif key == "lower" or key == "upper" or key == "exact":
+            constraint[key] = value
+        elif key == "flavors" or key == "flavor" or key == "series":
+            if key == "flavor":
+                key = "flavors"
+            constraint[key] = value.split(",")
+    return constraint

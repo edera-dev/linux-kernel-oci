@@ -1,6 +1,12 @@
 name: autobuild
 on:
   workflow_dispatch:
+    inputs:
+      spec:
+        description: 'Build Specification'
+        type: string
+        default: "new"
+        required: true
   schedule:
   - cron: "0 3 * * 1"
 permissions:
@@ -21,7 +27,7 @@ jobs:
     - name: install dependencies
       run: ./hack/build/install-matrix-deps.sh
     - name: generate matrix
-      run: 'PATH="${HOME}/go/bin:${PATH}" ./hack/build/generate-matrix.sh'
+      run: 'PATH="${HOME}/go/bin:${PATH}" KERNEL_BUILD_SPEC="${{ inputs.spec }}" ./hack/build/generate-matrix.sh'
     - name: upload matrix
       uses: actions/upload-artifact@b4b15b8c7c6ac21ea08fcf65892d2ee8f75cf882 # v4
       with:

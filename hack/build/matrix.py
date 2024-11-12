@@ -1,4 +1,3 @@
-import copy
 import json
 import subprocess
 import urllib.request
@@ -229,7 +228,30 @@ def generate_backbuild_matrix():
     return generate_matrix(tags)
 
 
-def generate_final_matrix(matrix):
+def filter_matrix(matrix, constraint):
+    builds = []
+    for build in matrix["builds"]:
+        version = build["version"]
+        version_info = parse(version)
+        flavor = build["flavor"]
+        is_current_release = False
+        for release in current_kernel_releases["releases"]:
+            if not release["moniker"] in ["stable", "longterm"]:
+                continue
+            if release["version"] == version:
+                is_current_release = True
+                break
+        should_build = matches_constraints(
+            version_info, flavor, constraint, is_current_release=is_current_release
+        )
+        if should_build:
+            builds.append(build)
+    return {
+        "builds": builds,
+    }
+
+
+def filter_config_versions(matrix):
     builds = []
     for build in matrix["builds"]:
         version = build["version"]
@@ -311,3 +333,11 @@ def generate_matrix(tags):
         "builds": version_builds,
     }
     return matrix
+
+
+def summarize_matrix(matrix):
+    for build in matrix["builds"]:
+        print(
+            "build %s %s for [%s]"
+            % (build["flavor"], build["version"], ", ".join(build["architectures"]))
+        )
