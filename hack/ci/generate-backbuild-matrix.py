@@ -15,8 +15,16 @@ major_minors = {}
 
 for version in all_releases:
     parts = parse(version)
+
+    # compilation issues with builds below this
     if parts.major < 5:
         continue
+
+    if parts.major == 5:
+        # allow 5.15+ or 5.10.200+
+        if parts.minor < 15 or (parts.minor == 10 and parts.micro < 200):
+            continue
+
     major_minor = "%s.%s" % (parts.major, parts.minor)
 
     if major_minor in tags:
