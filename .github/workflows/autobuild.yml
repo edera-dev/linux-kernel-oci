@@ -7,8 +7,11 @@ on:
         type: string
         default: "new"
         required: true
-  schedule:
-  - cron: "0 3 * * 1"
+      publish:
+        description: 'Publish Builds'
+        type: boolean
+        default: true
+        required: true
 permissions:
   contents: read
   packages: write
@@ -48,12 +51,12 @@ jobs:
       matrix: ${{ fromJSON(needs.matrix.outputs.matrix) }}
     runs-on: ubuntu-latest
     env:
-      KERNEL_PUBLISH: "1"
+      KERNEL_PUBLISH: "${{ inputs.publish }}"
       KERNEL_VERSION: "${{ matrix.builds.version }}"
       KERNEL_SRC_URL: "${{ matrix.builds.source }}"
       KERNEL_FLAVOR: "${{ matrix.builds.flavor }}"
-      KERNEL_TAGS: "${{ join(matrix.builds.tags) }}"
-      KERNEL_ARCHITECTURES: "${{ join(matrix.builds.architectures) }}"
+      KERNEL_TAGS: "${{ join(matrix.builds.tags, ',') }}"
+      KERNEL_ARCHITECTURES: "${{ join(matrix.builds.architectures, ',') }}"
     steps:
       - name: checkout repository
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4

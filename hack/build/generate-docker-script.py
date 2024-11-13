@@ -7,15 +7,15 @@ from typing import Optional
 
 from packaging.version import parse, Version
 
-from util import format_image_name, maybe, smart_script_split
+from util import format_image_name, maybe, smart_script_split, parse_text_bool
 
 with open("config.json", "r") as f:
     CONFIG = json.load(f)
 
 
 def is_publish_enabled():
-    root_publish = os.getenv("KERNEL_PUBLISH") == "1"
-    return root_publish
+    root_publish = os.getenv("KERNEL_PUBLISH", "false")
+    return parse_text_bool(root_publish)
 
 
 def docker_platforms(architectures: list[str]) -> list[str]:
