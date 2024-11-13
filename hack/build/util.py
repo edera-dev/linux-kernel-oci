@@ -131,11 +131,22 @@ def smart_script_split(
 ) -> list[str]:
     sections = []
     current = []
+    is_potentially_value = False
     for item in command:
+        arm_potentially_value = False
         if item.startswith("-"):
+            if len(current) > 0:
+                sections.append(current)
+                current = []
+                is_potentially_value = False
+            arm_potentially_value = True
+        current.append(item)
+        if is_potentially_value:
+            is_potentially_value = False
             sections.append(current)
             current = []
-        current.append(item)
+        if arm_potentially_value:
+            is_potentially_value = True
     if len(current) > 0:
         sections.append(current)
     lines = []

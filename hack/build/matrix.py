@@ -1,4 +1,5 @@
 import json
+import yaml
 import subprocess
 import urllib.request
 from collections import OrderedDict
@@ -8,8 +9,13 @@ from packaging.version import Version, parse
 
 from util import matches_constraints, list_rsync_dir, format_image_name
 
-with open("config.json", "r") as f:
-    CONFIG = json.load(f)
+try:
+    from yaml import CLoader as Loader
+except ImportError:
+    from yaml import Loader
+
+with open("config.yaml", "r") as f:
+    CONFIG = yaml.load(f, Loader)
 
 image_name_format = CONFIG["imageNameFormat"]
 

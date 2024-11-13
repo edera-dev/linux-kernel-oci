@@ -1,7 +1,8 @@
-import json
 import sys
 
 from packaging.version import parse
+
+from matrix import CONFIG
 from util import matches_constraints
 
 if len(sys.argv) != 3:
@@ -12,9 +13,8 @@ target_version = parse(sys.argv[1])
 kernel_flavor = sys.argv[2]
 series = "%s.%s" % (target_version.major, target_version.minor)
 
-with open("config.json") as f:
-    config = json.load(f)
-    patches = config["patches"]
+
+patches = CONFIG["patches"]
 
 apply_patches = []
 

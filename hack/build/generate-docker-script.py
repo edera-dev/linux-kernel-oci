@@ -1,21 +1,22 @@
 import os
 import sys
-import shlex
 import json
 import stat
 from typing import Optional
 
 from packaging.version import parse, Version
 
+from matrix import CONFIG
 from util import format_image_name, maybe, smart_script_split, parse_text_bool
-
-with open("config.json", "r") as f:
-    CONFIG = json.load(f)
 
 
 def is_publish_enabled():
     root_publish = os.getenv("KERNEL_PUBLISH", "false")
     return parse_text_bool(root_publish)
+
+
+def quoted(text: str) -> str:
+    return '"%s"' % text
 
 
 def docker_platforms(architectures: list[str]) -> list[str]:
@@ -64,38 +65,38 @@ def docker_build(
         "edera",
         "--load",
         "-f",
-        "Dockerfile",
+        quoted("Dockerfile"),
         "--target",
-        target,
+        quoted(target),
         "--iidfile",
-        "image-id-%s-%s-%s" % (version, flavor, target),
+        quoted("image-id-%s-%s-%s" % (version, flavor, target)),
     ]
 
     for build_platform in docker_platforms(architectures):
-        image_build_command += ["--platform", build_platform]
+        image_build_command += ["--platform", quoted(build_platform)]
 
     if mark_format is not None:
         image_build_command += [
             "--annotation",
-            "dev.edera.kernel.version=%s" % version,
+            quoted("dev.edera.kernel.version=%s" % version),
             "--annotation",
-            "dev.edera.kernel.flavor=%s" % flavor,
+            quoted("dev.edera.kernel.flavor=%s" % flavor),
         ]
 
     if pass_build_args:
         image_build_command += [
             "--build-arg",
-            "KERNEL_VERSION=%s" % version,
+            quoted("KERNEL_VERSION=%s" % version),
             "--build-arg",
-            "KERNEL_SRC_URL=%s" % src_url,
+            quoted("KERNEL_SRC_URL=%s" % src_url),
             "--build-arg",
-            "KERNEL_FLAVOR=%s" % flavor,
+            quoted("KERNEL_FLAVOR=%s" % flavor),
         ]
 
     if mark_format is not None:
         image_build_command += [
             "--annotation",
-            "dev.edera.%s.format=1" % mark_format,
+            quoted("dev.edera.%s.format=1" % mark_format),
         ]
 
     if publish:
@@ -122,12 +123,12 @@ def docker_build(
     for tag in all_tags:
         image_build_command += [
             "--tag",
-            tag,
+            quoted(tag),
         ]
 
     image_build_command += ["."]
-    image_build_command = list(shlex.quote(item) for item in image_build_command)
-    lines += smart_script_split(image_build_command, "build %s" % root)
+    lines += [""]
+    lines += smart_script_split(image_build_command, "stage=build image=%s" % root)
 
     if publish:
         for tag in all_tags:
@@ -135,15 +136,20 @@ def docker_build(
                 "cosign",
                 "sign",
                 "--yes",
-                "%s@$(cat image-id-%s-%s-%s)" % (tag, version, flavor, target),
+                quoted(
+                    '%s@$(cat "image-id-%s-%s-%s")' % (tag, version, flavor, target)
+                ),
             ]
-            lines += smart_script_split(image_signing_command, "sign %s" % tag)
+            lines += [""]
+            lines += smart_script_split(
+                image_signing_command, "stage=sign image=%s" % tag
+            )
     return lines
 
 
 def generate_header() -> list[str]:
     return [
-        "#/bin/sh",
+        "#!/bin/sh",
         "set -e",
         "docker buildx create --name edera --config hack/build/buildkitd.toml",
         'trap "docker buildx rm edera" EXIT',
