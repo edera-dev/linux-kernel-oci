@@ -74,7 +74,7 @@ fi
 OUTPUT_DIR="${KERNEL_DIR}/target"
 mkdir -p "${OUTPUT_DIR}"
 
-KERNEL_CONFIG_FILE="${KERNEL_DIR}/configs/${KERNEL_FLAVOR}-${TARGET_ARCH_STANDARD}.config"
+KERNEL_CONFIG_FILE="${KERNEL_DIR}/configs/${TARGET_ARCH_STANDARD}/${KERNEL_FLAVOR}.config"
 
 if [ ! -f "${KERNEL_CONFIG_FILE}" ]; then
 	echo "ERROR: kernel config file not found for ${TARGET_ARCH_STANDARD}" >&2

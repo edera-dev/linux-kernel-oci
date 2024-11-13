@@ -2,6 +2,7 @@ import json
 import subprocess
 import urllib.request
 from collections import OrderedDict
+from functools import cache
 
 from packaging.version import Version, parse
 
@@ -13,13 +14,15 @@ with open("config.json", "r") as f:
 image_name_format = CONFIG["imageNameFormat"]
 
 
-def fetch_kernel_releases():
+@cache
+def get_current_kernel_releases():
     with urllib.request.urlopen("https://www.kernel.org/releases.json") as response:
         releases = json.load(response)
         return releases
 
 
-def fetch_all_releases():
+@cache
+def get_all_kernel_releases():
     releases = []
     for maybe_release_major in list_rsync_dir(
         "rsync://rsync.kernel.org/pub/linux/kernel/"
@@ -43,9 +46,6 @@ def fetch_all_releases():
                 continue
             releases.append(kernel_version)
     return releases
-
-
-current_kernel_releases = fetch_kernel_releases()
 
 
 def merge_matrix(matrix_list):
@@ -140,95 +140,8 @@ def limit_gh_builds(matrix):
     }
 
 
-def generate_stable_matrix():
-    latest_stable = current_kernel_releases["latest_stable"]["version"]
-
-    known_releases = []
-
-    for release in current_kernel_releases["releases"]:
-        if (release["moniker"] in ["stable", "longterm"]) or release[
-            "version"
-        ] == latest_stable:
-            known_releases.append(release["version"])
-
-    tags = {}
-    major_minors = {}
-
-    for version in known_releases:
-        parts = parse(version)
-        if parts.major < 5:
-            continue
-
-        if version == latest_stable:
-            tags["stable"] = version
-        major = str(parts.major)
-        major_minor = "%s.%s" % (parts.major, parts.minor)
-
-        if major in tags:
-            existing = tags[major]
-            if parse(existing) < parts:
-                tags[major] = version
-        else:
-            tags[major] = version
-
-        if major_minor in tags:
-            existing = tags[major_minor]
-            if parse(existing) < parts:
-                tags[major_minor] = version
-                major_minors[major_minor] = version
-        else:
-            tags[major_minor] = version
-            major_minors[major_minor] = version
-
-    tags["latest"] = tags["stable"]
-
-    for tag in list(tags.keys()):
-        version = tags[tag]
-        tags[version] = version
-    return generate_matrix(tags)
-
-
-def generate_backbuild_matrix():
-    tags = {}
-    major_minors = {}
-
-    all_releases = fetch_all_releases()
-    for version in all_releases:
-        parts = parse(version)
-        major_minor = "%s.%s" % (parts.major, parts.minor)
-
-        if major_minor in tags:
-            existing = tags[major_minor]
-            if parse(existing) < parts:
-                tags[major_minor] = version
-                major_minors[major_minor] = version
-        else:
-            tags[major_minor] = version
-            major_minors[major_minor] = version
-
-    for tag in list(tags.keys()):
-        version = tags[tag]
-        tags[version] = version
-
-    for release in current_kernel_releases["releases"]:
-        if not release["moniker"] in ["stable", "longterm"]:
-            continue
-        for key in list(tags.keys()):
-            if tags[key] == release["version"]:
-                tags.pop(key)
-        for key in list(major_minors.keys()):
-            if major_minors[key] == release["version"]:
-                major_minors.pop(key)
-        parts = parse(release["version"])
-        major_minor = "%s.%s" % (parts.major, parts.minor)
-        if major_minor in major_minors:
-            major_minors.pop(major_minor)
-        if major_minor in tags:
-            tags.pop(major_minor)
-    return generate_matrix(tags)
-
-
 def is_release_current(version: str):
+    current_kernel_releases = get_current_kernel_releases()
     latest_stable = current_kernel_releases["latest_stable"]["version"]
     is_current = False
     if latest_stable is not None and version == latest_stable:
@@ -360,3 +273,93 @@ def summarize_matrix(matrix):
                 ", ".join(image_names),
             )
         )
+
+
+def generate_stable_matrix():
+    current_kernel_releases = get_current_kernel_releases()
+    latest_stable = current_kernel_releases["latest_stable"]["version"]
+
+    known_releases = []
+
+    for release in current_kernel_releases["releases"]:
+        if (release["moniker"] in ["stable", "longterm"]) or release[
+            "version"
+        ] == latest_stable:
+            known_releases.append(release["version"])
+
+    tags = {}
+    major_minors = {}
+
+    for version in known_releases:
+        parts = parse(version)
+        if parts.major < 5:
+            continue
+
+        if version == latest_stable:
+            tags["stable"] = version
+        major = str(parts.major)
+        major_minor = "%s.%s" % (parts.major, parts.minor)
+
+        if major in tags:
+            existing = tags[major]
+            if parse(existing) < parts:
+                tags[major] = version
+        else:
+            tags[major] = version
+
+        if major_minor in tags:
+            existing = tags[major_minor]
+            if parse(existing) < parts:
+                tags[major_minor] = version
+                major_minors[major_minor] = version
+        else:
+            tags[major_minor] = version
+            major_minors[major_minor] = version
+
+    tags["latest"] = tags["stable"]
+
+    for tag in list(tags.keys()):
+        version = tags[tag]
+        tags[version] = version
+    return generate_matrix(tags)
+
+
+def generate_backbuild_matrix():
+    tags = {}
+    major_minors = {}
+
+    all_releases = get_all_kernel_releases()
+    for version in all_releases:
+        parts = parse(version)
+        major_minor = "%s.%s" % (parts.major, parts.minor)
+
+        if major_minor in tags:
+            existing = tags[major_minor]
+            if parse(existing) < parts:
+                tags[major_minor] = version
+                major_minors[major_minor] = version
+        else:
+            tags[major_minor] = version
+            major_minors[major_minor] = version
+
+    for tag in list(tags.keys()):
+        version = tags[tag]
+        tags[version] = version
+
+    current_kernel_releases = get_current_kernel_releases()
+    for release in current_kernel_releases["releases"]:
+        if not release["moniker"] in ["stable", "longterm"]:
+            continue
+        for key in list(tags.keys()):
+            if tags[key] == release["version"]:
+                tags.pop(key)
+        for key in list(major_minors.keys()):
+            if major_minors[key] == release["version"]:
+                major_minors.pop(key)
+        parts = parse(release["version"])
+        major_minor = "%s.%s" % (parts.major, parts.minor)
+        if major_minor in major_minors:
+            major_minors.pop(major_minor)
+        if major_minor in tags:
+            tags.pop(major_minor)
+    return generate_matrix(tags)
