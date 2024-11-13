@@ -1,4 +1,4 @@
-imageNameFormat: "ghcr.io/edera-dev/[image]-testing:[tag]"
+imageNameFormat: "ghcr.io/edera-dev/[image]:[tag]"
 architectures:
 - x86_64
 - aarch64
