@@ -9,4 +9,6 @@
 /.vscode
 /.idea
 /image-id-*
+/matrix.json
+/docker.sh
 **/__pycache__/**
