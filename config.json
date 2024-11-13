@@ -78,5 +78,31 @@
         "6.11"
       ]
     }
+  ],
+  "images": [
+    {
+      "target": "kernelsrc",
+      "name": "kernel-src",
+      "publish": false,
+      "passBuildArgs": false
+    },
+    {
+      "target": "buildenv",
+      "name": "kernel-buildenv",
+      "publish": false,
+      "passBuildArgs": false,
+      "version": "local",
+      "tags": ["local"]
+    },
+    {
+      "target": "kernel",
+      "name": "[flavor]-kernel",
+      "format": "kernel"
+    },
+    {
+      "target": "sdk",
+      "name": "[flavor]-kernel-sdk",
+      "format": "kernel.sdk"
+    }
   ]
 }

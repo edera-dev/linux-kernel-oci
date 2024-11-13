@@ -1,9 +1,13 @@
+from typing import Optional
+
 from packaging.version import Version
 import subprocess
 
 
-def format_image_name(repository, flavor, version_info, name, tag):
-    result = repository
+def format_image_name(
+    image_name_format: str, flavor: str, version_info: Version, name: str, tag: str
+):
+    result = image_name_format
     result = result.replace("[image]", name)
     result = result.replace("[flavor]", flavor)
     result = result.replace("[major]", str(version_info.major))
@@ -16,11 +20,11 @@ def format_image_name(repository, flavor, version_info, name, tag):
     return result
 
 
-def maybe(m, k):
+def maybe(m: dict[str, any], k: str, default_value: any = None):
     if k in m:
         return m[k]
     else:
-        return None
+        return default_value
 
 
 def matches_constraints(
@@ -76,7 +80,7 @@ def matches_constraints(
     return applies
 
 
-def list_rsync_dir(url):
+def list_rsync_dir(url: str):
     result = subprocess.run(
         ["rsync", "--list-only", "--out-format='%n'", url],
         stdout=subprocess.PIPE,
@@ -100,7 +104,7 @@ def parse_text_bool(text: str) -> bool:
     return text.lower() in ["1", "true", "yes"]
 
 
-def parse_text_constraint(text) -> dict[str, any]:
+def parse_text_constraint(text: str) -> dict[str, any]:
     constraint = {}
     for item in text.split(";"):
         item = item.strip()
@@ -120,3 +124,28 @@ def parse_text_constraint(text) -> dict[str, any]:
         else:
             raise Exception("unknown constraint key: %s" % key)
     return constraint
+
+
+def smart_script_split(
+    command: list[str], description: Optional[str] = None
+) -> list[str]:
+    sections = []
+    current = []
+    for item in command:
+        if item.startswith("-"):
+            sections.append(current)
+            current = []
+        current.append(item)
+    if len(current) > 0:
+        sections.append(current)
+    lines = []
+    if description is not None:
+        lines.append("# %s" % description)
+    for i, section in enumerate(sections):
+        line = " ".join(section)
+        if i != 0:
+            line = "  " + line
+        if i != len(sections) - 1:
+            line += " \\"
+        lines.append(line)
+    return lines
