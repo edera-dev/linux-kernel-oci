@@ -1,4 +1,4 @@
-name: autobuild
+name: Build Kernels
 on:
   workflow_dispatch:
     inputs:
@@ -17,7 +17,7 @@ permissions:
   packages: write
   id-token: write
 concurrency:
-  group: "kernel-autobuild"
+  group: "kernel-builder"
 jobs:
   matrix:
     name: matrix
@@ -74,9 +74,13 @@ jobs:
           registry: ghcr.io
           username: "${{github.actor}}"
           password: "${{secrets.GITHUB_TOKEN}}"
-      - name: create target directory
-        run: mkdir -p target
       - name: generate docker script
-        run: './hack/build/generate-docker-script.sh > target/docker.sh'
+        run: './hack/build/generate-docker-script.sh'
+      - name: upload docker script
+        uses: actions/upload-artifact@b4b15b8c7c6ac21ea08fcf65892d2ee8f75cf882 # v4
+        with:
+          name: "build-${{ matrix.builds.version }}-${{ matrix.builds.flavor }}.sh"
+          path: "docker.sh"
+          compression-level: 0
       - name: run docker script
-        run: sh -x target/docker.sh
+        run: sh -x docker.sh
