@@ -1,0 +1,86 @@
+name: Build Kernels
+on:
+  workflow_dispatch:
+    inputs:
+      spec:
+        description: 'Build Specification'
+        type: string
+        default: "new"
+        required: true
+      publish:
+        description: 'Publish Builds'
+        type: boolean
+        default: true
+        required: true
+permissions:
+  contents: read
+  packages: write
+  id-token: write
+concurrency:
+  group: "kernel-builder"
+jobs:
+  matrix:
+    name: matrix
+    runs-on: ubuntu-latest
+    steps:
+    - name: checkout repository
+      uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4
+      with:
+        submodules: recursive
+    - name: install dependencies
+      run: ./hack/build/install-matrix-deps.sh
+    - name: generate matrix
+      run: 'PATH="${HOME}/go/bin:${PATH}" KERNEL_BUILD_SPEC="${{ inputs.spec }}" ./hack/build/generate-matrix.sh'
+    - name: upload matrix
+      uses: actions/upload-artifact@b4b15b8c7c6ac21ea08fcf65892d2ee8f75cf882 # v4
+      with:
+        name: matrix
+        path: "matrix.json"
+        compression-level: 0
+    - name: capture matrix
+      id: capture-matrix
+      run: >
+        echo "matrix=$(cat matrix.json)" >> "${GITHUB_OUTPUT}"
+    outputs:
+      matrix: "${{ steps.capture-matrix.outputs.matrix }}"
+  build:
+    name: "build ${{ matrix.builds.version }} ${{ matrix.builds.flavor }}"
+    needs: matrix
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.matrix.outputs.matrix) }}
+    runs-on: edera-large
+    env:
+      KERNEL_PUBLISH: "${{ inputs.publish }}"
+      KERNEL_VERSION: "${{ matrix.builds.version }}"
+      KERNEL_SRC_URL: "${{ matrix.builds.source }}"
+      KERNEL_FLAVOR: "${{ matrix.builds.flavor }}"
+      KERNEL_TAGS: "${{ join(matrix.builds.tags, ',') }}"
+      KERNEL_ARCHITECTURES: "${{ join(matrix.builds.architectures, ',') }}"
+    steps:
+      - name: checkout repository
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4
+        with:
+          submodules: recursive
+      - name: install cosign
+        uses: sigstore/cosign-installer@dc72c7d5c4d10cd6bcb8cf6e3fd625a9e5e537da # v3.7.0
+      - name: docker setup linux-kernel-oci
+        run: sudo python3 ./hack/build/docker-setup.py
+      - name: docker setup buildx
+        uses: docker/setup-buildx-action@c47758b77c9736f4b2ef4073d4d51994fabfe349 # v3
+      - name: docker login ghcr.io
+        uses: docker/login-action@9780b0c442fbb1117ed29e0efdff1e18412f7567 # v3
+        with:
+          registry: ghcr.io
+          username: "${{github.actor}}"
+          password: "${{secrets.GITHUB_TOKEN}}"
+      - name: generate docker script
+        run: './hack/build/generate-docker-script.sh'
+      - name: upload docker script
+        uses: actions/upload-artifact@b4b15b8c7c6ac21ea08fcf65892d2ee8f75cf882 # v4
+        with:
+          name: "build-${{ matrix.builds.version }}-${{ matrix.builds.flavor }}.sh"
+          path: "docker.sh"
+          compression-level: 0
+      - name: run docker script
+        run: sh -x docker.sh

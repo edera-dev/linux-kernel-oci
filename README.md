@@ -1,3 +1,3 @@
-# linux-kernel-oci
+# linux-kernel-oci (testing)
 
-Build the Linux kernel in various flavors suitable for Edera into OCI images.
+Build the Linux kernel into OCI images.

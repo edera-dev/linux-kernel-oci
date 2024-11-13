@@ -1,3 +1,6 @@
+/Dockerfile
+/hack/ci
+/.github
 /build
 /target
 /venv
