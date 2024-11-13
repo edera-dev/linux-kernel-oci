@@ -63,9 +63,9 @@ if [ ! -f "${KERNEL_SRC}/Makefile" ]; then
 	tar xf "${KERNEL_SRC}.txz" --strip-components 1 -C "${KERNEL_SRC}"
 	rm "${KERNEL_SRC}.txz"
 
-	python3 "hack/build/patchlist.py" "${KERNEL_VERSION}" "${KERNEL_FLAVOR}" | while read patch; do
+	python3 "hack/build/patchlist.py" "${KERNEL_VERSION}" "${KERNEL_FLAVOR}" | while read -r PATCH_NAME; do
 		cd "${KERNEL_SRC}"
-		patch -p1 <"${KERNEL_DIR}/${patch}"
+		patch -p1 <"${KERNEL_DIR}/${PATCH_NAME}"
 		cd "${KERNEL_DIR}"
 	done
 	cd "${KERNEL_DIR}"
@@ -110,3 +110,8 @@ METADATA_PATH="${OUTPUT_DIR}/metadata"
 CONFIG_GZ_PATH="${OUTPUT_DIR}/config.gz"
 # shellcheck disable=SC2034
 SDK_PATH="${OUTPUT_DIR}/sdk.tar.gz"
+
+# we often build older kernels that have warnings
+# this will ensure they are logged but do not
+# prevent building of the kernel.
+export EXTRA_CFLAGS="-Wno-error"
