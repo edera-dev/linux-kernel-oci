@@ -1,6 +1,8 @@
 import json
 import os
 
+from packaging.version import Version
+
 import matrix
 from util import parse_text_constraint, maybe
 
@@ -53,6 +55,15 @@ elif build_spec_type == "unsafe-all":
     apply_config_versions = False
 elif build_spec_type == "stable":
     first_matrix = construct_stable_matrix()
+elif build_spec_type == "only-latest":
+    first_matrix = construct_stable_matrix()
+    apply_config_versions = False
+    first_matrix["builds"].sort(key=lambda build: Version(build["version"]))
+    last_version = first_matrix["builds"][-1]["version"]
+    last_version_builds = list(filter(lambda build: build["version"] == last_version, first_matrix["builds"]))
+    first_matrix = {
+        "builds": last_version_builds,
+    }
 elif build_spec_type == "override":
     first_matrix = construct_all_matrix()
     apply_config_versions = False
