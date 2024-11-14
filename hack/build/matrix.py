@@ -1,4 +1,6 @@
 import json
+import os
+
 import yaml
 import subprocess
 import urllib.request
@@ -21,14 +23,24 @@ image_name_format = CONFIG["imageNameFormat"]
 
 
 @cache
-def get_current_kernel_releases():
+def build_architectures():
+    architecture_env = os.getenv("KERNEL_ARCHITECTURES", "")
+    if len(architecture_env) > 0:
+        return [arch.strip() for arch in architecture_env.split(",")]
+
+    architectures = CONFIG["architectures"]  # type: list[str]
+    return architectures
+
+
+@cache
+def get_current_kernel_releases() -> dict[str, any]:
     with urllib.request.urlopen("https://www.kernel.org/releases.json") as response:
         releases = json.load(response)
         return releases
 
 
 @cache
-def get_all_kernel_releases():
+def get_all_kernel_releases() -> list[str]:
     releases = []
     for maybe_release_major in list_rsync_dir(
         "rsync://rsync.kernel.org/pub/linux/kernel/"
@@ -54,10 +66,10 @@ def get_all_kernel_releases():
     return releases
 
 
-def merge_matrix(matrix_list):
+def merge_matrix(matrix_list: list[list[dict[str, any]]]) -> list[dict[str, any]]:
     all_builds = OrderedDict()  # type: dict[str, dict[str, any]]
-    for data in matrix_list:
-        for item in data["builds"]:
+    for builds in matrix_list:
+        for item in builds:
             key = "%s::%s" % (item["version"], item["flavor"])
             if key not in all_builds:
                 all_builds[key] = item
@@ -71,14 +83,12 @@ def merge_matrix(matrix_list):
 
     builds = list(all_builds.values())
     builds.sort(key=lambda build: parse(build["version"]))
-    return {
-        "builds": builds,
-    }
+    return builds
 
 
-def extract_base_images(matrix):
+def extract_base_images(builds: list[dict[str, any]]):
     images = []
-    for build in matrix["builds"]:
+    for build in builds:
         if "produces" not in build:
             raise Exception("build did not contain a produces key")
         for produce in build["produces"]:
@@ -89,7 +99,7 @@ def extract_base_images(matrix):
     return images
 
 
-def find_existing_tags(images):
+def find_existing_tags(images: list[str]) -> dict[str, list[str]]:
     existing = {}
     for image in images:
         # ignore return code, we just want stdout
@@ -103,10 +113,10 @@ def find_existing_tags(images):
     return existing
 
 
-def validate_produce_conflicts(matrix):
+def validate_produce_conflicts(builds: list[dict[str, any]]):
     produce_check = {}
 
-    for build in matrix["builds"]:
+    for build in builds:
         for produce in build["produces"]:
             if produce in produce_check:
                 raise Exception("ERROR: %s was produced more than once" % produce)
@@ -114,11 +124,11 @@ def validate_produce_conflicts(matrix):
                 produce_check[produce] = produce
 
 
-def filter_new_builds(matrix):
-    images = extract_base_images(matrix)
+def filter_new_builds(builds: list[dict[str, any]]) -> list[dict[str, any]]:
+    images = extract_base_images(builds)
     existing = find_existing_tags(images)
     should_builds = []
-    for build in matrix["builds"]:
+    for build in builds:
         should_build = False
         for produce in build["produces"]:
             parts = produce.split(":")
@@ -130,23 +140,18 @@ def filter_new_builds(matrix):
                 should_build = True
         if should_build:
             should_builds.append(build)
-    return {
-        "builds": should_builds,
-    }
+    return should_builds
 
 
-def limit_gh_builds(matrix):
-    builds = matrix["builds"]
+def limit_gh_builds(builds: list[dict[str, any]]) -> list[dict[str, any]]:
     builds.sort(key=lambda build: parse(build["version"]))
 
     if len(builds) > 250:
         builds = builds[-250:]
-    return {
-        "builds": builds,
-    }
+    return builds
 
 
-def is_release_current(version: str):
+def is_release_current(version: str) -> bool:
     current_kernel_releases = get_current_kernel_releases()
     latest_stable = current_kernel_releases["latest_stable"]["version"]
     is_current = False
@@ -162,9 +167,11 @@ def is_release_current(version: str):
     return is_current
 
 
-def filter_matrix(matrix, constraint):
-    builds = []
-    for build in matrix["builds"]:
+def filter_matrix(
+    builds: list[dict[str, any]], constraint: dict[str, any]
+) -> list[dict[str, any]]:
+    output_builds = []
+    for build in builds:
         version = build["version"]
         version_info = parse(version)
         flavor = build["flavor"]
@@ -173,15 +180,13 @@ def filter_matrix(matrix, constraint):
             version_info, flavor, constraint, is_current_release=is_current_release
         )
         if should_build:
-            builds.append(build)
-    return {
-        "builds": builds,
-    }
+            output_builds.append(build)
+    return output_builds
 
 
-def filter_config_versions(matrix):
-    builds = []
-    for build in matrix["builds"]:
+def filter_config_versions(builds: list[dict[str, any]]) -> list[dict[str, any]]:
+    output_builds = []
+    for build in builds:
         version = build["version"]
         version_info = parse(version)
         flavor = build["flavor"]
@@ -193,14 +198,12 @@ def filter_config_versions(matrix):
             ):
                 should_build = True
         if should_build:
-            builds.append(build)
+            output_builds.append(build)
 
-    return {
-        "builds": builds,
-    }
+    return output_builds
 
 
-def generate_matrix(tags):
+def generate_matrix(tags: dict[str, str]) -> list[dict[str, any]]:
     unique_versions = list(set(tags.values()))
     unique_versions.sort(key=Version)
 
@@ -246,19 +249,16 @@ def generate_matrix(tags):
                     "tags": version_tags,
                     "source": src_url,
                     "flavor": flavor,
-                    "architectures": CONFIG["architectures"],
+                    "architectures": build_architectures(),
                     "produces": produces,
                 }
             )
 
-    matrix = {
-        "builds": version_builds,
-    }
-    return matrix
+    return version_builds
 
 
-def summarize_matrix(matrix):
-    for build in matrix["builds"]:
+def summarize_matrix(builds: list[dict[str, any]]):
+    for build in builds:
         tags = []
         image_names = []
         for produce in build["produces"]:
@@ -282,7 +282,7 @@ def summarize_matrix(matrix):
         )
 
 
-def generate_stable_matrix():
+def generate_stable_matrix() -> list[dict[str, any]]:
     current_kernel_releases = get_current_kernel_releases()
     latest_stable = current_kernel_releases["latest_stable"]["version"]
 
@@ -331,7 +331,7 @@ def generate_stable_matrix():
     return generate_matrix(tags)
 
 
-def generate_backbuild_matrix():
+def generate_backbuild_matrix() -> list[dict[str, any]]:
     tags = {}
     major_minors = {}
 
@@ -372,10 +372,10 @@ def generate_backbuild_matrix():
     return generate_matrix(tags)
 
 
-def pick_runner(build) -> str:
-    version = build["version"]
-    version_info = parse(version)
-    flavor = build["flavor"]
+def pick_runner(build: dict[str, any]) -> str:
+    version: str = build["version"]
+    version_info: Version = parse(version)
+    flavor: str = build["flavor"]
     for runner in CONFIG["runners"]:
         if matches_constraints(
             version_info, flavor, runner, is_current_release=is_release_current(version)
@@ -384,6 +384,10 @@ def pick_runner(build) -> str:
     raise Exception("No runner found for build %s" % build)
 
 
-def fill_runners(matrix):
-    for build in matrix["builds"]:
+def fill_runners(builds: list[dict[str, any]]):
+    for build in builds:
         build["runner"] = pick_runner(build)
+
+
+def sort_matrix(builds: list[dict[str, any]]):
+    builds.sort(key=lambda build: Version(build["version"]))

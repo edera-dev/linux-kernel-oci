@@ -6,7 +6,7 @@ import subprocess
 
 def format_image_name(
     image_name_format: str, flavor: str, version_info: Version, name: str, tag: str
-):
+) -> str:
     result = image_name_format
     result = result.replace("[image]", name)
     result = result.replace("[flavor]", flavor)
@@ -20,7 +20,7 @@ def format_image_name(
     return result
 
 
-def maybe(m: dict[str, any], k: str, default_value: any = None):
+def maybe(m: dict[str, any], k: str, default_value: any = None) -> any:
     if k in m:
         return m[k]
     else:

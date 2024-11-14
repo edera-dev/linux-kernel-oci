@@ -1,7 +1,5 @@
 import json
-import os
-
-from packaging.version import Version
+import sys
 
 import matrix
 from util import parse_text_constraint, maybe
@@ -33,7 +31,14 @@ def construct_manual_matrix(exact_versions):
 
 DEFAULT_BUILD_SPEC = "new"
 
-build_spec = os.getenv("KERNEL_BUILD_SPEC", DEFAULT_BUILD_SPEC)
+if len(sys.argv) > 1:
+    build_spec = sys.argv[1]
+else:
+    build_spec = DEFAULT_BUILD_SPEC
+
+if len(build_spec) == 0:
+    build_spec = DEFAULT_BUILD_SPEC
+
 build_spec_type = build_spec.split(":", maxsplit=1)[0]
 if ":" in build_spec:
     build_spec_data = build_spec.split(":", maxsplit=1)[1]
@@ -58,12 +63,12 @@ elif build_spec_type == "stable":
 elif build_spec_type == "only-latest":
     first_matrix = construct_stable_matrix()
     apply_config_versions = False
-    first_matrix["builds"].sort(key=lambda build: Version(build["version"]))
-    last_version = first_matrix["builds"][-1]["version"]
-    last_version_builds = list(filter(lambda build: build["version"] == last_version, first_matrix["builds"]))
-    first_matrix = {
-        "builds": last_version_builds,
-    }
+    matrix.sort_matrix(first_matrix)
+    last_version = first_matrix[-1]["version"]
+    last_version_builds = list(
+        filter(lambda build: build["version"] == last_version, first_matrix)
+    )
+    first_matrix = last_version_builds
 elif build_spec_type == "override":
     first_matrix = construct_all_matrix()
     apply_config_versions = False
@@ -88,9 +93,9 @@ if len(build_spec_data) > 0:
 matrix.validate_produce_conflicts(final_matrix)
 matrix.fill_runners(final_matrix)
 
-print("generated %s builds" % len(final_matrix["builds"]))
+print("generated %s builds" % len(final_matrix))
 matrix.summarize_matrix(final_matrix)
 
-with open("matrix.json", "w") as f:
-    json.dump(final_matrix, f)
-    f.write("\n")
+with open("matrix.json", "w") as mf:
+    json.dump({"builds": final_matrix}, mf)
+    mf.write("\n")

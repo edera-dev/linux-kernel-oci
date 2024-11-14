@@ -37,7 +37,7 @@ jobs:
         path: "matrix.json"
         compression-level: 0
     - name: generate test matrix
-      run: 'PATH="${HOME}/go/bin:${PATH}" KERNEL_BUILD_SPEC="${TEST_MATRIX_SPEC}" ./hack/build/generate-matrix.sh'
+      run: 'PATH="${HOME}/go/bin:${PATH}" ./hack/build/generate-matrix.sh "${TEST_MATRIX_SPEC}"'
     - name: upload test matrix
       uses: actions/upload-artifact@b4b15b8c7c6ac21ea08fcf65892d2ee8f75cf882 # v4
       with:
@@ -55,11 +55,11 @@ jobs:
         username: "${{github.actor}}"
         password: "${{secrets.GITHUB_TOKEN}}"
     - name: generate docker script
-      run: './hack/build/generate-docker-script.sh matrix.json'
+      run: "./hack/build/generate-docker-script.sh matrix.json"
     - name: upload docker script
       uses: actions/upload-artifact@b4b15b8c7c6ac21ea08fcf65892d2ee8f75cf882 # v4
       with:
-        name: "build-${{ matrix.builds.version }}-${{ matrix.builds.flavor }}.sh"
+        name: "docker.sh"
         path: "docker.sh"
         compression-level: 0
     - name: run docker script

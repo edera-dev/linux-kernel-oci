@@ -10,7 +10,7 @@ from matrix import CONFIG
 from util import format_image_name, maybe, smart_script_split, parse_text_bool
 
 
-def is_publish_enabled():
+def is_publish_enabled() -> bool:
     root_publish = os.getenv("KERNEL_PUBLISH", "false")
     return parse_text_bool(root_publish)
 
@@ -162,7 +162,7 @@ def generate_builds(
     kernel_src_url: str,
     kernel_tags: list[str],
     kernel_architectures: list[str],
-):
+) -> list[str]:
     lines = []
     kernel_version_info = parse(kernel_version)
     image_configs = CONFIG["images"]
@@ -210,7 +210,8 @@ def generate_build_from_env() -> list[str]:
 
 def generate_builds_from_matrix(matrix) -> list[str]:
     lines = []
-    for build in matrix["builds"]:
+    builds = matrix["builds"]  # type: list[dict[str, any]]
+    for build in builds:
         build_version = build["version"]
         build_flavor = build["flavor"]
         build_source = build["source"]

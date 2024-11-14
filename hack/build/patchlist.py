@@ -19,7 +19,7 @@ patches = CONFIG["patches"]
 apply_patches = []
 
 
-def maybe(m, k):
+def maybe(m: dict[any, any], k: any) -> any:
     if k in m:
         return m[k]
     else:

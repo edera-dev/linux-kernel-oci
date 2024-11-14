@@ -30,7 +30,7 @@ jobs:
     - name: install dependencies
       run: ./hack/build/install-matrix-deps.sh
     - name: generate matrix
-      run: 'PATH="${HOME}/go/bin:${PATH}" KERNEL_BUILD_SPEC="${{ inputs.spec }}" ./hack/build/generate-matrix.sh'
+      run: 'PATH="${HOME}/go/bin:${PATH}" ./hack/build/generate-matrix.sh "${{ inputs.spec }}"'
     - name: upload matrix
       uses: actions/upload-artifact@b4b15b8c7c6ac21ea08fcf65892d2ee8f75cf882 # v4
       with:
@@ -75,7 +75,7 @@ jobs:
           username: "${{github.actor}}"
           password: "${{secrets.GITHUB_TOKEN}}"
       - name: generate docker script
-        run: './hack/build/generate-docker-script.sh'
+        run: "./hack/build/generate-docker-script.sh"
       - name: upload docker script
         uses: actions/upload-artifact@b4b15b8c7c6ac21ea08fcf65892d2ee8f75cf882 # v4
         with:
