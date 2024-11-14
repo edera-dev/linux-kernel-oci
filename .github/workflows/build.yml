@@ -49,7 +49,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix: ${{ fromJSON(needs.matrix.outputs.matrix) }}
-    runs-on: "${{ matrix.builds.runner }}""
+    runs-on: "${{ matrix.builds.runner }}"
     env:
       KERNEL_PUBLISH: "${{ inputs.publish }}"
       KERNEL_VERSION: "${{ matrix.builds.version }}"
