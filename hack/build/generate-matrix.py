@@ -75,6 +75,7 @@ if len(build_spec_data) > 0:
     final_matrix = matrix.filter_matrix(final_matrix, constraint)
 
 matrix.validate_produce_conflicts(final_matrix)
+matrix.fill_runners(final_matrix)
 
 print("generated %s builds" % len(final_matrix["builds"]))
 matrix.summarize_matrix(final_matrix)

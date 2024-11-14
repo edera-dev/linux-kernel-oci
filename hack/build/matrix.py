@@ -270,13 +270,14 @@ def summarize_matrix(matrix):
                 image_names.append(image_name)
         tags.sort()
         print(
-            "build %s %s for %s with tags %s on %s"
+            "build %s %s for %s with tags %s to %s on %s"
             % (
                 build["flavor"],
                 build["version"],
                 ", ".join(build["architectures"]),
                 ", ".join(tags),
                 ", ".join(image_names),
+                build["runner"],
             )
         )
 
@@ -369,3 +370,20 @@ def generate_backbuild_matrix():
         if major_minor in tags:
             tags.pop(major_minor)
     return generate_matrix(tags)
+
+
+def pick_runner(build) -> str:
+    version = build["version"]
+    version_info = parse(version)
+    flavor = build["flavor"]
+    for runner in CONFIG["runners"]:
+        if matches_constraints(
+            version_info, flavor, runner, is_current_release=is_release_current(version)
+        ):
+            return runner["name"]
+    raise Exception("No runner found for build %s" % build)
+
+
+def fill_runners(matrix):
+    for build in matrix["builds"]:
+        build["runner"] = pick_runner(build)

@@ -60,3 +60,8 @@ images:
 - target: sdk
   name: "[flavor]-kernel-sdk"
   format: kernel.sdk
+runners:
+- name: edera-large
+  flavors:
+  - host
+- name: ubuntu-latest
