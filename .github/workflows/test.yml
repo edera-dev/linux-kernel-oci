@@ -11,7 +11,7 @@ env:
   TEST_MATRIX_SPEC: "only-latest:flavor=zone"
 jobs:
   test:
-    name: matrix
+    name: test
     runs-on: ubuntu-latest
     steps:
     - name: checkout repository
