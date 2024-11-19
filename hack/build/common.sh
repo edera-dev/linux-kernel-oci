@@ -55,17 +55,35 @@ fi
 if [ ! -f "${KERNEL_SRC}/Makefile" ]; then
 	rm -rf "${KERNEL_SRC}"
 	mkdir -p "${KERNEL_SRC}"
+	KERNEL_SRC_IS_TAR="1"
 	if [ ! -f "${KERNEL_SRC_URL}" ]; then
-		curl --progress-bar -Lf -o "${KERNEL_SRC}.txz" "${KERNEL_SRC_URL}"
+		if echo "${KERNEL_SRC_URL}" | grep -E '^git::' >/dev/null; then
+			KERNEL_SRC_IS_TAR="0"
+			KERNEL_GIT_URL="$(echo "${KERNEL_SRC_URL}" | awk -F '::' '{print $2}')"
+			KERNEL_GIT_REF="$(echo "${KERNEL_SRC_URL}" | awk -F '::' '{print $3}')"
+			if [ -z "${KERNEL_GIT_REF}" ]; then
+				KERNEL_GIT_REF="master"
+			fi
+			git clone "${KERNEL_GIT_URL}" -b "${KERNEL_GIT_REF}" "${KERNEL_SRC}"
+		else
+			curl --progress-bar -Lf -o "${KERNEL_SRC}.txz" "${KERNEL_SRC_URL}"
+		fi
 	else
 		mv "${KERNEL_SRC_URL}" "${KERNEL_SRC}.txz"
 	fi
-	tar xf "${KERNEL_SRC}.txz" --strip-components 1 -C "${KERNEL_SRC}"
-	rm "${KERNEL_SRC}.txz"
+
+	if [ "${KERNEL_SRC_IS_TAR}" = "1" ]; then
+		tar xf "${KERNEL_SRC}.txz" --strip-components 1 -C "${KERNEL_SRC}"
+		rm "${KERNEL_SRC}.txz"
+	fi
 
 	python3 "hack/build/patchlist.py" "${KERNEL_VERSION}" "${KERNEL_FLAVOR}" | while read -r PATCH_NAME; do
 		cd "${KERNEL_SRC}"
-		patch -p1 <"${KERNEL_DIR}/${PATCH_NAME}"
+		if [ "${KERNEL_SRC_IS_TAR}" = "1" ]; then
+			patch -p1 <"${KERNEL_DIR}/${PATCH_NAME}"
+		else
+			git apply "${KERNEL_DIR}/${PATCH_NAME}"
+		fi
 		cd "${KERNEL_DIR}"
 	done
 	cd "${KERNEL_DIR}"
