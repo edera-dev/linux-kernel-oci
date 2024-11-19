@@ -1,0 +1,43 @@
+commit 9fe2b8c365d7bd2ad447ff1abe21016a155185e4
+Author: Alex Zenla <alex@edera.dev>
+Date:   Tue Nov 19 10:40:41 2024 -0500
+
+    9p/xen: fix init sequence
+    
+    The 9pfs xen backend has historically been used mostly at boot-time.
+    We've been hotplugging 9pfs devices and noticed a large amount of
+    mount hangs. It appears that the 9pfs xen driver was initializing
+    itself multiple times, causing the frontend and backend to diagree.
+    This caused the backend to be listening on a channel that the frontend
+    was not sending on, resulting in stalled processing. It was sometimes
+    possible for the first message ring to connect properly, but additional
+    rings might get into the bad state. This change fixes this by ensuring
+    that the driver can only initialize the frontend once.
+    
+    Signed-off-by: Alex Zenla <alex@edera.dev>
+
+diff --git a/net/9p/trans_xen.c b/net/9p/trans_xen.c
+index dfdbe1ca5338..0304e8a1616d 100644
+--- a/net/9p/trans_xen.c
++++ b/net/9p/trans_xen.c
+@@ -465,6 +465,7 @@ static int xen_9pfs_front_init(struct xenbus_device *dev)
+ 		goto error;
+ 	}
+ 
++	xenbus_switch_state(dev, XenbusStateInitialised);
+ 	return 0;
+ 
+  error_xenbus:
+@@ -512,8 +513,10 @@ static void xen_9pfs_front_changed(struct xenbus_device *dev,
+ 		break;
+ 
+ 	case XenbusStateInitWait:
+-		if (!xen_9pfs_front_init(dev))
+-			xenbus_switch_state(dev, XenbusStateInitialised);
++		if (dev->state != XenbusStateInitialising)
++			break;
++
++		xen_9pfs_front_init(dev);
+ 		break;
+ 
+ 	case XenbusStateConnected:
