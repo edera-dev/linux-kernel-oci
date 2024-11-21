@@ -1,0 +1,24 @@
+commit ad1addb5e0c87523196c4c46b11a14104d0ea5fa
+Author: Alex Zenla <alex@edera.dev>
+Date:   Thu Nov 21 16:08:21 2024 -0500
+
+    9p/xen: fix irq unbind
+
+    9pfs xen transport passed the device rather than the ring handle
+    into the unbind call for xen irqs. Fix this by passing the ring
+    instead.
+
+diff --git a/net/9p/trans_xen.c b/net/9p/trans_xen.c
+index 0304e8a1616d..cb2c301445f9 100644
+--- a/net/9p/trans_xen.c
++++ b/net/9p/trans_xen.c
+@@ -286,7 +286,8 @@ static void xen_9pfs_front_free(struct xen_9pfs_front_priv *priv)
+ 		if (!priv->rings[i].intf)
+ 			break;
+ 		if (priv->rings[i].irq > 0)
+-			unbind_from_irqhandler(priv->rings[i].irq, priv->dev);
++			unbind_from_irqhandler(priv->rings[i].irq, ring);
++		priv->rings[i].evtchn = priv->rings[i].irq = 0;
+ 		if (priv->rings[i].data.in) {
+ 			for (j = 0;
+ 			     j < (1 << priv->rings[i].intf->ring_order);

@@ -42,7 +42,9 @@ patches:
   - zone-openpax
 - patch: 0001-x86-topology-Tolerate-lack-of-APIC-when-booting-as-X.patch
   lower: '6.10'
-- patch: 9pfs-xen-hotplug.patch
+- patch: 9pfs-xen-hotplug-1.patch
+  lower: '6.3'
+- patch: 9pfs-xen-hotplug-2.patch
   lower: '6.3'
 images:
 - target: kernelsrc
