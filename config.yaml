@@ -44,8 +44,18 @@ patches:
   lower: '6.10'
 - patch: 9pfs-xen-hotplug-1.patch
   lower: '6.3'
+  upper: '6.11.10'
 - patch: 9pfs-xen-hotplug-2.patch
   lower: '6.3'
+  upper: '6.11.10'
+- patch: 9pfs-xen-hotplug-1.patch
+  series:
+  - '6.12'
+  upper: '6.12.1'
+- patch: 9pfs-xen-hotplug-2.patch
+  series:
+  - '6.12'
+  upper: '6.12.1'
 images:
 - target: kernelsrc
   name: kernel-src
