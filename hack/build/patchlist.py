@@ -3,7 +3,7 @@ import sys
 from packaging.version import parse
 
 from matrix import CONFIG
-from util import matches_constraints
+from util import matches_constraints, maybe
 
 if len(sys.argv) != 3:
     print("Usage: patchlist <KERNEL_VERSION> <KERNEL_FLAVOR>")
@@ -19,15 +19,11 @@ patches = CONFIG["patches"]
 apply_patches = []
 
 
-def maybe(m: dict[any, any], k: any) -> any:
-    if k in m:
-        return m[k]
-    else:
-        return None
-
-
 for patch in patches:
-    file_name = patch["patch"]
+    if "patch" in patch:
+        file_names = [patch["patch"]]
+    else:
+        file_names = patch["patches"]
     order = maybe(patch, "order")
 
     if order is None:
@@ -36,12 +32,13 @@ for patch in patches:
     apply = matches_constraints(target_version, kernel_flavor, patch)
 
     if apply:
-        apply_patches.append(
-            {
-                "patch": file_name,
-                "order": order,
-            }
-        )
+        for file_name in file_names:
+            apply_patches.append(
+                {
+                    "patch": file_name,
+                    "order": order,
+                }
+            )
 
 apply_patches.sort(key=lambda p: p["order"])
 

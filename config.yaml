@@ -31,37 +31,35 @@ patches:
   - '6.10'
   - '6.11'
 - patch: openpax-6.10-20240913112548.patch
-  series:
-  - '6.10'
+  series: '6.10'
   flavors:
   - zone-openpax
 - patch: openpax-6.11.2-20241009165538.patch
-  series:
-  - '6.11'
+  series: '6.11'
   flavors:
   - zone-openpax
-- patch: 0001-x86-topology-Tolerate-lack-of-APIC-when-booting-as-X_01.patch
-  lower: '6.10'
-  upper: '6.12.4'
 - patch: 0001-x86-topology-Tolerate-lack-of-APIC-when-booting-as-X_01.patch
   lower: '6.10'
   upper: '6.12.4'
 - patch: 0001-x86-topology-Tolerate-lack-of-APIC-when-booting-as-X_02.patch
   lower: '6.12.5'
-- patch: 9pfs-xen-hotplug-1.patch
-  lower: '6.3'
-  upper: '6.11.10'
-- patch: 9pfs-xen-hotplug-2.patch
-  lower: '6.3'
-  upper: '6.11.10'
-- patch: 9pfs-xen-hotplug-1.patch
-  series:
-  - '6.12'
-  upper: '6.12.1'
-- patch: 9pfs-xen-hotplug-2.patch
-  series:
-  - '6.12'
-  upper: '6.12.1'
+- patches:
+  - 9pfs-xen-hotplug-1.patch
+  - 9pfs-xen-hotplug-2.patch
+  any:
+  - series: '6.6'
+    upper: '6.6.63'
+  - series: '6.12'
+    upper: '6.12.1'
+- patch: 0001-x86-static-call-Remove-early_boot_irqs_disabled-check.patch
+  any:
+  - series: '5.15'
+    lower: '5.15.175'
+  - series: '6.1'
+    lower: '6.1.121'
+  - series: '6.6'
+    lower: '6.6.67'
+  - lower: '6.12.6'
 images:
 - target: kernelsrc
   name: kernel-src

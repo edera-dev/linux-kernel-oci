@@ -26,10 +26,15 @@ def maybe(m: dict[str, any], k: str, default_value: any = None) -> any:
     else:
         return default_value
 
-
 def matches_constraints(
     version: Version, flavor: str, constraints: dict[str, any], is_current_release=None
 ) -> bool:
+    if "any" in constraints:
+        for constraint in constraints["any"]:
+            if matches_constraints(version, flavor, constraint, is_current_release=is_current_release):
+                return True
+        return False
+
     major_minor_series = "%s.%s" % (version.major, version.minor)
     major_series = str(version.major)
 
@@ -64,6 +69,9 @@ def matches_constraints(
     if lower is not None and upper is not None:
         if version < lower or version > upper:
             applies = False
+
+    if type(only_series) is str:
+        only_series = [only_series]
 
     if only_series is not None and (
         (major_minor_series not in only_series) and (major_series not in only_series)
