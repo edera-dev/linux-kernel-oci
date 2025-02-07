@@ -23,7 +23,7 @@ jobs:
     - name: generate spec-new matrix
       run: 'PATH="${HOME}/go/bin:${PATH}" KERNEL_BUILD_SPEC="new" ./hack/build/generate-matrix.sh'
     - name: upload spec-new matrix
-      uses: actions/upload-artifact@b4b15b8c7c6ac21ea08fcf65892d2ee8f75cf882 # v4
+      uses: actions/upload-artifact@65c4c4a1ddee5b72f698fdd19549f0f0fb45cf08 # v4
       with:
         name: spec-new-matrix
         path: "matrix.json"
@@ -31,7 +31,7 @@ jobs:
     - name: generate spec-rebuild matrix
       run: 'PATH="${HOME}/go/bin:${PATH}" KERNEL_BUILD_SPEC="rebuild" ./hack/build/generate-matrix.sh'
     - name: upload spec-rebuild matrix
-      uses: actions/upload-artifact@b4b15b8c7c6ac21ea08fcf65892d2ee8f75cf882 # v4
+      uses: actions/upload-artifact@65c4c4a1ddee5b72f698fdd19549f0f0fb45cf08 # v4
       with:
         name: spec-rebuild-matrix
         path: "matrix.json"
@@ -39,7 +39,7 @@ jobs:
     - name: generate test matrix
       run: 'PATH="${HOME}/go/bin:${PATH}" ./hack/build/generate-matrix.sh "${TEST_MATRIX_SPEC}"'
     - name: upload test matrix
-      uses: actions/upload-artifact@b4b15b8c7c6ac21ea08fcf65892d2ee8f75cf882 # v4
+      uses: actions/upload-artifact@65c4c4a1ddee5b72f698fdd19549f0f0fb45cf08 # v4
       with:
         name: test-matrix
         path: "matrix.json"
@@ -47,7 +47,7 @@ jobs:
     - name: docker setup linux-kernel-oci
       run: sudo python3 ./hack/build/docker-setup.py
     - name: docker setup buildx
-      uses: docker/setup-buildx-action@c47758b77c9736f4b2ef4073d4d51994fabfe349 # v3
+      uses: docker/setup-buildx-action@f7ce87c1d6bead3e36075b2ce75da1f6cc28aaca # v3
     - name: docker login ghcr.io
       uses: docker/login-action@9780b0c442fbb1117ed29e0efdff1e18412f7567 # v3
       with:
@@ -57,7 +57,7 @@ jobs:
     - name: generate docker script
       run: "./hack/build/generate-docker-script.sh matrix.json"
     - name: upload docker script
-      uses: actions/upload-artifact@b4b15b8c7c6ac21ea08fcf65892d2ee8f75cf882 # v4
+      uses: actions/upload-artifact@65c4c4a1ddee5b72f698fdd19549f0f0fb45cf08 # v4
       with:
         name: "docker.sh"
         path: "docker.sh"
