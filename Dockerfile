@@ -2,7 +2,7 @@ FROM --platform=$BUILDPLATFORM scratch AS kernelsrc
 ARG KERNEL_SRC_URL=
 ADD ${KERNEL_SRC_URL} /src.tar.xz
 
-FROM --platform=$BUILDPLATFORM debian:bookworm@sha256:17122fe3d66916e55c0cbd5bbf54bb3f87b3582f4d86a755a0fd3498d360f91b AS buildenv
+FROM --platform=$BUILDPLATFORM debian:bookworm@sha256:b877a1a3fdf02469440f1768cf69c9771338a875b7add5e80c45b756c92ac20a AS buildenv
 RUN export DEBIAN_FRONTEND=noninteractive && apt-get update && apt-get install -y \
       build-essential squashfs-tools python3-yaml \
       patch diffutils sed mawk findutils zstd \
@@ -28,7 +28,7 @@ ARG TARGETPLATFORM
 COPY --from=kernelsrc --chown=build:build /src.tar.xz /build/override-kernel-src.tar.xz
 RUN KERNEL_SRC_URL="/build/override-kernel-src.tar.xz" ./hack/build/docker-build-internal.sh
 
-FROM alpine:3.20@sha256:1e42bbe2508154c9126d48c2b8a75420c3544343bf86fd041fb7527e017a4b4a AS sdkbuild
+FROM alpine:3.21@sha256:21dc6063fd678b478f57c0e13f47560d0ea4eeba26dfc947b2a4f81f686b9f45 AS sdkbuild
 ARG KERNEL_VERSION=
 ARG KERNEL_FLAVOR=zone
 COPY --from=build /build/target/sdk.tar.gz /sdk.tar.gz
