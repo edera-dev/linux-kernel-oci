@@ -43,6 +43,9 @@ patches:
   upper: '6.12.4'
 - patch: 0001-x86-topology-Tolerate-lack-of-APIC-when-booting-as-X_02.patch
   lower: '6.12.5'
+  upper: '6.13.999'
+- patch: 0001-x86-topology-Tolerate-lack-of-APIC-when-booting-as-X_03.patch
+  lower: '6.14'
 - patches:
   - 9pfs-xen-hotplug-1.patch
   - 9pfs-xen-hotplug-2.patch
