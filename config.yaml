@@ -54,15 +54,6 @@ patches:
     upper: '6.6.63'
   - series: '6.12'
     upper: '6.12.1'
-- patch: 0001-x86-static-call-Remove-early_boot_irqs_disabled-check.patch
-  any:
-  - series: '5.15'
-    lower: '5.15.175'
-  - series: '6.1'
-    lower: '6.1.121'
-  - series: '6.6'
-    lower: '6.6.67'
-  - lower: '6.12.6'
 images:
 - target: kernelsrc
   name: kernel-src
