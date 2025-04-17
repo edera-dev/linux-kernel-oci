@@ -4,6 +4,10 @@ architectures:
 - aarch64
 flavors:
 - name: zone
+- name: zone-gpu
+  constraints:
+    series:
+    - "5.15"
 - name: zone-openpax
   constraints:
     series:
