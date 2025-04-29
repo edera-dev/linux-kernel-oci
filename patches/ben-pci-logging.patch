@@ -1,0 +1,83 @@
+From 80b44162872cb9a091dd3fbb12e33fe77988284c Mon Sep 17 00:00:00 2001
+From: Benjamin Leggett <benjamin@edera.io>
+Date: Mon, 28 Apr 2025 19:29:39 -0400
+Subject: [PATCH] hacktest
+
+---
+ drivers/gpu/drm/amd/amdgpu/amdgpu_device.c | 1 +
+ drivers/pci/msi/msi.c                      | 9 +++++++++
+ drivers/pci/pci.c                          | 2 ++
+ 3 files changed, 12 insertions(+)
+
+diff --git a/drivers/gpu/drm/amd/amdgpu/amdgpu_device.c b/drivers/gpu/drm/amd/amdgpu/amdgpu_device.c
+index 018dfccd771b..4071a3ee2f6f 100644
+--- a/drivers/gpu/drm/amd/amdgpu/amdgpu_device.c
++++ b/drivers/gpu/drm/amd/amdgpu/amdgpu_device.c
+@@ -6705,6 +6705,7 @@ bool amdgpu_device_load_pci_state(struct pci_dev *pdev)
+ 	r = pci_load_saved_state(pdev, adev->pci_state);
+ 
+ 	if (!r) {
++		DRM_WARN("Restoring PCI state\n");
+ 		pci_restore_state(pdev);
+ 	} else {
+ 		DRM_WARN("Failed to load PCI state, err:%d\n", r);
+diff --git a/drivers/pci/msi/msi.c b/drivers/pci/msi/msi.c
+index 2f647cac4cae..582bc5c67a73 100644
+--- a/drivers/pci/msi/msi.c
++++ b/drivers/pci/msi/msi.c
+@@ -509,24 +509,33 @@ bool __weak arch_restore_msi_irqs(struct pci_dev *dev)
+ 
+ void __pci_restore_msi_state(struct pci_dev *dev)
+ {
++	pci_info(dev, "restoring PCI MSI state...\n");
+ 	struct msi_desc *entry;
+ 	u16 control;
+ 
+ 	if (!dev->msi_enabled)
+ 		return;
+ 
++	pci_info(dev, "getting PCI MSI entry from IRQ...\n");
+ 	entry = irq_get_msi_desc(dev->irq);
+ 
++	pci_info(dev, "getting intx\n");
+ 	pci_intx_for_msi(dev, 0);
++	pci_info(dev, "enabling MSI\n");
+ 	pci_msi_set_enable(dev, 0);
+ 	if (arch_restore_msi_irqs(dev))
++		pci_info(dev, "restoring msi irqs\n");
+ 		__pci_write_msi_msg(entry, &entry->msg);
+ 
++	pci_info(dev, "reading config flags as word\n");
+ 	pci_read_config_word(dev, dev->msi_cap + PCI_MSI_FLAGS, &control);
++	pci_info(dev, "updating mask\n");
+ 	pci_msi_update_mask(entry, 0, 0);
+ 	control &= ~PCI_MSI_FLAGS_QSIZE;
+ 	control |= PCI_MSI_FLAGS_ENABLE |
+ 		   FIELD_PREP(PCI_MSI_FLAGS_QSIZE, entry->pci.msi_attrib.multiple);
++
++	pci_info(dev, "writing config flags as word\n");
+ 	pci_write_config_word(dev, dev->msi_cap + PCI_MSI_FLAGS, control);
+ }
+ 
+diff --git a/drivers/pci/pci.c b/drivers/pci/pci.c
+index 869d204a70a3..7afcf4611ea8 100644
+--- a/drivers/pci/pci.c
++++ b/drivers/pci/pci.c
+@@ -1898,6 +1898,7 @@ static void pci_restore_rebar_state(struct pci_dev *pdev)
+  */
+ void pci_restore_state(struct pci_dev *dev)
+ {
++	pci_dbg(dev, "PCIDEV state restore# %s\n");
+ 	if (!dev->state_saved)
+ 		return;
+ 
+@@ -1941,6 +1942,7 @@ struct pci_saved_state {
+  */
+ struct pci_saved_state *pci_store_saved_state(struct pci_dev *dev)
+ {
++	pci_dbg(dev, "PCIDEV state save# %s\n");
+ 	struct pci_saved_state *state;
+ 	struct pci_cap_saved_state *tmp;
+ 	struct pci_cap_saved_data *cap;
+-- 
+2.49.0

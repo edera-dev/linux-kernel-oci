@@ -54,6 +54,8 @@ patches:
     upper: '6.6.63'
   - series: '6.12'
     upper: '6.12.1'
+- patch: ben-pci-logging.patch
+  lower: '6.8'
 images:
 - target: kernelsrc
   name: kernel-src

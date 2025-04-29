@@ -1,6 +1,8 @@
 FROM --platform=$BUILDPLATFORM scratch AS kernelsrc
 ARG KERNEL_SRC_URL=
 ADD ${KERNEL_SRC_URL} /src.tar.xz
+# use COPY here if the SRC_URL is a local `.tar.xz`
+# COPY ${KERNEL_SRC_URL} /src.tar.xz
 
 FROM --platform=$BUILDPLATFORM debian:bookworm@sha256:b877a1a3fdf02469440f1768cf69c9771338a875b7add5e80c45b756c92ac20a AS buildenv
 RUN export DEBIAN_FRONTEND=noninteractive && apt-get update && apt-get install -y \
