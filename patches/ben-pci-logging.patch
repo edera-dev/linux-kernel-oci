@@ -1,19 +1,40 @@
-From 348532cefd6a808bec855164954325f5359b1c82 Mon Sep 17 00:00:00 2001
+From 703ae086e59cf97a8381390978bf86055d2b2a9a Mon Sep 17 00:00:00 2001
 From: Benjamin Leggett <benjamin@edera.io>
 Date: Mon, 28 Apr 2025 19:29:39 -0400
 Subject: [PATCH] hacktest
 
 ---
- drivers/gpu/drm/amd/amdgpu/amdgpu_device.c |  1 +
+ drivers/gpu/drm/amd/amdgpu/amdgpu_device.c |  4 ++++
  drivers/pci/msi/msi.c                      | 16 +++++++++++++++-
  drivers/pci/pci.c                          |  2 ++
- 3 files changed, 18 insertions(+), 1 deletion(-)
+ 3 files changed, 21 insertions(+), 1 deletion(-)
 
 diff --git a/drivers/gpu/drm/amd/amdgpu/amdgpu_device.c b/drivers/gpu/drm/amd/amdgpu/amdgpu_device.c
-index 018dfccd771b..4071a3ee2f6f 100644
+index 018dfccd771b..1cb2937e7a5d 100644
 --- a/drivers/gpu/drm/amd/amdgpu/amdgpu_device.c
 +++ b/drivers/gpu/drm/amd/amdgpu/amdgpu_device.c
-@@ -6705,6 +6705,7 @@ bool amdgpu_device_load_pci_state(struct pci_dev *pdev)
+@@ -4586,6 +4586,7 @@ int amdgpu_device_init(struct amdgpu_device *adev,
+ 
+ 	/* Have stored pci confspace at hand for restore in sudden PCI error */
+ 	if (amdgpu_device_cache_pci_state(adev->pdev))
++		DRM_INFO("Restoring PCI state:: %d\n", pdev);
+ 		pci_restore_state(pdev);
+ 
+ 	/* if we have > 1 VGA cards, then disable the amdgpu VGA resources */
+@@ -6675,10 +6676,12 @@ bool amdgpu_device_cache_pci_state(struct pci_dev *pdev)
+ 	if (amdgpu_sriov_vf(adev))
+ 		return false;
+ 
++	DRM_INFO("Saving PCI state:: %d\n", pdev);
+ 	r = pci_save_state(pdev);
+ 	if (!r) {
+ 		kfree(adev->pci_state);
+ 
++		DRM_INFO("Caching PCI state:: %d\n", pdev);
+ 		adev->pci_state = pci_store_saved_state(pdev);
+ 
+ 		if (!adev->pci_state) {
+@@ -6705,6 +6708,7 @@ bool amdgpu_device_load_pci_state(struct pci_dev *pdev)
  	r = pci_load_saved_state(pdev, adev->pci_state);
  
  	if (!r) {
