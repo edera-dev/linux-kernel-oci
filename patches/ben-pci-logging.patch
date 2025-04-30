@@ -1,37 +1,42 @@
-From 17fc82b3d50c8f52c2c0dde6df47bffaa17c3bbd Mon Sep 17 00:00:00 2001
+From 1074793dd7ff076fdb9c935645d0f63d2c3b4dbe Mon Sep 17 00:00:00 2001
 From: Benjamin Leggett <benjamin@edera.io>
 Date: Mon, 28 Apr 2025 19:29:39 -0400
 Subject: [PATCH] hacktest
 
 ---
- arch/x86/pci/xen.c                         | 12 ++++++++-
- drivers/gpu/drm/amd/amdgpu/amdgpu_device.c |  4 +++
+ arch/x86/pci/xen.c                         | 18 ++++++++++---
+ drivers/gpu/drm/amd/amdgpu/amdgpu_device.c |  7 ++++-
  drivers/gpu/drm/amd/amdgpu/amdgpu_irq.c    | 11 +++++---
  drivers/pci/msi/msi.c                      | 31 +++++++++++++++++++---
  drivers/pci/pci.c                          |  2 ++
  drivers/pci/xen-pcifront.c                 | 13 ++++++---
- 6 files changed, 61 insertions(+), 12 deletions(-)
+ 6 files changed, 67 insertions(+), 15 deletions(-)
 
 diff --git a/arch/x86/pci/xen.c b/arch/x86/pci/xen.c
-index 0f2fe524f60d..69eb26be007d 100644
+index 0f2fe524f60d..6181cf9de0e6 100644
 --- a/arch/x86/pci/xen.c
 +++ b/arch/x86/pci/xen.c
-@@ -170,11 +170,14 @@ static int xen_setup_msi_irqs(struct pci_dev *dev, int nvec, int type)
+@@ -170,12 +170,17 @@ static int xen_setup_msi_irqs(struct pci_dev *dev, int nvec, int type)
  	struct msi_desc *msidesc;
  	int *v;
  
+-	if (type == PCI_CAP_ID_MSI && nvec > 1)
 +	dev_info(&dev->dev, "Xen PCI setup domU MSI irqs\n");
- 	if (type == PCI_CAP_ID_MSI && nvec > 1)
++	if (type == PCI_CAP_ID_MSI && nvec > 1) {
 +		dev_info(&dev->dev, "Xen PCI setup domU bailing due to nvec\n");
  		return 1;
++	}
  
  	v = kcalloc(max(1, nvec), sizeof(int), GFP_KERNEL);
- 	if (!v)
+-	if (!v)
++	if (!v) {
 +		dev_info(&dev->dev, "Xen PCI setup domU bailing due to alloc err\n");
  		return -ENOMEM;
++	}
  
  	if (type == PCI_CAP_ID_MSIX)
-@@ -270,6 +273,7 @@ static int xen_initdom_setup_msi_irqs(struct pci_dev *dev, int nvec, int type)
+ 		ret = xen_pci_frontend_enable_msix(dev, v, nvec);
+@@ -270,6 +275,7 @@ static int xen_initdom_setup_msi_irqs(struct pci_dev *dev, int nvec, int type)
  	int ret = 0;
  	struct msi_desc *msidesc;
  
@@ -39,7 +44,7 @@ index 0f2fe524f60d..69eb26be007d 100644
  	msi_for_each_desc(msidesc, &dev->dev, MSI_DESC_NOTASSOCIATED) {
  		struct physdev_map_pirq map_irq;
  		domid_t domid;
-@@ -277,8 +281,10 @@ static int xen_initdom_setup_msi_irqs(struct pci_dev *dev, int nvec, int type)
+@@ -277,8 +283,10 @@ static int xen_initdom_setup_msi_irqs(struct pci_dev *dev, int nvec, int type)
  		domid = ret = xen_find_device_domain_owner(dev);
  		/* N.B. Casting int's -ENODEV to uint16_t results in 0xFFED,
  		 * hence check ret value for < 0. */
@@ -51,7 +56,7 @@ index 0f2fe524f60d..69eb26be007d 100644
  
  		memset(&map_irq, 0, sizeof(map_irq));
  		map_irq.domid = domid;
-@@ -290,9 +296,11 @@ static int xen_initdom_setup_msi_irqs(struct pci_dev *dev, int nvec, int type)
+@@ -290,9 +298,11 @@ static int xen_initdom_setup_msi_irqs(struct pci_dev *dev, int nvec, int type)
  		map_irq.devfn = dev->devfn;
  
  		if (type == PCI_CAP_ID_MSI && nvec > 1) {
@@ -63,7 +68,7 @@ index 0f2fe524f60d..69eb26be007d 100644
  			int pos;
  			unsigned long flags;
  			u32 table_offset, bir;
-@@ -314,6 +322,7 @@ static int xen_initdom_setup_msi_irqs(struct pci_dev *dev, int nvec, int type)
+@@ -314,6 +324,7 @@ static int xen_initdom_setup_msi_irqs(struct pci_dev *dev, int nvec, int type)
  			ret = HYPERVISOR_physdev_op(PHYSDEVOP_map_pirq,
  						    &map_irq);
  		if (type == PCI_CAP_ID_MSI && nvec > 1 && ret) {
@@ -71,7 +76,7 @@ index 0f2fe524f60d..69eb26be007d 100644
  			/*
  			 * If MAP_PIRQ_TYPE_MULTI_MSI is not available
  			 * there's nothing else we can do in this case.
-@@ -324,6 +333,7 @@ static int xen_initdom_setup_msi_irqs(struct pci_dev *dev, int nvec, int type)
+@@ -324,6 +335,7 @@ static int xen_initdom_setup_msi_irqs(struct pci_dev *dev, int nvec, int type)
  			goto out;
  		}
  		if (ret == -EINVAL && !pci_domain_nr(dev->bus)) {
@@ -80,18 +85,22 @@ index 0f2fe524f60d..69eb26be007d 100644
  			map_irq.index = -1;
  			map_irq.pirq = -1;
 diff --git a/drivers/gpu/drm/amd/amdgpu/amdgpu_device.c b/drivers/gpu/drm/amd/amdgpu/amdgpu_device.c
-index 018dfccd771b..1cb2937e7a5d 100644
+index 018dfccd771b..0764a3fc07b6 100644
 --- a/drivers/gpu/drm/amd/amdgpu/amdgpu_device.c
 +++ b/drivers/gpu/drm/amd/amdgpu/amdgpu_device.c
-@@ -4586,6 +4586,7 @@ int amdgpu_device_init(struct amdgpu_device *adev,
+@@ -4585,8 +4585,10 @@ int amdgpu_device_init(struct amdgpu_device *adev,
+ 		dev_err(adev->dev, "amdgpu_pmu_init failed\n");
  
  	/* Have stored pci confspace at hand for restore in sudden PCI error */
- 	if (amdgpu_device_cache_pci_state(adev->pdev))
+-	if (amdgpu_device_cache_pci_state(adev->pdev))
++	if (amdgpu_device_cache_pci_state(adev->pdev)) {
 +		DRM_INFO("Restoring PCI state:: %d\n", pdev);
  		pci_restore_state(pdev);
++	}
  
  	/* if we have > 1 VGA cards, then disable the amdgpu VGA resources */
-@@ -6675,10 +6676,12 @@ bool amdgpu_device_cache_pci_state(struct pci_dev *pdev)
+ 	/* this will fail for cards that aren't VGA class devices, just
+@@ -6675,10 +6677,12 @@ bool amdgpu_device_cache_pci_state(struct pci_dev *pdev)
  	if (amdgpu_sriov_vf(adev))
  		return false;
  
@@ -104,7 +113,7 @@ index 018dfccd771b..1cb2937e7a5d 100644
  		adev->pci_state = pci_store_saved_state(pdev);
  
  		if (!adev->pci_state) {
-@@ -6705,6 +6708,7 @@ bool amdgpu_device_load_pci_state(struct pci_dev *pdev)
+@@ -6705,6 +6709,7 @@ bool amdgpu_device_load_pci_state(struct pci_dev *pdev)
  	r = pci_load_saved_state(pdev, adev->pci_state);
  
  	if (!r) {
