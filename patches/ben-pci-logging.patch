@@ -1,14 +1,84 @@
-From 2eacfd80e297b0853f39c4d3b5ff88e72cdbd0dd Mon Sep 17 00:00:00 2001
+From 17fc82b3d50c8f52c2c0dde6df47bffaa17c3bbd Mon Sep 17 00:00:00 2001
 From: Benjamin Leggett <benjamin@edera.io>
 Date: Mon, 28 Apr 2025 19:29:39 -0400
 Subject: [PATCH] hacktest
 
 ---
- drivers/gpu/drm/amd/amdgpu/amdgpu_device.c |  4 ++++
- drivers/pci/msi/msi.c                      | 25 ++++++++++++++++++++--
+ arch/x86/pci/xen.c                         | 12 ++++++++-
+ drivers/gpu/drm/amd/amdgpu/amdgpu_device.c |  4 +++
+ drivers/gpu/drm/amd/amdgpu/amdgpu_irq.c    | 11 +++++---
+ drivers/pci/msi/msi.c                      | 31 +++++++++++++++++++---
  drivers/pci/pci.c                          |  2 ++
- 3 files changed, 29 insertions(+), 2 deletions(-)
+ drivers/pci/xen-pcifront.c                 | 13 ++++++---
+ 6 files changed, 61 insertions(+), 12 deletions(-)
 
+diff --git a/arch/x86/pci/xen.c b/arch/x86/pci/xen.c
+index 0f2fe524f60d..69eb26be007d 100644
+--- a/arch/x86/pci/xen.c
++++ b/arch/x86/pci/xen.c
+@@ -170,11 +170,14 @@ static int xen_setup_msi_irqs(struct pci_dev *dev, int nvec, int type)
+ 	struct msi_desc *msidesc;
+ 	int *v;
+ 
++	dev_info(&dev->dev, "Xen PCI setup domU MSI irqs\n");
+ 	if (type == PCI_CAP_ID_MSI && nvec > 1)
++		dev_info(&dev->dev, "Xen PCI setup domU bailing due to nvec\n");
+ 		return 1;
+ 
+ 	v = kcalloc(max(1, nvec), sizeof(int), GFP_KERNEL);
+ 	if (!v)
++		dev_info(&dev->dev, "Xen PCI setup domU bailing due to alloc err\n");
+ 		return -ENOMEM;
+ 
+ 	if (type == PCI_CAP_ID_MSIX)
+@@ -270,6 +273,7 @@ static int xen_initdom_setup_msi_irqs(struct pci_dev *dev, int nvec, int type)
+ 	int ret = 0;
+ 	struct msi_desc *msidesc;
+ 
++	dev_info(&dev->dev, "xen: setting up dom0 MSI IRQs\n");
+ 	msi_for_each_desc(msidesc, &dev->dev, MSI_DESC_NOTASSOCIATED) {
+ 		struct physdev_map_pirq map_irq;
+ 		domid_t domid;
+@@ -277,8 +281,10 @@ static int xen_initdom_setup_msi_irqs(struct pci_dev *dev, int nvec, int type)
+ 		domid = ret = xen_find_device_domain_owner(dev);
+ 		/* N.B. Casting int's -ENODEV to uint16_t results in 0xFFED,
+ 		 * hence check ret value for < 0. */
+-		if (ret < 0)
++		if (ret < 0) {
++			dev_info(&dev->dev, "xen: could not find owner domain, self-assigning\n");
+ 			domid = DOMID_SELF;
++		}
+ 
+ 		memset(&map_irq, 0, sizeof(map_irq));
+ 		map_irq.domid = domid;
+@@ -290,9 +296,11 @@ static int xen_initdom_setup_msi_irqs(struct pci_dev *dev, int nvec, int type)
+ 		map_irq.devfn = dev->devfn;
+ 
+ 		if (type == PCI_CAP_ID_MSI && nvec > 1) {
++			dev_info(&dev->dev, "xen: setting up MSI, assuming PIRQ_TYPE_MULTI_MSI\n");
+ 			map_irq.type = MAP_PIRQ_TYPE_MULTI_MSI;
+ 			map_irq.entry_nr = nvec;
+ 		} else if (type == PCI_CAP_ID_MSIX) {
++			dev_info(&dev->dev, "xen: setting up MSI-X\n");
+ 			int pos;
+ 			unsigned long flags;
+ 			u32 table_offset, bir;
+@@ -314,6 +322,7 @@ static int xen_initdom_setup_msi_irqs(struct pci_dev *dev, int nvec, int type)
+ 			ret = HYPERVISOR_physdev_op(PHYSDEVOP_map_pirq,
+ 						    &map_irq);
+ 		if (type == PCI_CAP_ID_MSI && nvec > 1 && ret) {
++			dev_info(&dev->dev, "xen: PIRQ_TYPE_MULTI_MSI not available, returning >0 so driver can retry\n");
+ 			/*
+ 			 * If MAP_PIRQ_TYPE_MULTI_MSI is not available
+ 			 * there's nothing else we can do in this case.
+@@ -324,6 +333,7 @@ static int xen_initdom_setup_msi_irqs(struct pci_dev *dev, int nvec, int type)
+ 			goto out;
+ 		}
+ 		if (ret == -EINVAL && !pci_domain_nr(dev->bus)) {
++			dev_info(&dev->dev, "xen: trying with PIRQ_TYPE_MSI\n");
+ 			map_irq.type = MAP_PIRQ_TYPE_MSI;
+ 			map_irq.index = -1;
+ 			map_irq.pirq = -1;
 diff --git a/drivers/gpu/drm/amd/amdgpu/amdgpu_device.c b/drivers/gpu/drm/amd/amdgpu/amdgpu_device.c
 index 018dfccd771b..1cb2937e7a5d 100644
 --- a/drivers/gpu/drm/amd/amdgpu/amdgpu_device.c
@@ -42,11 +112,70 @@ index 018dfccd771b..1cb2937e7a5d 100644
  		pci_restore_state(pdev);
  	} else {
  		DRM_WARN("Failed to load PCI state, err:%d\n", r);
+diff --git a/drivers/gpu/drm/amd/amdgpu/amdgpu_irq.c b/drivers/gpu/drm/amd/amdgpu/amdgpu_irq.c
+index 19ce4da285e8..c4cafd52c15a 100644
+--- a/drivers/gpu/drm/amd/amdgpu/amdgpu_irq.c
++++ b/drivers/gpu/drm/amd/amdgpu/amdgpu_irq.c
+@@ -278,10 +278,13 @@ int amdgpu_irq_init(struct amdgpu_device *adev)
+ 	/* Enable MSI if not disabled by module parameter */
+ 	adev->irq.msi_enabled = false;
+ 
+-	if (!amdgpu_msi_ok(adev))
++	if (!amdgpu_msi_ok(adev)) {
++		dev_info(adev->dev, "falling back to intx irqs\n");
+ 		flags = PCI_IRQ_INTX;
+-	else
++	} else {
++		dev_info(adev->dev, "requesting all possible types of irqs\n");
+ 		flags = PCI_IRQ_ALL_TYPES;
++	}
+ 
+ 	/* we only need one vector */
+ 	r = pci_alloc_irq_vectors(adev->pdev, 1, 1, flags);
+@@ -292,7 +295,7 @@ int amdgpu_irq_init(struct amdgpu_device *adev)
+ 
+ 	if (amdgpu_msi_ok(adev)) {
+ 		adev->irq.msi_enabled = true;
+-		dev_dbg(adev->dev, "using MSI/MSI-X.\n");
++		dev_info(adev->dev, "using MSI/MSI-X.\n");
+ 	}
+ 
+ 	INIT_WORK(&adev->irq.ih1_work, amdgpu_irq_handle_ih1);
+@@ -315,7 +318,7 @@ int amdgpu_irq_init(struct amdgpu_device *adev)
+ 	adev->irq.irq = irq;
+ 	adev_to_drm(adev)->max_vblank_count = 0x00ffffff;
+ 
+-	DRM_DEBUG("amdgpu: irq initialized.\n");
++	DRM_INFO("amdgpu: irq initialized.\n");
+ 	return 0;
+ 
+ free_vectors:
 diff --git a/drivers/pci/msi/msi.c b/drivers/pci/msi/msi.c
-index 2f647cac4cae..84e6c469b649 100644
+index 2f647cac4cae..dd378d6d6e6e 100644
 --- a/drivers/pci/msi/msi.c
 +++ b/drivers/pci/msi/msi.c
-@@ -512,21 +512,31 @@ void __pci_restore_msi_state(struct pci_dev *dev)
+@@ -243,15 +243,19 @@ void __pci_write_msi_msg(struct msi_desc *entry, struct msi_msg *msg)
+ 	if (dev->current_state != PCI_D0 || pci_dev_is_disconnected(dev)) {
+ 		/* Don't touch the hardware now */
+ 	} else if (entry->pci.msi_attrib.is_msix) {
++		pci_info(dev, "writing msix msg\n");
+ 		pci_write_msg_msix(entry, msg);
+ 	} else {
++		pci_info(dev, "writing msi msg, not msix\n");
+ 		pci_write_msg_msi(dev, entry, msg);
+ 	}
+ 
+ 	entry->msg = *msg;
+ 
+-	if (entry->write_msi_msg)
++	if (entry->write_msi_msg) {
++		pci_info(dev, "writing msi msg data\n");
+ 		entry->write_msi_msg(entry, entry->write_msi_msg_data);
++	}
+ }
+ 
+ void pci_write_msi_msg(unsigned int irq, struct msi_msg *msg)
+@@ -512,21 +516,31 @@ void __pci_restore_msi_state(struct pci_dev *dev)
  	struct msi_desc *entry;
  	u16 control;
  
@@ -79,7 +208,7 @@ index 2f647cac4cae..84e6c469b649 100644
  	pci_write_config_word(dev, dev->msi_cap + PCI_MSI_FLAGS, control);
  }
  
-@@ -861,24 +871,35 @@ void __pci_restore_msix_state(struct pci_dev *dev)
+@@ -861,24 +875,35 @@ void __pci_restore_msix_state(struct pci_dev *dev)
  	struct msi_desc *entry;
  	bool write_msg;
  
@@ -102,10 +231,10 @@ index 2f647cac4cae..84e6c469b649 100644
  	msi_for_each_desc(entry, &dev->dev, MSI_DESC_ALL) {
 -		if (write_msg)
 +		if (write_msg) {
-+			pci_info(dev, "writing msix msg %d for entry %d\n", &entry->msg, &entry);
++			pci_info(dev, "writing msix msg %p for entry %p\n", &entry->msg, &entry);
  			__pci_write_msi_msg(entry, &entry->msg);
 +		}
-+		pci_info(dev, "writing msix vector control %d for entry %d\n", &entry->pci.msix_ctrl, &entry);
++		pci_info(dev, "writing msix vector control %p for entry %p\n", &entry->pci.msix_ctrl, &entry);
  		pci_msix_write_vector_ctrl(entry, entry->pci.msix_ctrl);
  	}
 +
@@ -136,6 +265,79 @@ index 869d204a70a3..7afcf4611ea8 100644
  	struct pci_saved_state *state;
  	struct pci_cap_saved_state *tmp;
  	struct pci_cap_saved_data *cap;
+diff --git a/drivers/pci/xen-pcifront.c b/drivers/pci/xen-pcifront.c
+index 11636634ae51..2f1da8f684bc 100644
+--- a/drivers/pci/xen-pcifront.c
++++ b/drivers/pci/xen-pcifront.c
+@@ -187,7 +187,7 @@ static int pcifront_bus_read(struct pci_bus *bus, unsigned int devfn,
+ 	struct pcifront_sd *sd = bus->sysdata;
+ 	struct pcifront_device *pdev = pcifront_get_pdev(sd);
+ 
+-	dev_dbg(&pdev->xdev->dev,
++	dev_info(&pdev->xdev->dev,
+ 		"read dev=%04x:%02x:%02x.%d - offset %x size %d\n",
+ 		pci_domain_nr(bus), bus->number, PCI_SLOT(devfn),
+ 		PCI_FUNC(devfn), where, size);
+@@ -195,7 +195,7 @@ static int pcifront_bus_read(struct pci_bus *bus, unsigned int devfn,
+ 	err = do_pci_op(pdev, &op);
+ 
+ 	if (likely(!err)) {
+-		dev_dbg(&pdev->xdev->dev, "read got back value %x\n",
++		dev_info(&pdev->xdev->dev, "read got back value %x\n",
+ 			op.value);
+ 
+ 		*val = op.value;
+@@ -224,7 +224,7 @@ static int pcifront_bus_write(struct pci_bus *bus, unsigned int devfn,
+ 	struct pcifront_sd *sd = bus->sysdata;
+ 	struct pcifront_device *pdev = pcifront_get_pdev(sd);
+ 
+-	dev_dbg(&pdev->xdev->dev,
++	dev_info(&pdev->xdev->dev,
+ 		"write dev=%04x:%02x:%02x.%d - offset %x size %d val %x\n",
+ 		pci_domain_nr(bus), bus->number,
+ 		PCI_SLOT(devfn), PCI_FUNC(devfn), where, size, val);
+@@ -254,6 +254,8 @@ static int pci_frontend_enable_msix(struct pci_dev *dev,
+ 	struct pcifront_device *pdev = pcifront_get_pdev(sd);
+ 	struct msi_desc *entry;
+ 
++	pci_info(dev, "enable msix xenfront\n");
++
+ 	if (nvec > SH_INFO_MAX_VEC) {
+ 		pci_err(dev, "too many vectors (0x%x) for PCI frontend:"
+ 				   " Increase SH_INFO_MAX_VEC\n", nvec);
+@@ -305,6 +307,7 @@ static void pci_frontend_disable_msix(struct pci_dev *dev)
+ 	struct pcifront_sd *sd = dev->bus->sysdata;
+ 	struct pcifront_device *pdev = pcifront_get_pdev(sd);
+ 
++	pci_info(dev, "disable msix xenfront\n");
+ 	err = do_pci_op(pdev, &op);
+ 
+ 	/* What should do for error ? */
+@@ -324,6 +327,7 @@ static int pci_frontend_enable_msi(struct pci_dev *dev, int vector[])
+ 	struct pcifront_sd *sd = dev->bus->sysdata;
+ 	struct pcifront_device *pdev = pcifront_get_pdev(sd);
+ 
++	pci_info(dev, "enable msi xenfront\n");
+ 	err = do_pci_op(pdev, &op);
+ 	if (likely(!err)) {
+ 		vector[0] = op.value;
+@@ -353,6 +357,7 @@ static void pci_frontend_disable_msi(struct pci_dev *dev)
+ 	struct pcifront_sd *sd = dev->bus->sysdata;
+ 	struct pcifront_device *pdev = pcifront_get_pdev(sd);
+ 
++	pci_info(dev, "disable msi xenfront\n");
+ 	err = do_pci_op(pdev, &op);
+ 	if (err == XEN_PCI_ERR_dev_not_found) {
+ 		/* XXX No response from backend, what shall we do? */
+@@ -714,7 +719,7 @@ static struct pcifront_device *alloc_pdev(struct xenbus_device *xdev)
+ 
+ 	INIT_WORK(&pdev->op_work, pcifront_do_aer);
+ 
+-	dev_dbg(&xdev->dev, "Allocated pdev @ 0x%p pdev->sh_info @ 0x%p\n",
++	dev_info(&xdev->dev, "Allocated pdev @ 0x%p pdev->sh_info @ 0x%p\n",
+ 		pdev, pdev->sh_info);
+ out:
+ 	return pdev;
 -- 
 2.49.0
 
