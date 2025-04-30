@@ -1,13 +1,13 @@
-From 703ae086e59cf97a8381390978bf86055d2b2a9a Mon Sep 17 00:00:00 2001
+From 2eacfd80e297b0853f39c4d3b5ff88e72cdbd0dd Mon Sep 17 00:00:00 2001
 From: Benjamin Leggett <benjamin@edera.io>
 Date: Mon, 28 Apr 2025 19:29:39 -0400
 Subject: [PATCH] hacktest
 
 ---
  drivers/gpu/drm/amd/amdgpu/amdgpu_device.c |  4 ++++
- drivers/pci/msi/msi.c                      | 16 +++++++++++++++-
+ drivers/pci/msi/msi.c                      | 25 ++++++++++++++++++++--
  drivers/pci/pci.c                          |  2 ++
- 3 files changed, 21 insertions(+), 1 deletion(-)
+ 3 files changed, 29 insertions(+), 2 deletions(-)
 
 diff --git a/drivers/gpu/drm/amd/amdgpu/amdgpu_device.c b/drivers/gpu/drm/amd/amdgpu/amdgpu_device.c
 index 018dfccd771b..1cb2937e7a5d 100644
@@ -43,7 +43,7 @@ index 018dfccd771b..1cb2937e7a5d 100644
  	} else {
  		DRM_WARN("Failed to load PCI state, err:%d\n", r);
 diff --git a/drivers/pci/msi/msi.c b/drivers/pci/msi/msi.c
-index 2f647cac4cae..d52553743e85 100644
+index 2f647cac4cae..84e6c469b649 100644
 --- a/drivers/pci/msi/msi.c
 +++ b/drivers/pci/msi/msi.c
 @@ -512,21 +512,31 @@ void __pci_restore_msi_state(struct pci_dev *dev)
@@ -79,7 +79,7 @@ index 2f647cac4cae..d52553743e85 100644
  	pci_write_config_word(dev, dev->msi_cap + PCI_MSI_FLAGS, control);
  }
  
-@@ -861,14 +871,18 @@ void __pci_restore_msix_state(struct pci_dev *dev)
+@@ -861,24 +871,35 @@ void __pci_restore_msix_state(struct pci_dev *dev)
  	struct msi_desc *entry;
  	bool write_msg;
  
@@ -97,7 +97,25 @@ index 2f647cac4cae..d52553743e85 100644
 +	pci_info(dev, "restoring the irqs\n");
  	write_msg = arch_restore_msi_irqs(dev);
  
++	pci_info(dev, "locking\n");
  	msi_lock_descs(&dev->dev);
+ 	msi_for_each_desc(entry, &dev->dev, MSI_DESC_ALL) {
+-		if (write_msg)
++		if (write_msg) {
++			pci_info(dev, "writing msix msg %d for entry %d\n", &entry->msg, &entry);
+ 			__pci_write_msi_msg(entry, &entry->msg);
++		}
++		pci_info(dev, "writing msix vector control %d for entry %d\n", &entry->pci.msix_ctrl, &entry);
+ 		pci_msix_write_vector_ctrl(entry, entry->pci.msix_ctrl);
+ 	}
++
++	pci_info(dev, "unlocking\n");
+ 	msi_unlock_descs(&dev->dev);
+ 
++	pci_info(dev, "clearing and setting\n");
+ 	pci_msix_clear_and_set_ctrl(dev, PCI_MSIX_FLAGS_MASKALL, 0);
+ }
+ 
 diff --git a/drivers/pci/pci.c b/drivers/pci/pci.c
 index 869d204a70a3..7afcf4611ea8 100644
 --- a/drivers/pci/pci.c
