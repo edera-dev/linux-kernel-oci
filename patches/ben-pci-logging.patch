@@ -1,16 +1,16 @@
-From 1074793dd7ff076fdb9c935645d0f63d2c3b4dbe Mon Sep 17 00:00:00 2001
+From 2577f7a0433c809e7333963e96b927c624dc67c5 Mon Sep 17 00:00:00 2001
 From: Benjamin Leggett <benjamin@edera.io>
 Date: Mon, 28 Apr 2025 19:29:39 -0400
 Subject: [PATCH] hacktest
 
 ---
- arch/x86/pci/xen.c                         | 18 ++++++++++---
- drivers/gpu/drm/amd/amdgpu/amdgpu_device.c |  7 ++++-
- drivers/gpu/drm/amd/amdgpu/amdgpu_irq.c    | 11 +++++---
- drivers/pci/msi/msi.c                      | 31 +++++++++++++++++++---
- drivers/pci/pci.c                          |  2 ++
- drivers/pci/xen-pcifront.c                 | 13 ++++++---
- 6 files changed, 67 insertions(+), 15 deletions(-)
+ arch/x86/pci/xen.c                         | 18 +++++--
+ drivers/gpu/drm/amd/amdgpu/amdgpu_device.c |  7 ++-
+ drivers/gpu/drm/amd/amdgpu/amdgpu_irq.c    | 11 ++--
+ drivers/pci/msi/msi.c                      | 62 +++++++++++++++++++---
+ drivers/pci/pci.c                          |  2 +
+ drivers/pci/xen-pcifront.c                 | 13 +++--
+ 6 files changed, 94 insertions(+), 19 deletions(-)
 
 diff --git a/arch/x86/pci/xen.c b/arch/x86/pci/xen.c
 index 0f2fe524f60d..6181cf9de0e6 100644
@@ -160,10 +160,56 @@ index 19ce4da285e8..c4cafd52c15a 100644
  
  free_vectors:
 diff --git a/drivers/pci/msi/msi.c b/drivers/pci/msi/msi.c
-index 2f647cac4cae..dd378d6d6e6e 100644
+index 2f647cac4cae..e0291baeb81b 100644
 --- a/drivers/pci/msi/msi.c
 +++ b/drivers/pci/msi/msi.c
-@@ -243,15 +243,19 @@ void __pci_write_msi_msg(struct msi_desc *entry, struct msi_msg *msg)
+@@ -208,12 +208,17 @@ static inline void pci_write_msg_msi(struct pci_dev *dev, struct msi_desc *desc,
+ 
+ static inline void pci_write_msg_msix(struct msi_desc *desc, struct msi_msg *msg)
+ {
++	pci_info(dev, "writing msix msg");
+ 	void __iomem *base = pci_msix_desc_addr(desc);
++	pci_info(dev, "base addr: %p", base);
+ 	u32 ctrl = desc->pci.msix_ctrl;
++	pci_info(dev, "msix ctrl: %d", ctrl);
+ 	bool unmasked = !(ctrl & PCI_MSIX_ENTRY_CTRL_MASKBIT);
+ 
+-	if (desc->pci.msi_attrib.is_virtual)
++	if (desc->pci.msi_attrib.is_virtual) {
++		pci_info(dev, "msi virtual attrib, not writing");
+ 		return;
++	}
+ 	/*
+ 	 * The specification mandates that the entry is masked
+ 	 * when the message is modified:
+@@ -222,16 +227,24 @@ static inline void pci_write_msg_msix(struct msi_desc *desc, struct msi_msg *msg
+ 	 * entry while the entry is unmasked, the result is
+ 	 * undefined."
+ 	 */
+-	if (unmasked)
++	if (unmasked) {
++		pci_info(dev, "entry is unmasked, writing with maskbit");
+ 		pci_msix_write_vector_ctrl(desc, ctrl | PCI_MSIX_ENTRY_CTRL_MASKBIT);
++	}
+ 
++	pci_info(dev, "writelo data: %d, addr: %d", msg->address_lo, base + PCI_MSIX_ENTRY_LOWER_ADDR);
+ 	writel(msg->address_lo, base + PCI_MSIX_ENTRY_LOWER_ADDR);
++	pci_info(dev, "writehi data: %d, addr: %d", msg->address_hi, base + PCI_MSIX_ENTRY_UPPER_ADDR);
+ 	writel(msg->address_hi, base + PCI_MSIX_ENTRY_UPPER_ADDR);
++	pci_info(dev, "write data: %d, addr: %d", msg->data, base + PCI_MSIX_ENTRY_DATA);
+ 	writel(msg->data, base + PCI_MSIX_ENTRY_DATA);
+ 
+-	if (unmasked)
++	if (unmasked) {
++		pci_info(dev, "entry is (still) unmasked");
+ 		pci_msix_write_vector_ctrl(desc, ctrl);
++	}
+ 
++	pci_info(dev, "reading back 4 bytes of data from addr: %d", base + PCI_MSIX_ENTRY_DATA);
+ 	/* Ensure that the writes are visible in the device */
+ 	readl(base + PCI_MSIX_ENTRY_DATA);
+ }
+@@ -243,15 +256,19 @@ void __pci_write_msi_msg(struct msi_desc *entry, struct msi_msg *msg)
  	if (dev->current_state != PCI_D0 || pci_dev_is_disconnected(dev)) {
  		/* Don't touch the hardware now */
  	} else if (entry->pci.msi_attrib.is_msix) {
@@ -184,7 +230,7 @@ index 2f647cac4cae..dd378d6d6e6e 100644
  }
  
  void pci_write_msi_msg(unsigned int irq, struct msi_msg *msg)
-@@ -512,21 +516,31 @@ void __pci_restore_msi_state(struct pci_dev *dev)
+@@ -512,21 +529,31 @@ void __pci_restore_msi_state(struct pci_dev *dev)
  	struct msi_desc *entry;
  	u16 control;
  
@@ -217,7 +263,30 @@ index 2f647cac4cae..dd378d6d6e6e 100644
  	pci_write_config_word(dev, dev->msi_cap + PCI_MSI_FLAGS, control);
  }
  
-@@ -861,24 +875,35 @@ void __pci_restore_msix_state(struct pci_dev *dev)
+@@ -556,11 +583,21 @@ void pci_msi_shutdown(struct pci_dev *dev)
+ static void pci_msix_clear_and_set_ctrl(struct pci_dev *dev, u16 clear, u16 set)
+ {
+ 	u16 ctrl;
++	int res;
+ 
+ 	pci_read_config_word(dev, dev->msix_cap + PCI_MSIX_FLAGS, &ctrl);
+ 	ctrl &= ~clear;
+ 	ctrl |= set;
+-	pci_write_config_word(dev, dev->msix_cap + PCI_MSIX_FLAGS, ctrl);
++	if (ctrl & PCI_MSIX_FLAGS_ENABLE) {
++	  pci_info(dev, "enabling msix via ctrlflag\n");
++	}
++	res = pci_write_config_word(dev, dev->msix_cap + PCI_MSIX_FLAGS, ctrl);
++	pci_info(dev, "result from pci_write_config_word: %d\n", res);
++	if (ctrl & PCI_MSIX_FLAGS_ENABLE) {
++	  pci_info(dev, "enabled msix via ctrlflag\n");
++	} else {
++	  pci_info(dev, "did not enable msix via ctrlflag\n");
++	}
+ }
+ 
+ static void __iomem *msix_map_region(struct pci_dev *dev,
+@@ -861,24 +898,35 @@ void __pci_restore_msix_state(struct pci_dev *dev)
  	struct msi_desc *entry;
  	bool write_msg;
  
