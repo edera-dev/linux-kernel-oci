@@ -1,4 +1,4 @@
-From 30c089a2f43299b359ff7dc257ccc4bddd912330 Mon Sep 17 00:00:00 2001
+From 99088b6a8b627f97ba2f72ee476b7f8b492cb705 Mon Sep 17 00:00:00 2001
 From: Benjamin Leggett <benjamin@edera.io>
 Date: Mon, 28 Apr 2025 19:29:39 -0400
 Subject: [PATCH] hacktest
@@ -160,23 +160,23 @@ index 19ce4da285e8..c4cafd52c15a 100644
  
  free_vectors:
 diff --git a/drivers/pci/msi/msi.c b/drivers/pci/msi/msi.c
-index 2f647cac4cae..865db7c101d0 100644
+index 2f647cac4cae..e76250f9c582 100644
 --- a/drivers/pci/msi/msi.c
 +++ b/drivers/pci/msi/msi.c
 @@ -208,12 +208,17 @@ static inline void pci_write_msg_msi(struct pci_dev *dev, struct msi_desc *desc,
  
  static inline void pci_write_msg_msix(struct msi_desc *desc, struct msi_msg *msg)
  {
-+	pci_info("writing msix msg");
++	printk(KERN_INFO "writing msix msg\n");
  	void __iomem *base = pci_msix_desc_addr(desc);
-+	pci_info("base addr: %p", base);
++	printk(KERN_INFO "base addr: %p", base);
  	u32 ctrl = desc->pci.msix_ctrl;
-+	pci_info("msix ctrl: %d", ctrl);
++	printk(KERN_INFO "msix ctrl: %d", ctrl);
  	bool unmasked = !(ctrl & PCI_MSIX_ENTRY_CTRL_MASKBIT);
  
 -	if (desc->pci.msi_attrib.is_virtual)
 +	if (desc->pci.msi_attrib.is_virtual) {
-+		pci_info(dev, "msi virtual attrib, not writing");
++		printk(KERN_INFO "msi virtual attrib, not writing");
  		return;
 +	}
  	/*
@@ -188,24 +188,24 @@ index 2f647cac4cae..865db7c101d0 100644
  	 */
 -	if (unmasked)
 +	if (unmasked) {
-+		pci_info("entry is unmasked, writing with maskbit");
++		printk(KERN_INFO "entry is unmasked, writing with maskbit");
  		pci_msix_write_vector_ctrl(desc, ctrl | PCI_MSIX_ENTRY_CTRL_MASKBIT);
 +	}
  
-+	pci_info("writelo data: %d, addr: %d", msg->address_lo, base + PCI_MSIX_ENTRY_LOWER_ADDR);
++	printk(KERN_INFO "writelo data: %d, addr: %d", msg->address_lo, base + PCI_MSIX_ENTRY_LOWER_ADDR);
  	writel(msg->address_lo, base + PCI_MSIX_ENTRY_LOWER_ADDR);
-+	pci_info("writehi data: %d, addr: %d", msg->address_hi, base + PCI_MSIX_ENTRY_UPPER_ADDR);
++	printk(KERN_INFO "writehi data: %d, addr: %d", msg->address_hi, base + PCI_MSIX_ENTRY_UPPER_ADDR);
  	writel(msg->address_hi, base + PCI_MSIX_ENTRY_UPPER_ADDR);
-+	pci_info("write data: %d, addr: %d", msg->data, base + PCI_MSIX_ENTRY_DATA);
++	printk(KERN_INFO "write data: %d, addr: %d", msg->data, base + PCI_MSIX_ENTRY_DATA);
  	writel(msg->data, base + PCI_MSIX_ENTRY_DATA);
  
 -	if (unmasked)
 +	if (unmasked) {
-+		pci_info("entry is (still) unmasked");
++		printk(KERN_INFO "entry is (still) unmasked");
  		pci_msix_write_vector_ctrl(desc, ctrl);
 +	}
  
-+	pci_info("reading back 4 bytes of data from addr: %d", base + PCI_MSIX_ENTRY_DATA);
++	printk(KERN_INFO "reading back 4 bytes of data from addr: %d", base + PCI_MSIX_ENTRY_DATA);
  	/* Ensure that the writes are visible in the device */
  	readl(base + PCI_MSIX_ENTRY_DATA);
  }
