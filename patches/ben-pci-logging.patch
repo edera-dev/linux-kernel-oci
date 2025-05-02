@@ -1,10 +1,10 @@
-From 38dad4669b9bcf717b5b0474d6dff093f7338c0b Mon Sep 17 00:00:00 2001
+From a41aa1c16b3fda8b67593135380dd160a1398502 Mon Sep 17 00:00:00 2001
 From: Benjamin Leggett <benjamin@edera.io>
 Date: Mon, 28 Apr 2025 19:29:39 -0400
 Subject: [PATCH] hacktest
 
 ---
- arch/x86/pci/xen.c                            | 22 +++++--
+ arch/x86/pci/xen.c                            | 24 +++++--
  drivers/gpu/drm/amd/amdgpu/amdgpu_device.c    |  7 ++-
  drivers/gpu/drm/amd/amdgpu/amdgpu_irq.c       | 11 ++--
  drivers/pci/msi/msi.c                         | 63 ++++++++++++++++---
@@ -16,10 +16,10 @@ Subject: [PATCH] hacktest
  drivers/xen/xen-pciback/pci_stub.c            | 49 ++++++++-------
  drivers/xen/xen-pciback/pciback_ops.c         | 14 ++---
  drivers/xen/xen-pciback/xenbus.c              | 36 +++++------
- 12 files changed, 173 insertions(+), 94 deletions(-)
+ 12 files changed, 175 insertions(+), 94 deletions(-)
 
 diff --git a/arch/x86/pci/xen.c b/arch/x86/pci/xen.c
-index 0f2fe524f60d..cfdc9614191e 100644
+index 0f2fe524f60d..0e123945127a 100644
 --- a/arch/x86/pci/xen.c
 +++ b/arch/x86/pci/xen.c
 @@ -170,12 +170,17 @@ static int xen_setup_msi_irqs(struct pci_dev *dev, int nvec, int type)
@@ -92,7 +92,21 @@ index 0f2fe524f60d..cfdc9614191e 100644
  			int pos;
  			unsigned long flags;
  			u32 table_offset, bir;
-@@ -314,6 +324,7 @@ static int xen_initdom_setup_msi_irqs(struct pci_dev *dev, int nvec, int type)
+@@ -301,11 +311,13 @@ static int xen_initdom_setup_msi_irqs(struct pci_dev *dev, int nvec, int type)
+ 			pci_read_config_dword(dev, pos + PCI_MSIX_TABLE,
+ 					      &table_offset);
+ 			bir = (u8)(table_offset & PCI_MSIX_TABLE_BIR);
++			dev_info(&dev->dev, "xen: found MSI-X table offset %d under BAR: %d\n", table_offset, bir);
+ 			flags = pci_resource_flags(dev, bir);
+ 			if (!flags || (flags & IORESOURCE_UNSET))
+ 				return -EINVAL;
+ 
+ 			map_irq.table_base = pci_resource_start(dev, bir);
++			dev_info(&dev->dev, "xen: MSI-X real start position %#llx under BAR: %d\n", map_irq.table_base, bir);
+ 			map_irq.entry_nr = msidesc->msi_index;
+ 		}
+ 
+@@ -314,6 +326,7 @@ static int xen_initdom_setup_msi_irqs(struct pci_dev *dev, int nvec, int type)
  			ret = HYPERVISOR_physdev_op(PHYSDEVOP_map_pirq,
  						    &map_irq);
  		if (type == PCI_CAP_ID_MSI && nvec > 1 && ret) {
@@ -100,7 +114,7 @@ index 0f2fe524f60d..cfdc9614191e 100644
  			/*
  			 * If MAP_PIRQ_TYPE_MULTI_MSI is not available
  			 * there's nothing else we can do in this case.
-@@ -324,6 +335,7 @@ static int xen_initdom_setup_msi_irqs(struct pci_dev *dev, int nvec, int type)
+@@ -324,6 +337,7 @@ static int xen_initdom_setup_msi_irqs(struct pci_dev *dev, int nvec, int type)
  			goto out;
  		}
  		if (ret == -EINVAL && !pci_domain_nr(dev->bus)) {
@@ -184,7 +198,7 @@ index 19ce4da285e8..c4cafd52c15a 100644
  
  free_vectors:
 diff --git a/drivers/pci/msi/msi.c b/drivers/pci/msi/msi.c
-index 2f647cac4cae..8673c0e0e8b0 100644
+index 2f647cac4cae..9ab16f846448 100644
 --- a/drivers/pci/msi/msi.c
 +++ b/drivers/pci/msi/msi.c
 @@ -208,12 +208,17 @@ static inline void pci_write_msg_msi(struct pci_dev *dev, struct msi_desc *desc,
@@ -216,11 +230,11 @@ index 2f647cac4cae..8673c0e0e8b0 100644
  		pci_msix_write_vector_ctrl(desc, ctrl | PCI_MSIX_ENTRY_CTRL_MASKBIT);
 +	}
  
-+	printk(KERN_INFO "writelo data: %d, addr: %#lx", msg->address_lo, base + PCI_MSIX_ENTRY_LOWER_ADDR);
++	printk(KERN_INFO "writelo data: %d, addr: %p", msg->address_lo, base + PCI_MSIX_ENTRY_LOWER_ADDR);
  	writel(msg->address_lo, base + PCI_MSIX_ENTRY_LOWER_ADDR);
-+	printk(KERN_INFO "writehi data: %d, addr: %#lx", msg->address_hi, base + PCI_MSIX_ENTRY_UPPER_ADDR);
++	printk(KERN_INFO "writehi data: %d, addr: %p", msg->address_hi, base + PCI_MSIX_ENTRY_UPPER_ADDR);
  	writel(msg->address_hi, base + PCI_MSIX_ENTRY_UPPER_ADDR);
-+	printk(KERN_INFO "write data: %d, addr: %#lx", msg->data, base + PCI_MSIX_ENTRY_DATA);
++	printk(KERN_INFO "write data: %d, addr: %p", msg->data, base + PCI_MSIX_ENTRY_DATA);
  	writel(msg->data, base + PCI_MSIX_ENTRY_DATA);
  
 -	if (unmasked)
@@ -229,7 +243,7 @@ index 2f647cac4cae..8673c0e0e8b0 100644
  		pci_msix_write_vector_ctrl(desc, ctrl);
 +	}
  
-+	printk(KERN_INFO "reading back 4 bytes of data from addr: %#lx", base + PCI_MSIX_ENTRY_DATA);
++	printk(KERN_INFO "reading back 4 bytes of data from addr: %p", base + PCI_MSIX_ENTRY_DATA);
  	/* Ensure that the writes are visible in the device */
  	readl(base + PCI_MSIX_ENTRY_DATA);
  }
