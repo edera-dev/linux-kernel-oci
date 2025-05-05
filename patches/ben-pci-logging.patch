@@ -1,10 +1,10 @@
-From a41aa1c16b3fda8b67593135380dd160a1398502 Mon Sep 17 00:00:00 2001
+From 4c9047093204bdf573d20db886b4dc2f88cd0b21 Mon Sep 17 00:00:00 2001
 From: Benjamin Leggett <benjamin@edera.io>
 Date: Mon, 28 Apr 2025 19:29:39 -0400
 Subject: [PATCH] hacktest
 
 ---
- arch/x86/pci/xen.c                            | 24 +++++--
+ arch/x86/pci/xen.c                            | 25 ++++++--
  drivers/gpu/drm/amd/amdgpu/amdgpu_device.c    |  7 ++-
  drivers/gpu/drm/amd/amdgpu/amdgpu_irq.c       | 11 ++--
  drivers/pci/msi/msi.c                         | 63 ++++++++++++++++---
@@ -16,10 +16,10 @@ Subject: [PATCH] hacktest
  drivers/xen/xen-pciback/pci_stub.c            | 49 ++++++++-------
  drivers/xen/xen-pciback/pciback_ops.c         | 14 ++---
  drivers/xen/xen-pciback/xenbus.c              | 36 +++++------
- 12 files changed, 175 insertions(+), 94 deletions(-)
+ 12 files changed, 176 insertions(+), 94 deletions(-)
 
 diff --git a/arch/x86/pci/xen.c b/arch/x86/pci/xen.c
-index 0f2fe524f60d..0e123945127a 100644
+index 0f2fe524f60d..df30d94d8b39 100644
 --- a/arch/x86/pci/xen.c
 +++ b/arch/x86/pci/xen.c
 @@ -170,12 +170,17 @@ static int xen_setup_msi_irqs(struct pci_dev *dev, int nvec, int type)
@@ -80,19 +80,20 @@ index 0f2fe524f60d..0e123945127a 100644
  
  		memset(&map_irq, 0, sizeof(map_irq));
  		map_irq.domid = domid;
-@@ -290,9 +298,11 @@ static int xen_initdom_setup_msi_irqs(struct pci_dev *dev, int nvec, int type)
+@@ -290,9 +298,12 @@ static int xen_initdom_setup_msi_irqs(struct pci_dev *dev, int nvec, int type)
  		map_irq.devfn = dev->devfn;
  
  		if (type == PCI_CAP_ID_MSI && nvec > 1) {
 +			dev_info(&dev->dev, "xen: setting up MSI, assuming PIRQ_TYPE_MULTI_MSI\n");
  			map_irq.type = MAP_PIRQ_TYPE_MULTI_MSI;
  			map_irq.entry_nr = nvec;
++			dev_info(&dev->dev, "xen: setting up MSI, nvec is %d\n", nvec);
  		} else if (type == PCI_CAP_ID_MSIX) {
 +			dev_info(&dev->dev, "xen: setting up MSI-X\n");
  			int pos;
  			unsigned long flags;
  			u32 table_offset, bir;
-@@ -301,11 +311,13 @@ static int xen_initdom_setup_msi_irqs(struct pci_dev *dev, int nvec, int type)
+@@ -301,11 +312,13 @@ static int xen_initdom_setup_msi_irqs(struct pci_dev *dev, int nvec, int type)
  			pci_read_config_dword(dev, pos + PCI_MSIX_TABLE,
  					      &table_offset);
  			bir = (u8)(table_offset & PCI_MSIX_TABLE_BIR);
@@ -106,7 +107,7 @@ index 0f2fe524f60d..0e123945127a 100644
  			map_irq.entry_nr = msidesc->msi_index;
  		}
  
-@@ -314,6 +326,7 @@ static int xen_initdom_setup_msi_irqs(struct pci_dev *dev, int nvec, int type)
+@@ -314,6 +327,7 @@ static int xen_initdom_setup_msi_irqs(struct pci_dev *dev, int nvec, int type)
  			ret = HYPERVISOR_physdev_op(PHYSDEVOP_map_pirq,
  						    &map_irq);
  		if (type == PCI_CAP_ID_MSI && nvec > 1 && ret) {
@@ -114,7 +115,7 @@ index 0f2fe524f60d..0e123945127a 100644
  			/*
  			 * If MAP_PIRQ_TYPE_MULTI_MSI is not available
  			 * there's nothing else we can do in this case.
-@@ -324,6 +337,7 @@ static int xen_initdom_setup_msi_irqs(struct pci_dev *dev, int nvec, int type)
+@@ -324,6 +338,7 @@ static int xen_initdom_setup_msi_irqs(struct pci_dev *dev, int nvec, int type)
  			goto out;
  		}
  		if (ret == -EINVAL && !pci_domain_nr(dev->bus)) {
