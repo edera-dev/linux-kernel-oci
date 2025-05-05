@@ -4,6 +4,7 @@ architectures:
 - aarch64
 flavors:
 - name: zone
+- name: zone-amdgpu
 - name: zone-openpax
   constraints:
     series:
