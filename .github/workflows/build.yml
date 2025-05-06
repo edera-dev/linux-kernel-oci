@@ -32,7 +32,7 @@ jobs:
     - name: generate matrix
       run: 'PATH="${HOME}/go/bin:${PATH}" ./hack/build/generate-matrix.sh "${{ inputs.spec }}"'
     - name: upload matrix
-      uses: actions/upload-artifact@b4b15b8c7c6ac21ea08fcf65892d2ee8f75cf882 # v4
+      uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
       with:
         name: matrix
         path: "matrix.json"
@@ -63,13 +63,13 @@ jobs:
         with:
           submodules: recursive
       - name: install cosign
-        uses: sigstore/cosign-installer@dc72c7d5c4d10cd6bcb8cf6e3fd625a9e5e537da # v3.7.0
+        uses: sigstore/cosign-installer@d7d6bc7722e3daa8354c50bcb52f4837da5e9b6a # v3.8.1
       - name: docker setup linux-kernel-oci
         run: sudo python3 ./hack/build/docker-setup.py
       - name: docker setup buildx
-        uses: docker/setup-buildx-action@c47758b77c9736f4b2ef4073d4d51994fabfe349 # v3
+        uses: docker/setup-buildx-action@b5ca514318bd6ebac0fb2aedd5d36ec1b5c232a2 # v3
       - name: docker login ghcr.io
-        uses: docker/login-action@9780b0c442fbb1117ed29e0efdff1e18412f7567 # v3
+        uses: docker/login-action@74a5d142397b4f367a81961eba4e8cd7edddf772 # v3
         with:
           registry: ghcr.io
           username: "${{github.actor}}"
@@ -77,7 +77,7 @@ jobs:
       - name: generate docker script
         run: "./hack/build/generate-docker-script.sh"
       - name: upload docker script
-        uses: actions/upload-artifact@b4b15b8c7c6ac21ea08fcf65892d2ee8f75cf882 # v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: "build-${{ matrix.builds.version }}-${{ matrix.builds.flavor }}.sh"
           path: "docker.sh"
