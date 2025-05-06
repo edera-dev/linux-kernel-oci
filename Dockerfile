@@ -2,11 +2,17 @@ FROM --platform=$BUILDPLATFORM scratch AS kernelsrc
 ARG KERNEL_SRC_URL=
 ADD ${KERNEL_SRC_URL} /src.tar.xz
 
+FROM --platform=$BUILDPLATFORM scratch AS firmware
+ARG FIRMWARE_URL=
+ARG FIRMWARE_SIG_URL=
+ADD ${FIRMWARE_URL} /firmware.tar.xz
+ADD ${FIRMWARE_SIG_URL} /firmware.tar.sign
+
 FROM --platform=$BUILDPLATFORM debian:bookworm@sha256:264982ff4d18000fa74540837e2c43ca5137a53a83f8f62c7b3803c0f0bdcd56 AS buildenv
 RUN export DEBIAN_FRONTEND=noninteractive && apt-get update && apt-get install -y \
       build-essential squashfs-tools python3-yaml \
       patch diffutils sed mawk findutils zstd \
-      python3 python3-packaging curl rsync cpio \
+      python3 python3-packaging curl rsync cpio gpg grep \
       flex bison pahole libssl-dev libelf-dev bc kmod && \
       rm -rf /var/lib/apt/lists/*
 ARG BUILDPLATFORM
@@ -26,7 +32,17 @@ ARG KERNEL_FLAVOR=zone
 ARG BUILDPLATFORM
 ARG TARGETPLATFORM
 COPY --from=kernelsrc --chown=build:build /src.tar.xz /build/override-kernel-src.tar.xz
-RUN KERNEL_SRC_URL="/build/override-kernel-src.tar.xz" ./hack/build/docker-build-internal.sh
+COPY --from=firmware --chown=build:build /firmware.tar.xz /build/override-firmware.tar.xz
+COPY --from=firmware --chown=build:build /firmware.tar.sign /build/override-firmware.tar.sign
+RUN if [ "${KERNEL_FLAVOR}" = "zone-amdgpu" ]; then \
+        FIRMWARE_SIG_URL="/build/override-firmware.tar.sign" \
+        FIRMWARE_URL="/build/override-firmware.tar.xz" \
+        KERNEL_SRC_URL="/build/override-kernel-src.tar.xz" \
+        ./hack/build/docker-build-internal.sh; \
+    else \
+        KERNEL_SRC_URL="/build/override-kernel-src.tar.xz" \
+        ./hack/build/docker-build-internal.sh; \
+    fi
 
 FROM alpine:3.21@sha256:a8560b36e8b8210634f77d9f7f9efd7ffa463e380b75e2e74aff4511df3ef88c AS sdkbuild
 ARG KERNEL_VERSION=

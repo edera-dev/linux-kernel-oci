@@ -19,6 +19,17 @@ make -C "${KERNEL_OBJ}" ARCH="${TARGET_ARCH_KERNEL}" -j"${KERNEL_BUILD_JOBS}" "$
 KERNEL_MODULES_VER="$(ls "${MODULES_INSTALL_PATH}/lib/modules")"
 
 mkdir -p "${ADDONS_OUTPUT_PATH}"
+
+# Firmware handling (will go in ${ADDONS_PATH}/firmware, siblings with `${ADDONS_PATH}/modules`)
+if [ -n "${FIRMWARE_URL}" ]; then
+	mkdir -p "${FIRMWARE_OUTPUT_PATH}"
+	tar -xf "${FIRMWARE_URL}" -C "${FIRMWARE_OUTPUT_PATH}" --strip-components=1
+	# For amdgpu zone kernel, we only want the amdgpu firmwares, so remove the rest to keep the addons small
+	if [ "${KERNEL_FLAVOR}" = "zone-amdgpu" ]; then
+		find "${FIRMWARE_OUTPUT_PATH}" -maxdepth 1 ! -name 'amdgpu' ! -name '.' -exec rm -rf {} +
+	fi
+fi
+
 mv "${MODULES_INSTALL_PATH}/lib/modules/${KERNEL_MODULES_VER}" "${MODULES_OUTPUT_PATH}"
 rm -rf "${MODULES_INSTALL_PATH}"
 [ -L "${MODULES_OUTPUT_PATH}/build" ] && unlink "${MODULES_OUTPUT_PATH}/build"

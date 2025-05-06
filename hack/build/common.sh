@@ -36,6 +36,18 @@ if [ -z "${KERNEL_FLAVOR}" ]; then
 	KERNEL_FLAVOR="zone"
 fi
 
+# Getting the pubkey from the signature is slightly stupid, ideally we should maintain
+# a list of valid keys out-of-band, this is best-effort.
+if [ -n "${FIRMWARE_SIG_URL}" ]; then
+	KEY_INFO=$(gpg --verify "$FIRMWARE_SIG_URL" "$FIRMWARE_URL" 2>&1) || true
+	KEY_ID=$(echo "$KEY_INFO" | grep -E "using .* key|key ID" | grep -oE "[A-F0-9]{40}|[A-F0-9]{16,}")
+	gpg --recv-key "$KEY_ID"
+	unxz "$FIRMWARE_URL"
+	gpg --verify "$FIRMWARE_SIG_URL" || { echo "ERROR: signature ${FIRMWARE_SIG_URL} cannot validate ${FIRMWARE_URL}"; exit 1; }
+else
+	echo "No firmware signature defined, no validation will be performed"
+fi
+
 KERNEL_SRC="${KERNEL_DIR}/src/linux-${KERNEL_VERSION}-${TARGET_ARCH_STANDARD}"
 KERNEL_OBJ="${KERNEL_DIR}/obj/linux-${KERNEL_VERSION}-${TARGET_ARCH_STANDARD}"
 
@@ -120,6 +132,8 @@ MODULES_INSTALL_PATH="${OUTPUT_DIR}/modules-install"
 ADDONS_OUTPUT_PATH="${OUTPUT_DIR}/addons"
 # shellcheck disable=SC2034
 MODULES_OUTPUT_PATH="${ADDONS_OUTPUT_PATH}/modules"
+# shellcheck disable=SC2034
+FIRMWARE_OUTPUT_PATH="${ADDONS_OUTPUT_PATH}/firmware"
 # shellcheck disable=SC2034
 ADDONS_SQUASHFS_PATH="${OUTPUT_DIR}/addons.squashfs"
 # shellcheck disable=SC2034

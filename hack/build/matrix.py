@@ -65,6 +65,23 @@ def get_all_kernel_releases() -> list[str]:
             releases.append(kernel_version)
     return releases
 
+@cache
+def get_all_firmware_releases() -> list[str]:
+    snapshots = []
+    for maybe_release_snapshot in list_rsync_dir(
+        "rsync://rsync.kernel.org/pub/linux/kernel/firmware/"
+    ):
+        if not (
+            maybe_release_snapshot.startswith("linux-firmware-") and maybe_release_snapshot.endswith(".xz")
+        ):
+            continue
+        firmware_snapshot_version = maybe_release_snapshot.replace("linux-firmware-", "").replace(
+            ".tar.xz", ""
+        )
+        snapshots.append(firmware_snapshot_version)
+    snapshots.sort()
+    snapshots.reverse()
+    return snapshots
 
 def merge_matrix(matrix_list: list[list[dict[str, any]]]) -> list[dict[str, any]]:
     all_builds = OrderedDict()  # type: dict[str, dict[str, any]]
@@ -209,6 +226,25 @@ def generate_matrix(tags: dict[str, str]) -> list[dict[str, any]]:
 
     version_builds = []
 
+    kernel_cdn = "https://cdn.kernel.org/pub/linux/kernel"
+
+    # TODO later on we could get cute and let the config drive
+    # which firmware snapshot to use - but as far as the official firmware goes
+    # latest should be fine/preferred.
+    # https://www.kernel.org/doc/html/latest/driver-api/firmware/firmware-usage-guidelines.html
+    all_firmware_releases = get_all_firmware_releases()
+    latest_firmware = all_firmware_releases[0]
+
+    firmware_url = "%s/firmware/linux-firmware-%s.tar.xz" % (
+        kernel_cdn,
+        latest_firmware,
+    )
+
+    firmware_sig_url = "%s/firmware/linux-firmware-%s.tar.sign" % (
+        kernel_cdn,
+        latest_firmware,
+    )
+
     for version in unique_versions:
         version_tags = []
         for tag in tags:
@@ -221,7 +257,8 @@ def generate_matrix(tags: dict[str, str]) -> list[dict[str, any]]:
         if version_info.micro == 0:
             version_for_url = "%s.%s" % (version_info.major, version_info.minor)
 
-        src_url = "https://cdn.kernel.org/pub/linux/kernel/v%s.x/linux-%s.tar.xz" % (
+        src_url = "%s/v%s.x/linux-%s.tar.xz" % (
+            kernel_cdn,
             version_info.major,
             version_for_url,
         )
@@ -246,6 +283,8 @@ def generate_matrix(tags: dict[str, str]) -> list[dict[str, any]]:
             version_builds.append(
                 {
                     "version": version,
+                    "firmware_url": firmware_url,
+                    "firmware_sig_url": firmware_sig_url,
                     "tags": version_tags,
                     "source": src_url,
                     "flavor": flavor,
