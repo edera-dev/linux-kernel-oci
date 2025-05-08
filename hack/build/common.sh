@@ -41,19 +41,19 @@ fi
 if [ -n "${FIRMWARE_SIG_URL}" ]; then
 	echo "Found firmware signature $FIRMWARE_SIG_URL, attempting validation"
 
-    # Check if FIRMWARE_URL exists and is a regular file
-    if [ ! -f "$FIRMWARE_URL" ]; then
-        echo "ERROR: $FIRMWARE_URL does not exist or is not a regular file"
-        echo "ERROR: If this was intentional, consider unsetting '$FIRMWARE_SIG_URL'"
-        exit 1
-    fi
+	# Check if FIRMWARE_URL exists and is a regular file
+	if [ ! -f "$FIRMWARE_URL" ]; then
+		echo "ERROR: $FIRMWARE_URL does not exist or is not a regular file"
+		echo "ERROR: If this was intentional, consider unsetting '$FIRMWARE_SIG_URL'"
+		exit 1
+	fi
 
 	KEY_INFO=$(gpg --verify "$FIRMWARE_SIG_URL" "$FIRMWARE_URL" 2>&1) || true
 	KEY_ID=$(echo "$KEY_INFO" | grep -E "using .* key|key ID" | grep -oE "[A-F0-9]{40}|[A-F0-9]{16,}")
 	gpg --recv-key "$KEY_ID"
 	unxz "$FIRMWARE_URL"
 	# We've uncompressed it, update the env var so later stuff points at the right file
-    FIRMWARE_URL="${FIRMWARE_URL%.xz}"
+	FIRMWARE_URL="${FIRMWARE_URL%.xz}"
 	gpg --verify "$FIRMWARE_SIG_URL" || { echo "ERROR: signature ${FIRMWARE_SIG_URL} cannot validate ${FIRMWARE_URL}"; exit 1; }
 else
 	echo "No firmware signature defined, no validation will be performed"
