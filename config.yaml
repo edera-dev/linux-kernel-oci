@@ -1,15 +1,19 @@
-imageNameFormat: "ghcr.io/edera-dev/[image]:[tag]"
+imageNameFormat: "ttl.sh/rhubarb-bonanza/[image]:[tag]"
+firmware_snapshot: 20250410
 architectures:
 - x86_64
-- aarch64
+# - aarch64
 flavors:
 - name: zone
-- name: zone-openpax
   constraints:
     series:
-    - '6.10'
-    - '6.11'
-- name: host
+    - '6.14'
+# - name: zone-openpax
+#   constraints:
+#     series:
+#     - '6.10'
+#     - '6.11'
+# - name: host
 versions:
 - current: true
 - lower: '5.15'
