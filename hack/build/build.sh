@@ -21,6 +21,7 @@ KERNEL_MODULES_VER="$(ls "${MODULES_INSTALL_PATH}/lib/modules")"
 mkdir -p "${ADDONS_OUTPUT_PATH}"
 
 # Firmware handling (will go in ${ADDONS_PATH}/firmware, siblings with `${ADDONS_PATH}/modules`)
+# Note that this assumes the archive is a .tar file, and has already been validated elsewhere.
 if [ -n "${FIRMWARE_URL}" ]; then
 	mkdir -p "${FIRMWARE_OUTPUT_PATH}"
 	echo "untarring firmware at $FIRMWARE_URL"
