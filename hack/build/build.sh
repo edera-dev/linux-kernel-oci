@@ -23,8 +23,7 @@ mkdir -p "${ADDONS_OUTPUT_PATH}"
 # Firmware handling (will go in ${ADDONS_PATH}/firmware, siblings with `${ADDONS_PATH}/modules`)
 if [ -n "${FIRMWARE_URL}" ]; then
 	mkdir -p "${FIRMWARE_OUTPUT_PATH}"
-	echo "LOOKING FOR FIRMWARE at $FIRMWARE_URL"
-	ls -lah /build
+	echo "untarring firmware at $FIRMWARE_URL"
 	tar -xf "${FIRMWARE_URL}" -C "${FIRMWARE_OUTPUT_PATH}" --strip-components=1
 	# For amdgpu zone kernel, we only want the amdgpu firmwares, so remove the rest to keep the addons small
 	if [ "${KERNEL_FLAVOR}" = "zone-amdgpu" ]; then
