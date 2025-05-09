@@ -207,8 +207,8 @@ def generate_build_from_env() -> list[str]:
     root_kernel_version = os.getenv("KERNEL_VERSION")
     root_kernel_flavor = os.getenv("KERNEL_FLAVOR")
     root_kernel_src_url = os.getenv("KERNEL_SRC_URL")
-    root_firmware_url = os.getenv("FIRMARE_URL")
-    root_firmware_sig_url = os.getenv("FIRMARE_SIG_URL")
+    root_firmware_url = os.getenv("FIRMWARE_URL")
+    root_firmware_sig_url = os.getenv("FIRMWARE_SIG_URL")
     root_kernel_tags = os.getenv("KERNEL_TAGS", "").split(",")
     root_kernel_architectures = os.getenv("KERNEL_ARCHITECTURES").split(",")
     return generate_builds(
