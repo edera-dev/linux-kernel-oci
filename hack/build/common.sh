@@ -139,11 +139,19 @@ case "${KERNEL_FLAVOR}" in
 	fi
 
 	KERNEL_ARCH_STANDARD=$TARGET_ARCH_STANDARD
-	# HACK: kconfig paths still use x86 for both
-	# so we have to get cute and munge
-	if [ "${TARGET_ARCH_STANDARD}" = "x86_64" ]; then
-		KERNEL_ARCH_STANDARD="x86"
-	fi
+
+	# HACK: kconfig paths use different arch keywords, so we have to get cute and munge
+	case "${TARGET_ARCH_STANDARD}" in
+		x86_64)
+			KERNEL_ARCH_STANDARD="x86"
+			;;
+		aarch64)
+			KERNEL_ARCH_STANDARD="arm64"
+			;;
+		*)
+			KERNEL_ARCH_STANDARD="${TARGET_ARCH_STANDARD}"
+			;;
+	esac
 
 	KCONFIG_FRAGMENT_DEST="${KERNEL_SRC}/arch/${KERNEL_ARCH_STANDARD}/configs/"
 
