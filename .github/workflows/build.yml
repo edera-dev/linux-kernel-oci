@@ -54,6 +54,8 @@ jobs:
       KERNEL_PUBLISH: "${{ inputs.publish }}"
       KERNEL_VERSION: "${{ matrix.builds.version }}"
       KERNEL_SRC_URL: "${{ matrix.builds.source }}"
+      FIRMWARE_URL: "${{ matrix.builds.firmware_url }}"
+      FIRMWARE_SIG_URL: "${{ matrix.builds.firmware_sig_url }}"
       KERNEL_FLAVOR: "${{ matrix.builds.flavor }}"
       KERNEL_TAGS: "${{ join(matrix.builds.tags, ',') }}"
       KERNEL_ARCHITECTURES: "${{ join(matrix.builds.architectures, ',') }}"

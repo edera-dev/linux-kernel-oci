@@ -46,6 +46,8 @@ def docker_build(
     publish: bool,
     pass_build_args: bool,
     mark_format: Optional[str],
+    firmware_url: str,
+    firmware_sig_url: str,
 ) -> list[str]:
     lines = []
 
@@ -91,6 +93,10 @@ def docker_build(
             quoted("KERNEL_SRC_URL=%s" % src_url),
             "--build-arg",
             quoted("KERNEL_FLAVOR=%s" % flavor),
+            "--build-arg",
+            quoted("FIRMWARE_URL=%s" % firmware_url),
+            "--build-arg",
+            quoted("FIRMWARE_SIG_URL=%s" % firmware_sig_url),
         ]
 
     if mark_format is not None:
@@ -162,6 +168,8 @@ def generate_builds(
     kernel_src_url: str,
     kernel_tags: list[str],
     kernel_architectures: list[str],
+    firmware_url: str,
+    firmware_sig_url: str,
 ) -> list[str]:
     lines = []
     kernel_version_info = parse(kernel_version)
@@ -188,6 +196,8 @@ def generate_builds(
             flavor=kernel_flavor,
             src_url=kernel_src_url,
             architectures=kernel_architectures,
+            firmware_url=firmware_url,
+            firmware_sig_url=firmware_sig_url,
         )
         lines += image_lines
     return lines
@@ -197,6 +207,8 @@ def generate_build_from_env() -> list[str]:
     root_kernel_version = os.getenv("KERNEL_VERSION")
     root_kernel_flavor = os.getenv("KERNEL_FLAVOR")
     root_kernel_src_url = os.getenv("KERNEL_SRC_URL")
+    root_firmware_url = os.getenv("FIRMARE_URL")
+    root_firmware_sig_url = os.getenv("FIRMARE_SIG_URL")
     root_kernel_tags = os.getenv("KERNEL_TAGS", "").split(",")
     root_kernel_architectures = os.getenv("KERNEL_ARCHITECTURES").split(",")
     return generate_builds(
@@ -205,6 +217,8 @@ def generate_build_from_env() -> list[str]:
         kernel_src_url=root_kernel_src_url,
         kernel_tags=root_kernel_tags,
         kernel_architectures=root_kernel_architectures,
+        firmware_url=root_firmware_url,
+        firmware_sig_url=root_firmware_sig_url,
     )
 
 
@@ -215,6 +229,8 @@ def generate_builds_from_matrix(matrix) -> list[str]:
         build_version = build["version"]
         build_flavor = build["flavor"]
         build_source = build["source"]
+        firmware_url = build["firmware_url"]
+        firmware_sig_url = build["firmware_sig_url"]
         build_tags = build["tags"]
         build_architectures = build["architectures"]
         lines += generate_builds(
@@ -223,6 +239,8 @@ def generate_builds_from_matrix(matrix) -> list[str]:
             kernel_src_url=build_source,
             kernel_tags=build_tags,
             kernel_architectures=build_architectures,
+            firmware_url=firmware_url,
+            firmware_sig_url=firmware_sig_url,
         )
     return lines
 
