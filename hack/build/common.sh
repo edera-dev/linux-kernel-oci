@@ -117,8 +117,6 @@ mkdir -p "${OUTPUT_DIR}"
 
 mkdir -p "${KERNEL_OBJ}"
 
-EXTRA_MAKE_CONFIG_FRAGMENTS=""
-
 # Copy out our custom kconfig - if we are building for a <flavor>-<variant>, merge the variant fragment with the flavor baseconfig
 # by copying the fragment into the kernel src tree and letting the kernel's `make` merge them
 case "${KERNEL_FLAVOR}" in
@@ -157,20 +155,16 @@ case "${KERNEL_FLAVOR}" in
 
 	cp "${VARIANT_FRAGMENT_CONFIG}" "${KCONFIG_FRAGMENT_DEST}"
 
-	# Append the fragment we copied out to the make args
+	# Add the fragment we copied out to the make args
 	# NOTE `make` craps the bed if you pass a leading space in front of the fragment here.
-	if [ -z "${EXTRA_MAKE_CONFIG_FRAGMENTS}" ]; then
-		EXTRA_MAKE_CONFIG_FRAGMENTS="${FLAVOR}-${VARIANT}.fragment.config"
-	else
-		EXTRA_MAKE_CONFIG_FRAGMENTS="${EXTRA_MAKE_CONFIG_FRAGMENTS} ${FLAVOR}-${VARIANT}.fragment.config"
-	fi
+	EXTRA_MAKE_CONFIG_FRAGMENTS="${FLAVOR}-${VARIANT}.fragment.config"
 	;;
   *)
 	# Looks like we are dealing with just <flavor>.config
-	BASE_FLAVOR_CONFIG="${KERNEL_DIR}/configs/${TARGET_ARCH_STANDARD}/${FLAVOR}.config"
+	BASE_FLAVOR_CONFIG="${KERNEL_DIR}/configs/${TARGET_ARCH_STANDARD}/${KERNEL_FLAVOR}.config"
 
 	if [ ! -f "${BASE_FLAVOR_CONFIG}" ]; then
-		echo "ERROR: kernel flavor base config file not found for ${TARGET_ARCH_STANDARD}" >&2
+		echo "ERROR: kernel flavor base config file not found for ${TARGET_ARCH_STANDARD}: ${BASE_FLAVOR_CONFIG}" >&2
 		exit 1
 	fi
 
@@ -182,7 +176,12 @@ case "${KERNEL_FLAVOR}" in
 	;;
 esac
 
-make -C "${KERNEL_SRC}" O="${KERNEL_OBJ}" ARCH="${TARGET_ARCH_KERNEL}" "${CROSS_COMPILE_MAKE}" olddefconfig "${EXTRA_MAKE_CONFIG_FRAGMENTS}"
+# Kmake can't tolerate any trailing space at the end of the arglists, so we do this
+if [ -z "${EXTRA_MAKE_CONFIG_FRAGMENTS}" ]; then
+	make -C "${KERNEL_SRC}" O="${KERNEL_OBJ}" ARCH="${TARGET_ARCH_KERNEL}" "${CROSS_COMPILE_MAKE}" olddefconfig
+else
+	make -C "${KERNEL_SRC}" O="${KERNEL_OBJ}" ARCH="${TARGET_ARCH_KERNEL}" "${CROSS_COMPILE_MAKE}" olddefconfig "${EXTRA_MAKE_CONFIG_FRAGMENTS}"
+fi
 
 # shellcheck disable=SC2034
 IMAGE_TARGET="bzImage"
