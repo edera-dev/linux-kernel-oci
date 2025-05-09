@@ -123,9 +123,9 @@ EXTRA_MAKE_CONFIG_FRAGMENTS=""
 # by copying the fragment into the kernel src tree and letting the kernel's `make` merge them
 case "${KERNEL_FLAVOR}" in
   *-*)
-    # Looks like we are dealing with <flavor>-<variant>.config, versus <flavor>.config
-    FLAVOR=$(echo "${KERNEL_FLAVOR}" | cut -d'-' -f1)
-    VARIANT=$(echo "${KERNEL_FLAVOR}" | cut -d'-' -f2)
+	# Looks like we are dealing with <flavor>-<variant>.config, versus <flavor>.config
+	FLAVOR=$(echo "${KERNEL_FLAVOR}" | cut -d'-' -f1)
+	VARIANT=$(echo "${KERNEL_FLAVOR}" | cut -d'-' -f2)
 
 	BASE_FLAVOR_CONFIG="${KERNEL_DIR}/configs/${TARGET_ARCH_STANDARD}/${FLAVOR}.config"
 	VARIANT_FRAGMENT_CONFIG="${KERNEL_DIR}/configs/${TARGET_ARCH_STANDARD}/${FLAVOR}-${VARIANT}.fragment.config"
@@ -164,9 +164,9 @@ case "${KERNEL_FLAVOR}" in
 	else
 		EXTRA_MAKE_CONFIG_FRAGMENTS="${EXTRA_MAKE_CONFIG_FRAGMENTS} ${FLAVOR}-${VARIANT}.fragment.config"
 	fi
-    ;;
+	;;
   *)
-    # Looks like we are dealing with just <flavor>.config
+	# Looks like we are dealing with just <flavor>.config
 	BASE_FLAVOR_CONFIG="${KERNEL_DIR}/configs/${TARGET_ARCH_STANDARD}/${FLAVOR}.config"
 
 	if [ ! -f "${BASE_FLAVOR_CONFIG}" ]; then
@@ -179,7 +179,7 @@ case "${KERNEL_FLAVOR}" in
 	# TODO we should maybe treat our `base flavors` as fragments and make minconfig too,
 	# rather than copying them into the objdir as the base
 	cp "${BASE_FLAVOR_CONFIG}" "${KERNEL_OBJ}/.config"
-    ;;
+	;;
 esac
 
 make -C "${KERNEL_SRC}" O="${KERNEL_OBJ}" ARCH="${TARGET_ARCH_KERNEL}" "${CROSS_COMPILE_MAKE}" olddefconfig "${EXTRA_MAKE_CONFIG_FRAGMENTS}"
