@@ -1,0 +1,33 @@
+# General config hierarchy
+
+kernel.org arch-specific default config -> Edera base config -> Edera variant config
+
+When a kernel is built, we layer the Edera base config on top of the upstream kernel's default config,
+and (if selected) any variant configs on top of that, relying on the kernel's `make` system to do config merging.
+
+## Difference between a `base` config and a `variant` config
+
+- You generate a trimmed base config (also called a "flavor") by starting with the upstream kernel default config as the baseline. We currently have two base configs, `zone.config` and `host.config`.
+
+- You generate a trimmed variant config by starting with the Edera kernel config as the baseline.
+This is the only real difference between the steps below.
+We currently have two `zone` variants, `zone-amdgpu` and `zone-openpax`
+
+# Generating trimmed base configs for zone/host
+
+A "base config" is an Edera config fragment that contains only the changes from the latest stable _upstream_ kernel's default config file.
+1. Find the most recent stable `kernel.org` release's arch-specific default config file in the kernel tree, which usually lives in `<upstream-kernel-tree>/arch/<arch>/configs/<arch>_defconfig`, for example for the x86_64 it's `linux-6.14/arch/x86/configs/x86_64_defconfig`
+1. Run `hack/build/generate-kfragment.sh linux-6.14/arch/x86/configs/x86_64_defconfig my-custom-host.config regenerated-trimmed-host.config`
+1. `regenerated-trimmed-host.config` should only have the settings that are _not_ in the defconfig now.
+1. `cp regenerated-trimmed-host.config configs/x86_64/host.config` and check in.
+1. ditto for `zone.config`
+
+# Generating trimmed variant configs for zone/host
+
+A "variant config" is an Edera config fragment that contains only the changes from an edera "base config".
+
+1. Start from a released Edera kernel's full config (zone or host).
+1. You can always get this by pulling an Edera kernel image and extracting it, the full config is included, e.g. `crane export ghcr.io/edera-dev/host-kernel:6.14.6 - --platform=linux/amd64 | tar --keep-directory-symlink -xf - -C .`, or from your own `/boot` if you are booted under an Edera kernel.
+1. Let's assume you're creating a new `zone` kernel variant for `x86_64`, and are starting from a full config extracted from an Edera released `zone` kernel.
+1. Run `hack/build/generate-kfragment.sh edera-official-zone-config my-funky-variation-of-the-edera-base-config zone-funky.fragment.config`
+1. `cp zone-funky.fragment.config configs/x86_64/zone-funky.fragment.config`
