@@ -2,23 +2,23 @@
 
 if [ $# -ne 4 ]; then
 		cat << EOF
-Usage: $(basename "$0") <kernel_version> <arch> <edera_flavor_config> <delta_config>
+Usage: $(basename "$0") <kernel_version> <arch> <customized_flavor_config> <output_delta_flavor_config>
 
-Fetch an arch-specific kernel default configuration for a specific stable kernel version and compare it
-with another (local) config, outputting a config containing only the changed/added lines from the kernel default.
+Fetch an arch-specific kernel default configuration for a specific stable upstream kernel version and compare it
+with another (local) config, outputting a delta flavor config containing only the changed/added lines from the upstream kernel default.
 
 Arguments:
-		<kernel_version>  The stable kernel version to fetch (e.g., "6.14.6")
-		<arch>            Target architecture (x86_64, arm64, arm)
-		<new_config>      Path to the new kernel config file to compare against
-		<output_file>     Path where the fragment containing only modified options will be saved.
+		<kernel_version>							The stable kernel version to fetch (recomemnded oldest-supported kver)
+		<arch>												Target architecture (x86_64, arm64, arm)
+		<customized_flavor_config>		Path to the new kernel config file to compare against
+		<output_delta_flavor_config>	Path where the fragment containing only modified options will be saved.
 
 Example:
-		$(basename "$0") 6.14.6 x86_64 /edera_<host/zone>.config zone.config
+		$(basename "$0") 5.4.293 x86_64 /edera_<host/zone>.config zone.config
 
 Notes:
 		- The Edera flavor config does not have to be a complete kernel config,
-		  but starting from a complete Edera flavor config you know boots is recommended.
+			but starting from a complete Edera flavor config you know boots is recommended.
 		- The script will fetch the default config for the specified released version from kernel.org CDN
 		- Comment lines/unset opts (starting with #) are filtered out
 		- Only lines that were added or changed in <edera_flavor_config> are saved
@@ -76,11 +76,11 @@ fi
 CONFIG_PATH="$TEMP_DIR/linux/$CONFIG_SNIP"
 
 if [ -f "$CONFIG_PATH" ]; then
-		echo "Generating a trimmed delta config between kernel $UPSTREAM_KVER default config for $ARCH and Edera flavor config $FULL_EDERA_FLAVOR_CONFIG"
+		echo "Generating a trimmed delta flavor config between kernel $UPSTREAM_KVER default config for $ARCH and flavor config $FULL_EDERA_FLAVOR_CONFIG"
 	./hack/build/generate-kfragment.sh "$CONFIG_PATH" "$FULL_EDERA_FLAVOR_CONFIG" "$DELTA_EDERA_FLAVOR_CONFIG"
 else
 		echo "Error: Config file not found at $CONFIG_PATH"
 		exit 1
 fi
 
-echo "trimmed delta config saved to $DELTA_EDERA_FLAVOR_CONFIG"
+echo "trimmed flavor delta config saved to $DELTA_EDERA_FLAVOR_CONFIG"

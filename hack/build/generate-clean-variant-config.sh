@@ -5,7 +5,7 @@ if [ $# -ne 5 ]; then
 Usage: $(basename "$0") <edera_base_flavor> <edera_flavor_kver> <arch> <customized_variant_config> <output_delta_variant_config>
 
 Fetch an arch-specific Edera base flavor kernel configuration and compare it with another (local) config,
-outputting a delta variant config containing only the changed/added lines from the kernel default.
+outputting a delta variant config containing only the changed/added lines from the Ederad flavor default.
 
 Arguments:
 		<edera_base_flavor>						The edera flavor to start from ("zone" or "host")
