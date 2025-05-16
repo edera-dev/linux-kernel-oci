@@ -11,7 +11,7 @@ Arguments:
 		<edera_base_flavor>						The edera flavor to start from ("zone" or "host")
 		<edera_flavor_kver>           The edera flavor kernel version to base this off of (recommend oldest-supported kver)
 		<arch>												Target OCI image architecture (amd64, arm64)
-		<customized_variant_config>		Path to the customized, complete variant kernel config file to compare against
+		<customized_variant_config>		Path to the customized, variant kernel config file to compare against. May be complete, or a fragment.
 		<output_delta_variant_config>	Path where the delta config containing only modified options will be saved.
 
 Example:

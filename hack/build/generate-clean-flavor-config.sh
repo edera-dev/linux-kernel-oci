@@ -10,7 +10,7 @@ with another (local) config, outputting a delta flavor config containing only th
 Arguments:
 		<kernel_version>							The stable kernel version to fetch (recomemnded oldest-supported kver)
 		<arch>												Target architecture (x86_64, arm64, arm)
-		<customized_flavor_config>		Path to the new kernel config file to compare against
+		<customized_flavor_config>		Path to the new kernel config file to compare against. May be complete, or a fragment.
 		<output_delta_flavor_config>	Path where the fragment containing only modified options will be saved.
 
 Example:
