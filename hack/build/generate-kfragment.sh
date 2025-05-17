@@ -31,4 +31,12 @@ if [ ! -f "$2" ]; then
 	echo "Error: Updated config file '$2' does not exist."
 fi
 
-diff -u "$1" "$2" | grep '^+' | grep -v '^+++' | sed 's/^+//' | grep -v '^[[:space:]]*#' > "$3"
+cat > "$3"<< EOF
+#
+# Edera kernel config snippet
+# - Generated from delta config: $2
+# - Against base config: $1
+#
+EOF
+
+diff -u "$1" "$2" | grep '^+' | grep -v '^+++' | sed 's/^+//' | grep -v '^[[:space:]]*#' >> "$3"
