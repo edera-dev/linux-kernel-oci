@@ -28,11 +28,13 @@ if [ -n "${FIRMWARE_URL}" ]; then
 	tar -xf "${FIRMWARE_URL}" -C "${FIRMWARE_OUTPUT_PATH}" --strip-components=1
 	# For amdgpu zone kernel, we only want the amdgpu firmwares, so remove the rest to keep the addons small
 	if [ "${KERNEL_FLAVOR}" = "zone-amdgpu" ]; then
-		find "$FIRMWARE_OUTPUT_PATH" -maxdepth 1 ! -name 'amdgpu' ! -name "$FIRMWARE_OUTPUT_PATH" -exec rm -rf {} +
-		# Compress firmwares
-		xz "${FIRMWARE_OUTPUT_PATH}/amdgpu/*"
+		OLDDIR=$PWD
+		cd "${FIRMWARE_OUTPUT_PATH}"
+		find . -maxdepth 1 ! -name 'amdgpu' ! -name "." -exec rm -rf {} +
+		# Compress firmwares on-disk
+		xz amdgpu/*
+		cd "${OLDDIR}"
 	fi
-	ls -lah "${FIRMWARE_OUTPUT_PATH}/amdgpu"
 fi
 
 mv "${MODULES_INSTALL_PATH}/lib/modules/${KERNEL_MODULES_VER}" "${MODULES_OUTPUT_PATH}"
