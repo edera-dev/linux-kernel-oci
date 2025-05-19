@@ -177,11 +177,12 @@ case "${KERNEL_FLAVOR}" in
 	# with the default config into $KERNEL_OBJ/.config
 	cp "${BASE_FLAVOR_CONFIG}" "${KCONFIG_FRAGMENT_DEST}"
 
-	MAKE_CONFIG_FRAGMENTS="${FLAVOR}.config"
+	MAKE_CONFIG_FRAGMENTS="${KERNEL_FLAVOR}.config"
 	;;
 esac
 
-make -C "${KERNEL_SRC}" O="${KERNEL_OBJ}" ARCH="${TARGET_ARCH_KERNEL}" "${CROSS_COMPILE_MAKE}" olddefconfig "${MAKE_CONFIG_FRAGMENTS}"
+# shellcheck disable=SC2086
+make -C "${KERNEL_SRC}" O="${KERNEL_OBJ}" ARCH="${TARGET_ARCH_KERNEL}" "${CROSS_COMPILE_MAKE}" olddefconfig $MAKE_CONFIG_FRAGMENTS
 
 # shellcheck disable=SC2034
 IMAGE_TARGET="bzImage"
