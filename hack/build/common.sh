@@ -117,11 +117,28 @@ mkdir -p "${OUTPUT_DIR}"
 
 mkdir -p "${KERNEL_OBJ}"
 
+KERNEL_ARCH_STANDARD=$TARGET_ARCH_STANDARD
+
+# HACK: kconfig paths use different arch keywords, so we have to get cute and munge
+case "${TARGET_ARCH_STANDARD}" in
+	x86_64)
+		KERNEL_ARCH_STANDARD="x86"
+		;;
+	aarch64)
+		KERNEL_ARCH_STANDARD="arm64"
+		;;
+	*)
+		KERNEL_ARCH_STANDARD="${TARGET_ARCH_STANDARD}"
+		;;
+esac
+
+KCONFIG_FRAGMENT_DEST="${KERNEL_SRC}/arch/${KERNEL_ARCH_STANDARD}/configs/"
+
 # Copy out our custom kconfig - if we are building for a <flavor>-<variant>, merge the variant fragment with the flavor baseconfig
 # by copying the fragment into the kernel src tree and letting the kernel's `make` merge them
 case "${KERNEL_FLAVOR}" in
   *-*)
-	# Looks like we are dealing with <flavor>-<variant>.config, versus <flavor>.config
+	# Looks like we are dealing with <flavor>-<variant>.config, versus <flavor>.config, so we have 2 fragments
 	FLAVOR=$(echo "${KERNEL_FLAVOR}" | cut -d'-' -f1)
 	VARIANT=$(echo "${KERNEL_FLAVOR}" | cut -d'-' -f2)
 
@@ -137,38 +154,18 @@ case "${KERNEL_FLAVOR}" in
 		echo "ERROR: kernel flavor variant fragment config file not found for ${TARGET_ARCH_STANDARD}" >&2
 		exit 1
 	fi
-
-	KERNEL_ARCH_STANDARD=$TARGET_ARCH_STANDARD
-
-	# HACK: kconfig paths use different arch keywords, so we have to get cute and munge
-	case "${TARGET_ARCH_STANDARD}" in
-		x86_64)
-			KERNEL_ARCH_STANDARD="x86"
-			;;
-		aarch64)
-			KERNEL_ARCH_STANDARD="arm64"
-			;;
-		*)
-			KERNEL_ARCH_STANDARD="${TARGET_ARCH_STANDARD}"
-			;;
-	esac
-
-	KCONFIG_FRAGMENT_DEST="${KERNEL_SRC}/arch/${KERNEL_ARCH_STANDARD}/configs/"
-
 	# If you drop extra config fragments into arch/<arch>/configs, the kernel's make will merge them for you
-	# with $KERNEL_OBJ/.config
-	# TODO we should maybe treat our `base flavors` as fragments and make minconfig with them on top too,
-	# rather than copying them into the objdir as the base
-	cp "${BASE_FLAVOR_CONFIG}" "${KERNEL_OBJ}/.config"
+	# with the default config into $KERNEL_OBJ/.config
+	cp "${BASE_FLAVOR_CONFIG}" "${KCONFIG_FRAGMENT_DEST}"
 
 	cp "${VARIANT_FRAGMENT_CONFIG}" "${KCONFIG_FRAGMENT_DEST}"
 
 	# Add the fragment we copied out to the make args
 	# NOTE `make` craps the bed if you pass a leading space in front of the fragment here.
-	EXTRA_MAKE_CONFIG_FRAGMENTS="${FLAVOR}-${VARIANT}.fragment.config"
+	MAKE_CONFIG_FRAGMENTS="${FLAVOR}.config ${FLAVOR}-${VARIANT}.fragment.config"
 	;;
   *)
-	# Looks like we are dealing with just <flavor>.config
+	# Looks like we are dealing with just one <flavor>.config fragment
 	BASE_FLAVOR_CONFIG="${KERNEL_DIR}/configs/${TARGET_ARCH_STANDARD}/${KERNEL_FLAVOR}.config"
 
 	if [ ! -f "${BASE_FLAVOR_CONFIG}" ]; then
@@ -176,20 +173,15 @@ case "${KERNEL_FLAVOR}" in
 		exit 1
 	fi
 
-	# If you drop extra config fragments into $KERNEL_SRC/arch/<arch>/configs/, the kernel's make will merge them for you
-	# against $KERNEL_OBJ/.config if you pass them to make.
-	# TODO we should maybe treat our `base flavors` as fragments and make minconfig too,
-	# rather than copying them into the objdir as the base
-	cp "${BASE_FLAVOR_CONFIG}" "${KERNEL_OBJ}/.config"
+	# If you drop extra config fragments into arch/<arch>/configs, the kernel's make will merge them for you
+	# with the default config into $KERNEL_OBJ/.config
+	cp "${BASE_FLAVOR_CONFIG}" "${KCONFIG_FRAGMENT_DEST}"
+
+	MAKE_CONFIG_FRAGMENTS="${FLAVOR}.config"
 	;;
 esac
 
-# Kmake can't tolerate any trailing space at the end of the arglists, so we do this
-if [ -z "${EXTRA_MAKE_CONFIG_FRAGMENTS}" ]; then
-	make -C "${KERNEL_SRC}" O="${KERNEL_OBJ}" ARCH="${TARGET_ARCH_KERNEL}" "${CROSS_COMPILE_MAKE}" olddefconfig
-else
-	make -C "${KERNEL_SRC}" O="${KERNEL_OBJ}" ARCH="${TARGET_ARCH_KERNEL}" "${CROSS_COMPILE_MAKE}" olddefconfig "${EXTRA_MAKE_CONFIG_FRAGMENTS}"
-fi
+make -C "${KERNEL_SRC}" O="${KERNEL_OBJ}" ARCH="${TARGET_ARCH_KERNEL}" "${CROSS_COMPILE_MAKE}" olddefconfig "${MAKE_CONFIG_FRAGMENTS}"
 
 # shellcheck disable=SC2034
 IMAGE_TARGET="bzImage"
