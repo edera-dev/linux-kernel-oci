@@ -43,6 +43,11 @@ rm -rf "${MODULES_INSTALL_PATH}"
 
 mksquashfs "${ADDONS_OUTPUT_PATH}" "${ADDONS_SQUASHFS_PATH}" -all-root
 
+if [ "$(stat -c %s "${ADDONS_SQUASHFS_PATH}")" -gt 52428800 ]; then
+	echo "ERROR: squashfs is >50MB in size which is undesirable, validate kconfig options!" >&2
+	exit 1
+fi
+
 if [ "${TARGET_ARCH_STANDARD}" = "x86_64" ]; then
 	cp "${KERNEL_OBJ}/arch/x86/boot/bzImage" "${OUTPUT_DIR}/kernel"
 elif [ "${TARGET_ARCH_STANDARD}" = "aarch64" ]; then
