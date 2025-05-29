@@ -32,7 +32,8 @@ if [ -n "${FIRMWARE_URL}" ]; then
 		cd "${FIRMWARE_OUTPUT_PATH}"
 		find . -maxdepth 1 ! -name 'amdgpu' ! -name "." -exec rm -rf {} +
 		# Compress firmwares on-disk
-		xz amdgpu/*
+		# As of 6.x kernels the kconfig explicitly says you must use crc32 or none, not the default crc64.
+		xz -C crc32 amdgpu/*
 		cd "${OLDDIR}"
 	fi
 fi
