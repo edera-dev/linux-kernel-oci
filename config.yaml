@@ -1,20 +1,22 @@
-imageNameFormat: "ghcr.io/edera-dev/[image]:[tag]"
+imageNameFormat: "ttl.sh/mordant-tangerine/[image]:[tag]"
 architectures:
 - x86_64
-- aarch64
+# - aarch64
 flavors:
-- name: zone
+# - name: zone
 - name: zone-amdgpu
-- name: zone-openpax
+# - name: zone-openpax
   constraints:
     series:
-    - '6.10'
-    - '6.11'
-- name: host
+    # - '6.10'
+    - '6.14'
+# - name: host
 versions:
 - current: true
-- lower: '5.15'
+# - lower: '5.15'
 patches:
+- patch: ben-pci-logging.patch
+  lower: '6.8'
 - patch: hvc-xen-idm-support-1.patch
   series:
   - '5.10'
