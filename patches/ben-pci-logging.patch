@@ -372,7 +372,7 @@ index 869d204a70a3..7afcf4611ea8 100644
   */
  void pci_restore_state(struct pci_dev *dev)
  {
-+	pci_dbg(dev, "PCIDEV state restore# %s\n");
++	pci_dbg(dev, "PCIDEV state restore\n");
  	if (!dev->state_saved)
  		return;
  
@@ -380,7 +380,7 @@ index 869d204a70a3..7afcf4611ea8 100644
   */
  struct pci_saved_state *pci_store_saved_state(struct pci_dev *dev)
  {
-+	pci_dbg(dev, "PCIDEV state save# %s\n");
++	pci_dbg(dev, "PCIDEV state save\n");
  	struct pci_saved_state *state;
  	struct pci_cap_saved_state *tmp;
  	struct pci_cap_saved_data *cap;
