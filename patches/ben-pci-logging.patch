@@ -133,7 +133,7 @@ index 018dfccd771b..0764a3fc07b6 100644
  	/* Have stored pci confspace at hand for restore in sudden PCI error */
 -	if (amdgpu_device_cache_pci_state(adev->pdev))
 +	if (amdgpu_device_cache_pci_state(adev->pdev)) {
-+		DRM_INFO("Restoring PCI state:: %d\n", pdev);
++		DRM_INFO("Restoring PCI state:: %p\n", pdev);
  		pci_restore_state(pdev);
 +	}
  
@@ -143,12 +143,12 @@ index 018dfccd771b..0764a3fc07b6 100644
  	if (amdgpu_sriov_vf(adev))
  		return false;
  
-+	DRM_INFO("Saving PCI state:: %d\n", pdev);
++	DRM_INFO("Saving PCI state:: %p\n", pdev);
  	r = pci_save_state(pdev);
  	if (!r) {
  		kfree(adev->pci_state);
  
-+		DRM_INFO("Caching PCI state:: %d\n", pdev);
++		DRM_INFO("Caching PCI state:: %p\n", pdev);
  		adev->pci_state = pci_store_saved_state(pdev);
  
  		if (!adev->pci_state) {
