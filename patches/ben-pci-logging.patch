@@ -1,0 +1,1130 @@
+From 08776d31d4a88a7105701dbf0c1f24dae4acf9e7 Mon Sep 17 00:00:00 2001
+From: Benjamin Leggett <benjamin@edera.io>
+Date: Mon, 28 Apr 2025 19:29:39 -0400
+Subject: [PATCH] hacktest
+
+---
+ arch/x86/pci/xen.c                            | 25 +++++--
+ drivers/gpu/drm/amd/amdgpu/amdgpu_device.c    |  7 +-
+ drivers/gpu/drm/amd/amdgpu/amdgpu_irq.c       | 11 ++--
+ drivers/pci/msi/msi.c                         | 65 ++++++++++++++++---
+ drivers/pci/pci.c                             |  2 +
+ drivers/pci/xen-pcifront.c                    | 31 +++++----
+ drivers/xen/xen-pciback/conf_space.c          | 16 ++---
+ .../xen/xen-pciback/conf_space_capability.c   |  4 +-
+ drivers/xen/xen-pciback/conf_space_header.c   | 12 ++--
+ drivers/xen/xen-pciback/pci_stub.c            | 49 +++++++-------
+ drivers/xen/xen-pciback/pciback_ops.c         | 14 ++--
+ drivers/xen/xen-pciback/xenbus.c              | 36 +++++-----
+ 12 files changed, 177 insertions(+), 95 deletions(-)
+
+diff --git a/arch/x86/pci/xen.c b/arch/x86/pci/xen.c
+index 0f2fe524f60d..df30d94d8b39 100644
+--- a/arch/x86/pci/xen.c
++++ b/arch/x86/pci/xen.c
+@@ -170,12 +170,17 @@ static int xen_setup_msi_irqs(struct pci_dev *dev, int nvec, int type)
+ 	struct msi_desc *msidesc;
+ 	int *v;
+ 
+-	if (type == PCI_CAP_ID_MSI && nvec > 1)
++	dev_info(&dev->dev, "Xen PCI setup domU MSI irqs\n");
++	if (type == PCI_CAP_ID_MSI && nvec > 1) {
++		dev_info(&dev->dev, "Xen PCI setup domU bailing due to nvec\n");
+ 		return 1;
++	}
+ 
+ 	v = kcalloc(max(1, nvec), sizeof(int), GFP_KERNEL);
+-	if (!v)
++	if (!v) {
++		dev_info(&dev->dev, "Xen PCI setup domU bailing due to alloc err\n");
+ 		return -ENOMEM;
++	}
+ 
+ 	if (type == PCI_CAP_ID_MSIX)
+ 		ret = xen_pci_frontend_enable_msix(dev, v, nvec);
+@@ -243,7 +248,7 @@ static int xen_hvm_setup_msi_irqs(struct pci_dev *dev, int nvec, int type)
+ 		}
+ 		xen_msi_compose_msg(dev, pirq, &msg);
+ 		__pci_write_msi_msg(msidesc, &msg);
+-		dev_dbg(&dev->dev, "xen: msi bound to pirq=%d\n", pirq);
++		dev_info(&dev->dev, "xen: msi bound to pirq=%d\n", pirq);
+ 		irq = xen_bind_pirq_msi_to_irq(dev, msidesc, pirq,
+ 					       (type == PCI_CAP_ID_MSI) ? nvec : 1,
+ 					       (type == PCI_CAP_ID_MSIX) ?
+@@ -251,7 +256,7 @@ static int xen_hvm_setup_msi_irqs(struct pci_dev *dev, int nvec, int type)
+ 					       DOMID_SELF);
+ 		if (irq < 0)
+ 			goto error;
+-		dev_dbg(&dev->dev,
++		dev_info(&dev->dev,
+ 			"xen: msi --> pirq=%d --> irq=%d\n", pirq, irq);
+ 	}
+ 	return msi_device_populate_sysfs(&dev->dev);
+@@ -270,6 +275,7 @@ static int xen_initdom_setup_msi_irqs(struct pci_dev *dev, int nvec, int type)
+ 	int ret = 0;
+ 	struct msi_desc *msidesc;
+ 
++	dev_info(&dev->dev, "xen: setting up dom0 MSI IRQs\n");
+ 	msi_for_each_desc(msidesc, &dev->dev, MSI_DESC_NOTASSOCIATED) {
+ 		struct physdev_map_pirq map_irq;
+ 		domid_t domid;
+@@ -277,8 +283,10 @@ static int xen_initdom_setup_msi_irqs(struct pci_dev *dev, int nvec, int type)
+ 		domid = ret = xen_find_device_domain_owner(dev);
+ 		/* N.B. Casting int's -ENODEV to uint16_t results in 0xFFED,
+ 		 * hence check ret value for < 0. */
+-		if (ret < 0)
++		if (ret < 0) {
++			dev_info(&dev->dev, "xen: could not find owner domain, self-assigning\n");
+ 			domid = DOMID_SELF;
++		}
+ 
+ 		memset(&map_irq, 0, sizeof(map_irq));
+ 		map_irq.domid = domid;
+@@ -290,9 +298,12 @@ static int xen_initdom_setup_msi_irqs(struct pci_dev *dev, int nvec, int type)
+ 		map_irq.devfn = dev->devfn;
+ 
+ 		if (type == PCI_CAP_ID_MSI && nvec > 1) {
++			dev_info(&dev->dev, "xen: setting up MSI, assuming PIRQ_TYPE_MULTI_MSI\n");
+ 			map_irq.type = MAP_PIRQ_TYPE_MULTI_MSI;
+ 			map_irq.entry_nr = nvec;
++			dev_info(&dev->dev, "xen: setting up MSI, nvec is %d\n", nvec);
+ 		} else if (type == PCI_CAP_ID_MSIX) {
++			dev_info(&dev->dev, "xen: setting up MSI-X\n");
+ 			int pos;
+ 			unsigned long flags;
+ 			u32 table_offset, bir;
+@@ -301,11 +312,13 @@ static int xen_initdom_setup_msi_irqs(struct pci_dev *dev, int nvec, int type)
+ 			pci_read_config_dword(dev, pos + PCI_MSIX_TABLE,
+ 					      &table_offset);
+ 			bir = (u8)(table_offset & PCI_MSIX_TABLE_BIR);
++			dev_info(&dev->dev, "xen: found MSI-X table offset %d under BAR: %d\n", table_offset, bir);
+ 			flags = pci_resource_flags(dev, bir);
+ 			if (!flags || (flags & IORESOURCE_UNSET))
+ 				return -EINVAL;
+ 
+ 			map_irq.table_base = pci_resource_start(dev, bir);
++			dev_info(&dev->dev, "xen: MSI-X real start position %#llx under BAR: %d\n", map_irq.table_base, bir);
+ 			map_irq.entry_nr = msidesc->msi_index;
+ 		}
+ 
+@@ -314,6 +327,7 @@ static int xen_initdom_setup_msi_irqs(struct pci_dev *dev, int nvec, int type)
+ 			ret = HYPERVISOR_physdev_op(PHYSDEVOP_map_pirq,
+ 						    &map_irq);
+ 		if (type == PCI_CAP_ID_MSI && nvec > 1 && ret) {
++			dev_info(&dev->dev, "xen: PIRQ_TYPE_MULTI_MSI not available, returning >0 so driver can retry\n");
+ 			/*
+ 			 * If MAP_PIRQ_TYPE_MULTI_MSI is not available
+ 			 * there's nothing else we can do in this case.
+@@ -324,6 +338,7 @@ static int xen_initdom_setup_msi_irqs(struct pci_dev *dev, int nvec, int type)
+ 			goto out;
+ 		}
+ 		if (ret == -EINVAL && !pci_domain_nr(dev->bus)) {
++			dev_info(&dev->dev, "xen: trying with PIRQ_TYPE_MSI\n");
+ 			map_irq.type = MAP_PIRQ_TYPE_MSI;
+ 			map_irq.index = -1;
+ 			map_irq.pirq = -1;
+diff --git a/drivers/gpu/drm/amd/amdgpu/amdgpu_device.c b/drivers/gpu/drm/amd/amdgpu/amdgpu_device.c
+index 018dfccd771b..0764a3fc07b6 100644
+--- a/drivers/gpu/drm/amd/amdgpu/amdgpu_device.c
++++ b/drivers/gpu/drm/amd/amdgpu/amdgpu_device.c
+@@ -4585,8 +4585,10 @@ int amdgpu_device_init(struct amdgpu_device *adev,
+ 		dev_err(adev->dev, "amdgpu_pmu_init failed\n");
+ 
+ 	/* Have stored pci confspace at hand for restore in sudden PCI error */
+-	if (amdgpu_device_cache_pci_state(adev->pdev))
++	if (amdgpu_device_cache_pci_state(adev->pdev)) {
++		DRM_INFO("Restoring PCI state:: %d\n", pdev);
+ 		pci_restore_state(pdev);
++	}
+ 
+ 	/* if we have > 1 VGA cards, then disable the amdgpu VGA resources */
+ 	/* this will fail for cards that aren't VGA class devices, just
+@@ -6675,10 +6677,12 @@ bool amdgpu_device_cache_pci_state(struct pci_dev *pdev)
+ 	if (amdgpu_sriov_vf(adev))
+ 		return false;
+ 
++	DRM_INFO("Saving PCI state:: %d\n", pdev);
+ 	r = pci_save_state(pdev);
+ 	if (!r) {
+ 		kfree(adev->pci_state);
+ 
++		DRM_INFO("Caching PCI state:: %d\n", pdev);
+ 		adev->pci_state = pci_store_saved_state(pdev);
+ 
+ 		if (!adev->pci_state) {
+@@ -6705,6 +6709,7 @@ bool amdgpu_device_load_pci_state(struct pci_dev *pdev)
+ 	r = pci_load_saved_state(pdev, adev->pci_state);
+ 
+ 	if (!r) {
++		DRM_WARN("Restoring PCI state\n");
+ 		pci_restore_state(pdev);
+ 	} else {
+ 		DRM_WARN("Failed to load PCI state, err:%d\n", r);
+diff --git a/drivers/gpu/drm/amd/amdgpu/amdgpu_irq.c b/drivers/gpu/drm/amd/amdgpu/amdgpu_irq.c
+index 19ce4da285e8..c4cafd52c15a 100644
+--- a/drivers/gpu/drm/amd/amdgpu/amdgpu_irq.c
++++ b/drivers/gpu/drm/amd/amdgpu/amdgpu_irq.c
+@@ -278,10 +278,13 @@ int amdgpu_irq_init(struct amdgpu_device *adev)
+ 	/* Enable MSI if not disabled by module parameter */
+ 	adev->irq.msi_enabled = false;
+ 
+-	if (!amdgpu_msi_ok(adev))
++	if (!amdgpu_msi_ok(adev)) {
++		dev_info(adev->dev, "falling back to intx irqs\n");
+ 		flags = PCI_IRQ_INTX;
+-	else
++	} else {
++		dev_info(adev->dev, "requesting all possible types of irqs\n");
+ 		flags = PCI_IRQ_ALL_TYPES;
++	}
+ 
+ 	/* we only need one vector */
+ 	r = pci_alloc_irq_vectors(adev->pdev, 1, 1, flags);
+@@ -292,7 +295,7 @@ int amdgpu_irq_init(struct amdgpu_device *adev)
+ 
+ 	if (amdgpu_msi_ok(adev)) {
+ 		adev->irq.msi_enabled = true;
+-		dev_dbg(adev->dev, "using MSI/MSI-X.\n");
++		dev_info(adev->dev, "using MSI/MSI-X.\n");
+ 	}
+ 
+ 	INIT_WORK(&adev->irq.ih1_work, amdgpu_irq_handle_ih1);
+@@ -315,7 +318,7 @@ int amdgpu_irq_init(struct amdgpu_device *adev)
+ 	adev->irq.irq = irq;
+ 	adev_to_drm(adev)->max_vblank_count = 0x00ffffff;
+ 
+-	DRM_DEBUG("amdgpu: irq initialized.\n");
++	DRM_INFO("amdgpu: irq initialized.\n");
+ 	return 0;
+ 
+ free_vectors:
+diff --git a/drivers/pci/msi/msi.c b/drivers/pci/msi/msi.c
+index 2f647cac4cae..b28258c0ce83 100644
+--- a/drivers/pci/msi/msi.c
++++ b/drivers/pci/msi/msi.c
+@@ -208,12 +208,17 @@ static inline void pci_write_msg_msi(struct pci_dev *dev, struct msi_desc *desc,
+ 
+ static inline void pci_write_msg_msix(struct msi_desc *desc, struct msi_msg *msg)
+ {
++	printk(KERN_INFO "writing msix msg\n");
+ 	void __iomem *base = pci_msix_desc_addr(desc);
++	printk(KERN_INFO "base addr: %p", base);
+ 	u32 ctrl = desc->pci.msix_ctrl;
++	printk(KERN_INFO "msix ctrl: %d", ctrl);
+ 	bool unmasked = !(ctrl & PCI_MSIX_ENTRY_CTRL_MASKBIT);
+ 
+-	if (desc->pci.msi_attrib.is_virtual)
++	if (desc->pci.msi_attrib.is_virtual) {
++		printk(KERN_INFO "msi virtual attrib, not writing");
+ 		return;
++	}
+ 	/*
+ 	 * The specification mandates that the entry is masked
+ 	 * when the message is modified:
+@@ -222,16 +227,24 @@ static inline void pci_write_msg_msix(struct msi_desc *desc, struct msi_msg *msg
+ 	 * entry while the entry is unmasked, the result is
+ 	 * undefined."
+ 	 */
+-	if (unmasked)
++	if (unmasked) {
++		printk(KERN_INFO "entry is unmasked, writing with maskbit");
+ 		pci_msix_write_vector_ctrl(desc, ctrl | PCI_MSIX_ENTRY_CTRL_MASKBIT);
++	}
+ 
++	printk(KERN_INFO "writelo data: %d, addr: %p", msg->address_lo, base + PCI_MSIX_ENTRY_LOWER_ADDR);
+ 	writel(msg->address_lo, base + PCI_MSIX_ENTRY_LOWER_ADDR);
++	printk(KERN_INFO "writehi data: %d, addr: %p", msg->address_hi, base + PCI_MSIX_ENTRY_UPPER_ADDR);
+ 	writel(msg->address_hi, base + PCI_MSIX_ENTRY_UPPER_ADDR);
++	printk(KERN_INFO "write data: %d, addr: %p", msg->data, base + PCI_MSIX_ENTRY_DATA);
+ 	writel(msg->data, base + PCI_MSIX_ENTRY_DATA);
+ 
+-	if (unmasked)
++	if (unmasked) {
++		printk(KERN_INFO "entry is (still) unmasked");
+ 		pci_msix_write_vector_ctrl(desc, ctrl);
++	}
+ 
++	printk(KERN_INFO "reading back 4 bytes of data from addr: %p", base + PCI_MSIX_ENTRY_DATA);
+ 	/* Ensure that the writes are visible in the device */
+ 	readl(base + PCI_MSIX_ENTRY_DATA);
+ }
+@@ -243,15 +256,19 @@ void __pci_write_msi_msg(struct msi_desc *entry, struct msi_msg *msg)
+ 	if (dev->current_state != PCI_D0 || pci_dev_is_disconnected(dev)) {
+ 		/* Don't touch the hardware now */
+ 	} else if (entry->pci.msi_attrib.is_msix) {
++		pci_info(dev, "writing msix msg\n");
+ 		pci_write_msg_msix(entry, msg);
+ 	} else {
++		pci_info(dev, "writing msi msg, not msix\n");
+ 		pci_write_msg_msi(dev, entry, msg);
+ 	}
+ 
+ 	entry->msg = *msg;
+ 
+-	if (entry->write_msi_msg)
++	if (entry->write_msi_msg) {
++		pci_info(dev, "writing msi msg data\n");
+ 		entry->write_msi_msg(entry, entry->write_msi_msg_data);
++	}
+ }
+ 
+ void pci_write_msi_msg(unsigned int irq, struct msi_msg *msg)
+@@ -512,21 +529,31 @@ void __pci_restore_msi_state(struct pci_dev *dev)
+ 	struct msi_desc *entry;
+ 	u16 control;
+ 
++	pci_info(dev, "restoring PCI MSI state...\n");
+ 	if (!dev->msi_enabled)
+ 		return;
+ 
++	pci_info(dev, "getting PCI MSI entry from IRQ...\n");
+ 	entry = irq_get_msi_desc(dev->irq);
+ 
++	pci_info(dev, "getting intx\n");
+ 	pci_intx_for_msi(dev, 0);
++	pci_info(dev, "enabling MSI\n");
+ 	pci_msi_set_enable(dev, 0);
+-	if (arch_restore_msi_irqs(dev))
++	if (arch_restore_msi_irqs(dev)) {
++		pci_info(dev, "restoring msi irqs\n");
+ 		__pci_write_msi_msg(entry, &entry->msg);
++	}
+ 
++	pci_info(dev, "reading config flags as word\n");
+ 	pci_read_config_word(dev, dev->msi_cap + PCI_MSI_FLAGS, &control);
++	pci_info(dev, "updating mask\n");
+ 	pci_msi_update_mask(entry, 0, 0);
+ 	control &= ~PCI_MSI_FLAGS_QSIZE;
+ 	control |= PCI_MSI_FLAGS_ENABLE |
+ 		   FIELD_PREP(PCI_MSI_FLAGS_QSIZE, entry->pci.msi_attrib.multiple);
++
++	pci_info(dev, "writing config flags as word\n");
+ 	pci_write_config_word(dev, dev->msi_cap + PCI_MSI_FLAGS, control);
+ }
+ 
+@@ -556,11 +583,21 @@ void pci_msi_shutdown(struct pci_dev *dev)
+ static void pci_msix_clear_and_set_ctrl(struct pci_dev *dev, u16 clear, u16 set)
+ {
+ 	u16 ctrl;
++	int res;
+ 
+ 	pci_read_config_word(dev, dev->msix_cap + PCI_MSIX_FLAGS, &ctrl);
+ 	ctrl &= ~clear;
+ 	ctrl |= set;
+-	pci_write_config_word(dev, dev->msix_cap + PCI_MSIX_FLAGS, ctrl);
++	if (ctrl & PCI_MSIX_FLAGS_ENABLE) {
++	  pci_info(dev, "enabling msix via ctrlflag\n");
++	}
++	res = pci_write_config_word(dev, dev->msix_cap + PCI_MSIX_FLAGS, ctrl);
++	pci_info(dev, "result from pci_write_config_word: %d\n", res);
++	if (ctrl & PCI_MSIX_FLAGS_ENABLE) {
++	  pci_info(dev, "enabled msix via ctrlflag\n");
++	} else {
++	  pci_info(dev, "did not enable msix via ctrlflag\n");
++	}
+ }
+ 
+ static void __iomem *msix_map_region(struct pci_dev *dev,
+@@ -861,24 +898,36 @@ void __pci_restore_msix_state(struct pci_dev *dev)
+ 	struct msi_desc *entry;
+ 	bool write_msg;
+ 
++	pci_info(dev, "restoring PCI MSIX state...\n");
++
+ 	if (!dev->msix_enabled)
+ 		return;
+ 
++	pci_info(dev, "routing the table\n");
+ 	/* route the table */
+ 	pci_intx_for_msi(dev, 0);
+ 	pci_msix_clear_and_set_ctrl(dev, 0,
+ 				PCI_MSIX_FLAGS_ENABLE | PCI_MSIX_FLAGS_MASKALL);
+ 
++	pci_info(dev, "restoring the irqs\n");
+ 	write_msg = arch_restore_msi_irqs(dev);
+ 
++	pci_info(dev, "locking\n");
+ 	msi_lock_descs(&dev->dev);
+ 	msi_for_each_desc(entry, &dev->dev, MSI_DESC_ALL) {
+-		if (write_msg)
+-			__pci_write_msi_msg(entry, &entry->msg);
++		/* if (write_msg) { */
++		/* 	pci_info(dev,"printing before write msi msg"); */
++		/* 	pci_info(dev, "writing msix msg %d for entry %u\n", entry->nvec_used, entry->msg.data); */
++		/* 	__pci_write_msi_msg(entry, &entry->msg); */
++		/* } */
++		pci_info(dev, "writing msix vector control %p for entry %p\n", &entry->pci.msix_ctrl, &entry);
+ 		pci_msix_write_vector_ctrl(entry, entry->pci.msix_ctrl);
+ 	}
++
++	pci_info(dev, "unlocking\n");
+ 	msi_unlock_descs(&dev->dev);
+ 
++	pci_info(dev, "clearing and setting\n");
+ 	pci_msix_clear_and_set_ctrl(dev, PCI_MSIX_FLAGS_MASKALL, 0);
+ }
+ 
+diff --git a/drivers/pci/pci.c b/drivers/pci/pci.c
+index 869d204a70a3..7afcf4611ea8 100644
+--- a/drivers/pci/pci.c
++++ b/drivers/pci/pci.c
+@@ -1898,6 +1898,7 @@ static void pci_restore_rebar_state(struct pci_dev *pdev)
+  */
+ void pci_restore_state(struct pci_dev *dev)
+ {
++	pci_dbg(dev, "PCIDEV state restore# %s\n");
+ 	if (!dev->state_saved)
+ 		return;
+ 
+@@ -1941,6 +1942,7 @@ struct pci_saved_state {
+  */
+ struct pci_saved_state *pci_store_saved_state(struct pci_dev *dev)
+ {
++	pci_dbg(dev, "PCIDEV state save# %s\n");
+ 	struct pci_saved_state *state;
+ 	struct pci_cap_saved_state *tmp;
+ 	struct pci_cap_saved_data *cap;
+diff --git a/drivers/pci/xen-pcifront.c b/drivers/pci/xen-pcifront.c
+index 11636634ae51..fc8dd7e61c1b 100644
+--- a/drivers/pci/xen-pcifront.c
++++ b/drivers/pci/xen-pcifront.c
+@@ -103,7 +103,7 @@ static inline void schedule_pcifront_aer_op(struct pcifront_device *pdev)
+ {
+ 	if (test_bit(_XEN_PCIB_active, (unsigned long *)&pdev->sh_info->flags)
+ 		&& !test_and_set_bit(_PDEVB_op_active, &pdev->flags)) {
+-		dev_dbg(&pdev->xdev->dev, "schedule aer frontend job\n");
++		dev_info(&pdev->xdev->dev, "schedule aer frontend job\n");
+ 		schedule_work(&pdev->op_work);
+ 	}
+ }
+@@ -187,7 +187,7 @@ static int pcifront_bus_read(struct pci_bus *bus, unsigned int devfn,
+ 	struct pcifront_sd *sd = bus->sysdata;
+ 	struct pcifront_device *pdev = pcifront_get_pdev(sd);
+ 
+-	dev_dbg(&pdev->xdev->dev,
++	dev_info(&pdev->xdev->dev,
+ 		"read dev=%04x:%02x:%02x.%d - offset %x size %d\n",
+ 		pci_domain_nr(bus), bus->number, PCI_SLOT(devfn),
+ 		PCI_FUNC(devfn), where, size);
+@@ -195,7 +195,7 @@ static int pcifront_bus_read(struct pci_bus *bus, unsigned int devfn,
+ 	err = do_pci_op(pdev, &op);
+ 
+ 	if (likely(!err)) {
+-		dev_dbg(&pdev->xdev->dev, "read got back value %x\n",
++		dev_info(&pdev->xdev->dev, "read got back value %x\n",
+ 			op.value);
+ 
+ 		*val = op.value;
+@@ -224,7 +224,7 @@ static int pcifront_bus_write(struct pci_bus *bus, unsigned int devfn,
+ 	struct pcifront_sd *sd = bus->sysdata;
+ 	struct pcifront_device *pdev = pcifront_get_pdev(sd);
+ 
+-	dev_dbg(&pdev->xdev->dev,
++	dev_info(&pdev->xdev->dev,
+ 		"write dev=%04x:%02x:%02x.%d - offset %x size %d val %x\n",
+ 		pci_domain_nr(bus), bus->number,
+ 		PCI_SLOT(devfn), PCI_FUNC(devfn), where, size, val);
+@@ -254,6 +254,8 @@ static int pci_frontend_enable_msix(struct pci_dev *dev,
+ 	struct pcifront_device *pdev = pcifront_get_pdev(sd);
+ 	struct msi_desc *entry;
+ 
++	pci_info(dev, "enable msix xenfront\n");
++
+ 	if (nvec > SH_INFO_MAX_VEC) {
+ 		pci_err(dev, "too many vectors (0x%x) for PCI frontend:"
+ 				   " Increase SH_INFO_MAX_VEC\n", nvec);
+@@ -305,6 +307,7 @@ static void pci_frontend_disable_msix(struct pci_dev *dev)
+ 	struct pcifront_sd *sd = dev->bus->sysdata;
+ 	struct pcifront_device *pdev = pcifront_get_pdev(sd);
+ 
++	pci_info(dev, "disable msix xenfront\n");
+ 	err = do_pci_op(pdev, &op);
+ 
+ 	/* What should do for error ? */
+@@ -324,6 +327,7 @@ static int pci_frontend_enable_msi(struct pci_dev *dev, int vector[])
+ 	struct pcifront_sd *sd = dev->bus->sysdata;
+ 	struct pcifront_device *pdev = pcifront_get_pdev(sd);
+ 
++	pci_info(dev, "enable msi xenfront\n");
+ 	err = do_pci_op(pdev, &op);
+ 	if (likely(!err)) {
+ 		vector[0] = op.value;
+@@ -353,6 +357,7 @@ static void pci_frontend_disable_msi(struct pci_dev *dev)
+ 	struct pcifront_sd *sd = dev->bus->sysdata;
+ 	struct pcifront_device *pdev = pcifront_get_pdev(sd);
+ 
++	pci_info(dev, "disable msi xenfront\n");
+ 	err = do_pci_op(pdev, &op);
+ 	if (err == XEN_PCI_ERR_dev_not_found) {
+ 		/* XXX No response from backend, what shall we do? */
+@@ -553,7 +558,7 @@ static void pcifront_free_roots(struct pcifront_device *pdev)
+ {
+ 	struct pci_bus_entry *bus_entry, *t;
+ 
+-	dev_dbg(&pdev->xdev->dev, "cleaning up root buses\n");
++	dev_info(&pdev->xdev->dev, "cleaning up root buses\n");
+ 
+ 	pci_lock_rescan_remove();
+ 	list_for_each_entry_safe(bus_entry, t, &pdev->root_buses, list) {
+@@ -581,7 +586,7 @@ static pci_ers_result_t pcifront_common_process(int cmd,
+ 	int domain = pdev->sh_info->aer_op.domain;
+ 	struct pci_dev *pcidev;
+ 
+-	dev_dbg(&pdev->xdev->dev,
++	dev_info(&pdev->xdev->dev,
+ 		"pcifront AER process: cmd %x (bus:%x, devfn%x)",
+ 		cmd, bus, devfn);
+ 
+@@ -627,7 +632,7 @@ static void pcifront_do_aer(struct work_struct *data)
+ 	 * If a pci_conf op is in progress, we have to wait until it is done
+ 	 * before service aer op
+ 	 */
+-	dev_dbg(&pdev->xdev->dev,
++	dev_info(&pdev->xdev->dev,
+ 		"pcifront service aer bus %x devfn %x\n",
+ 		pdev->sh_info->aer_op.bus, pdev->sh_info->aer_op.devfn);
+ 
+@@ -714,7 +719,7 @@ static struct pcifront_device *alloc_pdev(struct xenbus_device *xdev)
+ 
+ 	INIT_WORK(&pdev->op_work, pcifront_do_aer);
+ 
+-	dev_dbg(&xdev->dev, "Allocated pdev @ 0x%p pdev->sh_info @ 0x%p\n",
++	dev_info(&xdev->dev, "Allocated pdev @ 0x%p pdev->sh_info @ 0x%p\n",
+ 		pdev, pdev->sh_info);
+ out:
+ 	return pdev;
+@@ -722,7 +727,7 @@ static struct pcifront_device *alloc_pdev(struct xenbus_device *xdev)
+ 
+ static void free_pdev(struct pcifront_device *pdev)
+ {
+-	dev_dbg(&pdev->xdev->dev, "freeing pdev @ 0x%p\n", pdev);
++	dev_info(&pdev->xdev->dev, "freeing pdev @ 0x%p\n", pdev);
+ 
+ 	pcifront_free_roots(pdev);
+ 
+@@ -795,7 +800,7 @@ static int pcifront_publish_info(struct pcifront_device *pdev)
+ 
+ 	xenbus_switch_state(pdev->xdev, XenbusStateInitialised);
+ 
+-	dev_dbg(&pdev->xdev->dev, "publishing successful!\n");
++	dev_info(&pdev->xdev->dev, "publishing successful!\n");
+ 
+ out:
+ 	return err;
+@@ -911,7 +916,7 @@ static int pcifront_detach_devices(struct pcifront_device *pdev)
+ 
+ 	state = xenbus_read_driver_state(pdev->xdev->nodename);
+ 	if (state == XenbusStateInitialised) {
+-		dev_dbg(&pdev->xdev->dev, "Handle skipped connect.\n");
++		dev_info(&pdev->xdev->dev, "Handle skipped connect.\n");
+ 		/* We missed Connected and need to initialize. */
+ 		err = pcifront_connect_and_init_dma(pdev);
+ 		if (err && err != -EEXIST) {
+@@ -969,7 +974,7 @@ static int pcifront_detach_devices(struct pcifront_device *pdev)
+ 		pci_dev = pci_get_domain_bus_and_slot(domain, bus,
+ 				PCI_DEVFN(slot, func));
+ 		if (!pci_dev) {
+-			dev_dbg(&pdev->xdev->dev,
++			dev_info(&pdev->xdev->dev,
+ 				"Cannot get PCI device %04x:%02x:%02x.%d\n",
+ 				domain, bus, slot, func);
+ 			continue;
+@@ -979,7 +984,7 @@ static int pcifront_detach_devices(struct pcifront_device *pdev)
+ 		pci_dev_put(pci_dev);
+ 		pci_unlock_rescan_remove();
+ 
+-		dev_dbg(&pdev->xdev->dev,
++		dev_info(&pdev->xdev->dev,
+ 			"PCI device %04x:%02x:%02x.%d removed.\n",
+ 			domain, bus, slot, func);
+ 	}
+diff --git a/drivers/xen/xen-pciback/conf_space.c b/drivers/xen/xen-pciback/conf_space.c
+index d47eee6c5143..37a17d5cb83c 100644
+--- a/drivers/xen/xen-pciback/conf_space.c
++++ b/drivers/xen/xen-pciback/conf_space.c
+@@ -156,7 +156,7 @@ int xen_pcibk_config_read(struct pci_dev *dev, int offset, int size,
+ 	 * (as if device didn't respond) */
+ 	u32 value = 0, tmp_val;
+ 
+-	dev_dbg(&dev->dev, "read %d bytes at 0x%x\n", size, offset);
++	dev_info(&dev->dev, "read %d bytes at 0x%x\n", size, offset);
+ 
+ 	if (!valid_request(offset, size)) {
+ 		err = XEN_PCI_ERR_invalid_offset;
+@@ -195,7 +195,7 @@ int xen_pcibk_config_read(struct pci_dev *dev, int offset, int size,
+ 	}
+ 
+ out:
+-	dev_dbg(&dev->dev, "read %d bytes at 0x%x = %x\n", size, offset, value);
++	dev_info(&dev->dev, "read %d bytes at 0x%x = %x\n", size, offset, value);
+ 
+ 	*ret_val = value;
+ 	return xen_pcibios_err_to_errno(err);
+@@ -210,7 +210,7 @@ int xen_pcibk_config_write(struct pci_dev *dev, int offset, int size, u32 value)
+ 	u32 tmp_val;
+ 	int field_start, field_end;
+ 
+-	dev_dbg(&dev->dev, "write request %d bytes at 0x%x = %x\n",
++	dev_info(&dev->dev, "write request %d bytes at 0x%x = %x\n",
+ 		size, offset, value);
+ 
+ 	if (!valid_request(offset, size))
+@@ -332,7 +332,7 @@ void xen_pcibk_config_free_dyn_fields(struct pci_dev *dev)
+ 	struct config_field_entry *cfg_entry, *t;
+ 	const struct config_field *field;
+ 
+-	dev_dbg(&dev->dev, "free-ing dynamically allocated virtual "
++	dev_info(&dev->dev, "free-ing dynamically allocated virtual "
+ 			   "configuration space fields\n");
+ 	if (!dev_data)
+ 		return;
+@@ -358,7 +358,7 @@ void xen_pcibk_config_reset_dev(struct pci_dev *dev)
+ 	const struct config_field_entry *cfg_entry;
+ 	const struct config_field *field;
+ 
+-	dev_dbg(&dev->dev, "resetting virtual configuration space\n");
++	dev_info(&dev->dev, "resetting virtual configuration space\n");
+ 	if (!dev_data)
+ 		return;
+ 
+@@ -376,7 +376,7 @@ void xen_pcibk_config_free_dev(struct pci_dev *dev)
+ 	struct config_field_entry *cfg_entry, *t;
+ 	const struct config_field *field;
+ 
+-	dev_dbg(&dev->dev, "free-ing virtual configuration space fields\n");
++	dev_info(&dev->dev, "free-ing virtual configuration space fields\n");
+ 	if (!dev_data)
+ 		return;
+ 
+@@ -427,7 +427,7 @@ int xen_pcibk_config_add_field_offset(struct pci_dev *dev,
+ 		cfg_entry->data = tmp;
+ 	}
+ 
+-	dev_dbg(&dev->dev, "added config field at offset 0x%02x\n",
++	dev_info(&dev->dev, "added config field at offset 0x%02x\n",
+ 		OFFSET(cfg_entry));
+ 	list_add_tail(&cfg_entry->list, &dev_data->config_fields);
+ 
+@@ -447,7 +447,7 @@ int xen_pcibk_config_init_dev(struct pci_dev *dev)
+ 	int err = 0;
+ 	struct xen_pcibk_dev_data *dev_data = pci_get_drvdata(dev);
+ 
+-	dev_dbg(&dev->dev, "initializing virtual configuration space\n");
++	dev_info(&dev->dev, "initializing virtual configuration space\n");
+ 
+ 	INIT_LIST_HEAD(&dev_data->config_fields);
+ 
+diff --git a/drivers/xen/xen-pciback/conf_space_capability.c b/drivers/xen/xen-pciback/conf_space_capability.c
+index cf568e899ee2..2e7dee00430a 100644
+--- a/drivers/xen/xen-pciback/conf_space_capability.c
++++ b/drivers/xen/xen-pciback/conf_space_capability.c
+@@ -45,7 +45,7 @@ int xen_pcibk_config_capability_add_fields(struct pci_dev *dev)
+ 	list_for_each_entry(cap, &capabilities, cap_list) {
+ 		cap_offset = pci_find_capability(dev, cap->capability);
+ 		if (cap_offset) {
+-			dev_dbg(&dev->dev, "Found capability 0x%x at 0x%x\n",
++			dev_info(&dev->dev, "Found capability 0x%x at 0x%x\n",
+ 				cap->capability, cap_offset);
+ 
+ 			err = xen_pcibk_config_add_fields_offset(dev,
+@@ -133,7 +133,7 @@ static int pm_ctrl_write(struct pci_dev *dev, int offset, u16 new_value,
+ 	}
+ 
+ 	/* Let pci core handle the power management change */
+-	dev_dbg(&dev->dev, "set power state to %x\n", new_state);
++	dev_info(&dev->dev, "set power state to %x\n", new_state);
+ 	err = pci_set_power_state(dev, new_state);
+ 	if (err) {
+ 		err = PCIBIOS_SET_FAILED;
+diff --git a/drivers/xen/xen-pciback/conf_space_header.c b/drivers/xen/xen-pciback/conf_space_header.c
+index fc0332645966..17e7f6a7be62 100644
+--- a/drivers/xen/xen-pciback/conf_space_header.c
++++ b/drivers/xen/xen-pciback/conf_space_header.c
+@@ -68,30 +68,30 @@ static int command_write(struct pci_dev *dev, int offset, u16 value, void *data)
+ 
+ 	dev_data = pci_get_drvdata(dev);
+ 	if (!pci_is_enabled(dev) && is_enable_cmd(value)) {
+-		dev_dbg(&dev->dev, "enable\n");
++		dev_info(&dev->dev, "enable\n");
+ 		err = pci_enable_device(dev);
+ 		if (err)
+ 			return err;
+ 		if (dev_data)
+ 			dev_data->enable_intx = 1;
+ 	} else if (pci_is_enabled(dev) && !is_enable_cmd(value)) {
+-		dev_dbg(&dev->dev, "disable\n");
++		dev_info(&dev->dev, "disable\n");
+ 		pci_disable_device(dev);
+ 		if (dev_data)
+ 			dev_data->enable_intx = 0;
+ 	}
+ 
+ 	if (!dev->is_busmaster && is_master_cmd(value)) {
+-		dev_dbg(&dev->dev, "set bus master\n");
++		dev_info(&dev->dev, "set bus master\n");
+ 		pci_set_master(dev);
+ 	} else if (dev->is_busmaster && !is_master_cmd(value)) {
+-		dev_dbg(&dev->dev, "clear bus master\n");
++		dev_info(&dev->dev, "clear bus master\n");
+ 		pci_clear_master(dev);
+ 	}
+ 
+ 	if (!(cmd->val & PCI_COMMAND_INVALIDATE) &&
+ 	    (value & PCI_COMMAND_INVALIDATE)) {
+-		dev_dbg(&dev->dev, "enable memory-write-invalidate\n");
++		dev_info(&dev->dev, "enable memory-write-invalidate\n");
+ 		err = pci_set_mwi(dev);
+ 		if (err) {
+ 			dev_warn(&dev->dev, "cannot enable memory-write-invalidate (%d)\n",
+@@ -100,7 +100,7 @@ static int command_write(struct pci_dev *dev, int offset, u16 value, void *data)
+ 		}
+ 	} else if ((cmd->val & PCI_COMMAND_INVALIDATE) &&
+ 		   !(value & PCI_COMMAND_INVALIDATE)) {
+-		dev_dbg(&dev->dev, "disable memory-write-invalidate\n");
++		dev_info(&dev->dev, "disable memory-write-invalidate\n");
+ 		pci_clear_mwi(dev);
+ 	}
+ 
+diff --git a/drivers/xen/xen-pciback/pci_stub.c b/drivers/xen/xen-pciback/pci_stub.c
+index b616b7768c3b..1d3d14d95396 100644
+--- a/drivers/xen/xen-pciback/pci_stub.c
++++ b/drivers/xen/xen-pciback/pci_stub.c
+@@ -77,7 +77,7 @@ static struct pcistub_device *pcistub_device_alloc(struct pci_dev *dev)
+ {
+ 	struct pcistub_device *psdev;
+ 
+-	dev_dbg(&dev->dev, "pcistub_device_alloc\n");
++	dev_info(&dev->dev, "pcistub_device_alloc\n");
+ 
+ 	psdev = kzalloc(sizeof(*psdev), GFP_KERNEL);
+ 	if (!psdev)
+@@ -100,7 +100,10 @@ static struct pcistub_device *pcistub_device_alloc(struct pci_dev *dev)
+ 
+ static int pcistub_reset_device_state(struct pci_dev *dev)
+ {
+-	__pci_reset_function_locked(dev);
++	int res = 0;
++	res = __pci_reset_function_locked(dev);
++
++	dev_info(&dev->dev, "__pci_reset_function_locked: %d\n", res);
+ 
+ 	if (!xen_pv_domain())
+ 		return xen_reset_device(dev);
+@@ -119,7 +122,7 @@ static void pcistub_device_release(struct kref *kref)
+ 	dev = psdev->dev;
+ 	dev_data = pci_get_drvdata(dev);
+ 
+-	dev_dbg(&dev->dev, "pcistub_device_release\n");
++	dev_info(&dev->dev, "pcistub_device_release\n");
+ 
+ 	xen_unregister_device_domain_owner(dev);
+ 
+@@ -405,7 +408,7 @@ static int pcistub_init_device(struct pcistub_device *psdev)
+ 
+ 	dev = psdev->dev;
+ 
+-	dev_dbg(&dev->dev, "initializing...\n");
++	dev_info(&dev->dev, "initializing...\n");
+ 
+ 	/* The PCI backend is not intended to be a module (or to work with
+ 	 * removable PCI devices (yet). If it were, xen_pcibk_config_free()
+@@ -426,7 +429,7 @@ static int pcistub_init_device(struct pcistub_device *psdev)
+ 	 */
+ 	sprintf(dev_data->irq_name, DRV_NAME "[%s]", pci_name(dev));
+ 
+-	dev_dbg(&dev->dev, "initializing config\n");
++	dev_info(&dev->dev, "initializing config\n");
+ 
+ 	init_waitqueue_head(&xen_pcibk_aer_wait_queue);
+ 	err = xen_pcibk_config_init_dev(dev);
+@@ -440,7 +443,7 @@ static int pcistub_init_device(struct pcistub_device *psdev)
+ 	 * This makes the assumption that the device's resources won't
+ 	 * change after this point (otherwise this code may break!)
+ 	 */
+-	dev_dbg(&dev->dev, "enabling device\n");
++	dev_info(&dev->dev, "enabling device\n");
+ 	err = pci_enable_device(dev);
+ 	if (err)
+ 		goto config_release;
+@@ -459,13 +462,13 @@ static int pcistub_init_device(struct pcistub_device *psdev)
+ 	}
+ 
+ 	/* We need the device active to save the state. */
+-	dev_dbg(&dev->dev, "save state of device\n");
++	dev_info(&dev->dev, "save state of device\n");
+ 	pci_save_state(dev);
+ 	dev_data->pci_saved_state = pci_store_saved_state(dev);
+ 	if (!dev_data->pci_saved_state)
+ 		dev_err(&dev->dev, "Could not store PCI conf saved state!\n");
+ 	else {
+-		dev_dbg(&dev->dev, "resetting (FLR, D3, etc) the device\n");
++		dev_info(&dev->dev, "resetting (FLR, D3, etc) the device\n");
+ 		err = pcistub_reset_device_state(dev);
+ 		if (err)
+ 			goto config_release;
+@@ -489,7 +492,7 @@ static int pcistub_init_device(struct pcistub_device *psdev)
+ 	/* Now disable the device (this also ensures some private device
+ 	 * data is setup before we export)
+ 	 */
+-	dev_dbg(&dev->dev, "reset device\n");
++	dev_info(&dev->dev, "reset device\n");
+ 	xen_pcibk_reset_device(dev);
+ 
+ 	pci_set_dev_assigned(dev);
+@@ -602,7 +605,7 @@ static int pcistub_seize(struct pci_dev *dev,
+ 		if (!err)
+ 			list_add(&psdev->dev_list, &pcistub_devices);
+ 	} else {
+-		dev_dbg(&dev->dev, "deferring initialization\n");
++		dev_info(&dev->dev, "deferring initialization\n");
+ 		list_add(&psdev->dev_list, &seized_devices);
+ 	}
+ 
+@@ -625,7 +628,7 @@ static int pcistub_probe(struct pci_dev *dev, const struct pci_device_id *id)
+ 	int err = 0, match;
+ 	struct pcistub_device_id *pci_dev_id = NULL;
+ 
+-	dev_dbg(&dev->dev, "probing...\n");
++	dev_info(&dev->dev, "probing...\n");
+ 
+ 	match = pcistub_match(dev);
+ 
+@@ -667,7 +670,7 @@ static void pcistub_remove(struct pci_dev *dev)
+ 	struct pcistub_device *psdev, *found_psdev = NULL;
+ 	unsigned long flags;
+ 
+-	dev_dbg(&dev->dev, "removing\n");
++	dev_info(&dev->dev, "removing\n");
+ 
+ 	spin_lock_irqsave(&pcistub_devices_lock, flags);
+ 
+@@ -683,7 +686,7 @@ static void pcistub_remove(struct pci_dev *dev)
+ 	spin_unlock_irqrestore(&pcistub_devices_lock, flags);
+ 
+ 	if (found_psdev) {
+-		dev_dbg(&dev->dev, "found device to remove %s\n",
++		dev_info(&dev->dev, "found device to remove %s\n",
+ 			found_psdev->pdev ? "- in-use" : "");
+ 
+ 		if (found_psdev->pdev) {
+@@ -779,7 +782,7 @@ static pci_ers_result_t common_process(struct pcistub_device *psdev,
+ 	}
+ 	wmb();
+ 
+-	dev_dbg(&psdev->dev->dev, "aer_op %x dom %x bus %x devfn %x\n",
++	dev_info(&psdev->dev->dev, "aer_op %x dom %x bus %x devfn %x\n",
+ 			aer_cmd, aer_op->domain, aer_op->bus, aer_op->devfn);
+ 	/*local flag to mark there's aer request, xen_pcibk callback will use
+ 	* this flag to judge whether we need to check pci-front give aer
+@@ -837,7 +840,7 @@ static pci_ers_result_t xen_pcibk_slot_reset(struct pci_dev *dev)
+ 	pci_ers_result_t result;
+ 
+ 	result = PCI_ERS_RESULT_RECOVERED;
+-	dev_dbg(&dev->dev, "xen_pcibk_slot_reset(bus:%x,devfn:%x)\n",
++	dev_info(&dev->dev, "xen_pcibk_slot_reset(bus:%x,devfn:%x)\n",
+ 		dev->bus->number, dev->devfn);
+ 
+ 	down_write(&pcistub_sem);
+@@ -868,7 +871,7 @@ static pci_ers_result_t xen_pcibk_slot_reset(struct pci_dev *dev)
+ 
+ 	if (result == PCI_ERS_RESULT_NONE ||
+ 		result == PCI_ERS_RESULT_DISCONNECT) {
+-		dev_dbg(&dev->dev,
++		dev_info(&dev->dev,
+ 			"No AER slot_reset service or disconnected!\n");
+ 		kill_domain_by_device(psdev);
+ 	}
+@@ -894,7 +897,7 @@ static pci_ers_result_t xen_pcibk_mmio_enabled(struct pci_dev *dev)
+ 	pci_ers_result_t result;
+ 
+ 	result = PCI_ERS_RESULT_RECOVERED;
+-	dev_dbg(&dev->dev, "xen_pcibk_mmio_enabled(bus:%x,devfn:%x)\n",
++	dev_info(&dev->dev, "xen_pcibk_mmio_enabled(bus:%x,devfn:%x)\n",
+ 		dev->bus->number, dev->devfn);
+ 
+ 	down_write(&pcistub_sem);
+@@ -925,7 +928,7 @@ static pci_ers_result_t xen_pcibk_mmio_enabled(struct pci_dev *dev)
+ 
+ 	if (result == PCI_ERS_RESULT_NONE ||
+ 		result == PCI_ERS_RESULT_DISCONNECT) {
+-		dev_dbg(&dev->dev,
++		dev_info(&dev->dev,
+ 			"No AER mmio_enabled service or disconnected!\n");
+ 		kill_domain_by_device(psdev);
+ 	}
+@@ -951,7 +954,7 @@ static pci_ers_result_t xen_pcibk_error_detected(struct pci_dev *dev,
+ 	pci_ers_result_t result;
+ 
+ 	result = PCI_ERS_RESULT_CAN_RECOVER;
+-	dev_dbg(&dev->dev, "xen_pcibk_error_detected(bus:%x,devfn:%x)\n",
++	dev_info(&dev->dev, "xen_pcibk_error_detected(bus:%x,devfn:%x)\n",
+ 		dev->bus->number, dev->devfn);
+ 
+ 	down_write(&pcistub_sem);
+@@ -975,7 +978,7 @@ static pci_ers_result_t xen_pcibk_error_detected(struct pci_dev *dev,
+ 	/*Guest owns the device yet no aer handler regiested, kill guest*/
+ 	if (!test_bit(_XEN_PCIB_AERHANDLER,
+ 		(unsigned long *)&psdev->pdev->sh_info->flags)) {
+-		dev_dbg(&dev->dev, "guest may have no aer driver, kill it\n");
++		dev_info(&dev->dev, "guest may have no aer driver, kill it\n");
+ 		kill_domain_by_device(psdev);
+ 		goto end;
+ 	}
+@@ -983,7 +986,7 @@ static pci_ers_result_t xen_pcibk_error_detected(struct pci_dev *dev,
+ 
+ 	if (result == PCI_ERS_RESULT_NONE ||
+ 		result == PCI_ERS_RESULT_DISCONNECT) {
+-		dev_dbg(&dev->dev,
++		dev_info(&dev->dev,
+ 			"No AER error_detected service or disconnected!\n");
+ 		kill_domain_by_device(psdev);
+ 	}
+@@ -1004,7 +1007,7 @@ static void xen_pcibk_error_resume(struct pci_dev *dev)
+ {
+ 	struct pcistub_device *psdev;
+ 
+-	dev_dbg(&dev->dev, "xen_pcibk_error_resume(bus:%x,devfn:%x)\n",
++	dev_info(&dev->dev, "xen_pcibk_error_resume(bus:%x,devfn:%x)\n",
+ 		dev->bus->number, dev->devfn);
+ 
+ 	down_write(&pcistub_sem);
+@@ -1346,7 +1349,7 @@ static ssize_t irq_handler_state_store(struct device_driver *drv,
+ 		goto out;
+ 	}
+ 
+-	dev_dbg(&psdev->dev->dev, "%s fake irq handler: %d->%d\n",
++	dev_info(&psdev->dev->dev, "%s fake irq handler: %d->%d\n",
+ 		dev_data->irq_name, dev_data->isr_on,
+ 		!dev_data->isr_on);
+ 
+diff --git a/drivers/xen/xen-pciback/pciback_ops.c b/drivers/xen/xen-pciback/pciback_ops.c
+index 84e014490950..01faa46282b9 100644
+--- a/drivers/xen/xen-pciback/pciback_ops.c
++++ b/drivers/xen/xen-pciback/pciback_ops.c
+@@ -59,7 +59,7 @@ static void xen_pcibk_control_isr(struct pci_dev *dev, int reset)
+ 	if (dev_data->irq == 0)
+ 		goto out;
+ 
+-	dev_dbg(&dev->dev, "%s: #%d %s %s%s %s-> %s\n",
++	dev_info(&dev->dev, "%s: #%d %s %s%s %s-> %s\n",
+ 		dev_data->irq_name,
+ 		dev_data->irq,
+ 		pci_is_enabled(dev) ? "on" : "off",
+@@ -92,7 +92,7 @@ static void xen_pcibk_control_isr(struct pci_dev *dev, int reset)
+ 	dev_data->isr_on = enable;
+ 	dev_data->ack_intr = enable;
+ out:
+-	dev_dbg(&dev->dev, "%s: #%d %s %s%s %s\n",
++	dev_info(&dev->dev, "%s: #%d %s %s%s %s\n",
+ 		dev_data->irq_name,
+ 		dev_data->irq,
+ 		pci_is_enabled(dev) ? "on" : "off",
+@@ -164,7 +164,7 @@ int xen_pcibk_enable_msi(struct xen_pcibk_device *pdev,
+ 
+ 	op->value = dev->irq ? xen_pirq_from_irq(dev->irq) : 0;
+ 
+-	dev_dbg(&dev->dev, "MSI: %d\n", op->value);
++	dev_info(&dev->dev, "MSI: %d\n", op->value);
+ 
+ 	dev_data = pci_get_drvdata(dev);
+ 	if (dev_data)
+@@ -188,7 +188,7 @@ int xen_pcibk_disable_msi(struct xen_pcibk_device *pdev,
+ 	}
+ 	op->value = dev->irq ? xen_pirq_from_irq(dev->irq) : 0;
+ 
+-	dev_dbg(&dev->dev, "MSI: %d\n", op->value);
++	dev_info(&dev->dev, "MSI: %d\n", op->value);
+ 
+ 	return 0;
+ }
+@@ -202,7 +202,7 @@ int xen_pcibk_enable_msix(struct xen_pcibk_device *pdev,
+ 	struct msix_entry *entries;
+ 	u16 cmd;
+ 
+-	dev_dbg(&dev->dev, "enable MSI-X\n");
++	dev_info(&dev->dev, "enable MSI-X\n");
+ 
+ 	if (op->value > SH_INFO_MAX_VEC)
+ 		return -EINVAL;
+@@ -235,7 +235,7 @@ int xen_pcibk_enable_msix(struct xen_pcibk_device *pdev,
+ 			if (entries[i].vector) {
+ 				op->msix_entries[i].vector =
+ 					xen_pirq_from_irq(entries[i].vector);
+-				dev_dbg(&dev->dev, "MSI-X[%d]: %d\n", i,
++				dev_info(&dev->dev, "MSI-X[%d]: %d\n", i,
+ 					op->msix_entries[i].vector);
+ 			}
+ 		}
+@@ -271,7 +271,7 @@ int xen_pcibk_disable_msix(struct xen_pcibk_device *pdev,
+ 	 */
+ 	op->value = dev->irq ? xen_pirq_from_irq(dev->irq) : 0;
+ 
+-	dev_dbg(&dev->dev, "MSI-X: %d\n", op->value);
++	dev_info(&dev->dev, "MSI-X: %d\n", op->value);
+ 
+ 	return 0;
+ }
+diff --git a/drivers/xen/xen-pciback/xenbus.c b/drivers/xen/xen-pciback/xenbus.c
+index b11e401f1b1e..946c607fff54 100644
+--- a/drivers/xen/xen-pciback/xenbus.c
++++ b/drivers/xen/xen-pciback/xenbus.c
+@@ -41,7 +41,7 @@ static struct xen_pcibk_device *alloc_pdev(struct xenbus_device *xdev)
+ 	pdev = kzalloc(sizeof(struct xen_pcibk_device), GFP_KERNEL);
+ 	if (pdev == NULL)
+ 		goto out;
+-	dev_dbg(&xdev->dev, "allocated pdev @ 0x%p\n", pdev);
++	dev_info(&xdev->dev, "allocated pdev @ 0x%p\n", pdev);
+ 
+ 	pdev->xdev = xdev;
+ 
+@@ -110,7 +110,7 @@ static int xen_pcibk_do_attach(struct xen_pcibk_device *pdev, int gnt_ref,
+ 	int err = 0;
+ 	void *vaddr;
+ 
+-	dev_dbg(&pdev->xdev->dev,
++	dev_info(&pdev->xdev->dev,
+ 		"Attaching to frontend resources - gnt_ref=%d evtchn=%u\n",
+ 		gnt_ref, remote_evtchn);
+ 
+@@ -134,7 +134,7 @@ static int xen_pcibk_do_attach(struct xen_pcibk_device *pdev, int gnt_ref,
+ 	pdev->evtchn_irq = err;
+ 	err = 0;
+ 
+-	dev_dbg(&pdev->xdev->dev, "Attached!\n");
++	dev_info(&pdev->xdev->dev, "Attached!\n");
+ out:
+ 	return err;
+ }
+@@ -158,7 +158,7 @@ static int xen_pcibk_attach(struct xen_pcibk_device *pdev)
+ 	    XenbusStateInitialised)
+ 		goto out;
+ 
+-	dev_dbg(&pdev->xdev->dev, "Reading frontend config\n");
++	dev_info(&pdev->xdev->dev, "Reading frontend config\n");
+ 
+ 	err = xenbus_gather(XBT_NIL, pdev->xdev->otherend,
+ 			    "pci-op-ref", "%u", &gnt_ref,
+@@ -184,14 +184,14 @@ static int xen_pcibk_attach(struct xen_pcibk_device *pdev)
+ 	if (err)
+ 		goto out;
+ 
+-	dev_dbg(&pdev->xdev->dev, "Connecting...\n");
++	dev_info(&pdev->xdev->dev, "Connecting...\n");
+ 
+ 	err = xenbus_switch_state(pdev->xdev, XenbusStateConnected);
+ 	if (err)
+ 		xenbus_dev_fatal(pdev->xdev, err,
+ 				 "Error switching to connected state!");
+ 
+-	dev_dbg(&pdev->xdev->dev, "Connected? %d\n", err);
++	dev_info(&pdev->xdev->dev, "Connected? %d\n", err);
+ out:
+ 	mutex_unlock(&pdev->dev_lock);
+ 
+@@ -230,7 +230,7 @@ static int xen_pcibk_export_device(struct xen_pcibk_device *pdev,
+ 	struct pci_dev *dev;
+ 	int err = 0;
+ 
+-	dev_dbg(&pdev->xdev->dev, "exporting dom %x bus %x slot %x func %x\n",
++	dev_info(&pdev->xdev->dev, "exporting dom %x bus %x slot %x func %x\n",
+ 		domain, bus, slot, func);
+ 
+ 	dev = pcistub_get_pci_dev_by_slot(pdev, domain, bus, slot, func);
+@@ -276,19 +276,19 @@ static int xen_pcibk_remove_device(struct xen_pcibk_device *pdev,
+ 	int err = 0;
+ 	struct pci_dev *dev;
+ 
+-	dev_dbg(&pdev->xdev->dev, "removing dom %x bus %x slot %x func %x\n",
++	dev_info(&pdev->xdev->dev, "removing dom %x bus %x slot %x func %x\n",
+ 		domain, bus, slot, func);
+ 
+ 	dev = xen_pcibk_get_pci_dev(pdev, domain, bus, PCI_DEVFN(slot, func));
+ 	if (!dev) {
+ 		err = -EINVAL;
+-		dev_dbg(&pdev->xdev->dev, "Couldn't locate PCI device "
++		dev_info(&pdev->xdev->dev, "Couldn't locate PCI device "
+ 			"(%04x:%02x:%02x.%d)! not owned by this domain\n",
+ 			domain, bus, slot, func);
+ 		goto out;
+ 	}
+ 
+-	dev_dbg(&dev->dev, "unregistering for %d\n", pdev->xdev->otherend_id);
++	dev_info(&dev->dev, "unregistering for %d\n", pdev->xdev->otherend_id);
+ 	xen_unregister_device_domain_owner(dev);
+ 
+ 	/* N.B. This ends up calling pcistub_put_pci_dev which ends up
+@@ -306,7 +306,7 @@ static int xen_pcibk_publish_pci_root(struct xen_pcibk_device *pdev,
+ 	int i, root_num, len, err;
+ 	char str[64];
+ 
+-	dev_dbg(&pdev->xdev->dev, "Publishing pci roots\n");
++	dev_info(&pdev->xdev->dev, "Publishing pci roots\n");
+ 
+ 	err = xenbus_scanf(XBT_NIL, pdev->xdev->nodename,
+ 			   "root_num", "%d", &root_num);
+@@ -344,7 +344,7 @@ static int xen_pcibk_publish_pci_root(struct xen_pcibk_device *pdev,
+ 		goto out;
+ 	}
+ 
+-	dev_dbg(&pdev->xdev->dev, "writing root %d at %04x:%02x\n",
++	dev_info(&pdev->xdev->dev, "writing root %d at %04x:%02x\n",
+ 		root_num, domain, bus);
+ 
+ 	err = xenbus_printf(XBT_NIL, pdev->xdev->nodename, str,
+@@ -371,7 +371,7 @@ static int xen_pcibk_reconfigure(struct xen_pcibk_device *pdev,
+ 	char dev_str[64];
+ 
+ 
+-	dev_dbg(&pdev->xdev->dev, "Reconfiguring device ...\n");
++	dev_info(&pdev->xdev->dev, "Reconfiguring device ...\n");
+ 
+ 	mutex_lock(&pdev->dev_lock);
+ 	if (xenbus_read_driver_state(pdev->xdev->nodename) != state)
+@@ -401,7 +401,7 @@ static int xen_pcibk_reconfigure(struct xen_pcibk_device *pdev,
+ 
+ 		switch (substate) {
+ 		case XenbusStateInitialising:
+-			dev_dbg(&pdev->xdev->dev, "Attaching dev-%d ...\n", i);
++			dev_info(&pdev->xdev->dev, "Attaching dev-%d ...\n", i);
+ 
+ 			len = snprintf(dev_str, sizeof(dev_str), "dev-%d", i);
+ 			if (unlikely(len >= (sizeof(dev_str) - 1))) {
+@@ -455,7 +455,7 @@ static int xen_pcibk_reconfigure(struct xen_pcibk_device *pdev,
+ 			break;
+ 
+ 		case XenbusStateClosing:
+-			dev_dbg(&pdev->xdev->dev, "Detaching dev-%d ...\n", i);
++			dev_info(&pdev->xdev->dev, "Detaching dev-%d ...\n", i);
+ 
+ 			len = snprintf(dev_str, sizeof(dev_str), "vdev-%d", i);
+ 			if (unlikely(len >= (sizeof(dev_str) - 1))) {
+@@ -520,7 +520,7 @@ static void xen_pcibk_frontend_changed(struct xenbus_device *xdev,
+ {
+ 	struct xen_pcibk_device *pdev = dev_get_drvdata(&xdev->dev);
+ 
+-	dev_dbg(&xdev->dev, "fe state changed %d\n", fe_state);
++	dev_info(&xdev->dev, "fe state changed %d\n", fe_state);
+ 
+ 	switch (fe_state) {
+ 	case XenbusStateInitialised:
+@@ -550,7 +550,7 @@ static void xen_pcibk_frontend_changed(struct xenbus_device *xdev,
+ 			break;
+ 		fallthrough;	/* if not online */
+ 	case XenbusStateUnknown:
+-		dev_dbg(&xdev->dev, "frontend is gone! unregister device\n");
++		dev_info(&xdev->dev, "frontend is gone! unregister device\n");
+ 		device_unregister(&xdev->dev);
+ 		break;
+ 
+@@ -576,7 +576,7 @@ static int xen_pcibk_setup_backend(struct xen_pcibk_device *pdev)
+ 	    XenbusStateInitWait)
+ 		goto out;
+ 
+-	dev_dbg(&pdev->xdev->dev, "getting be setup\n");
++	dev_info(&pdev->xdev->dev, "getting be setup\n");
+ 
+ 	err = xenbus_scanf(XBT_NIL, pdev->xdev->nodename, "num_devs", "%d",
+ 			   &num_devs);
+-- 
+2.49.0
+
