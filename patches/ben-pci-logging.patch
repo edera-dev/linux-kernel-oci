@@ -1,25 +1,25 @@
-From 08776d31d4a88a7105701dbf0c1f24dae4acf9e7 Mon Sep 17 00:00:00 2001
+From 1ffe67223a1b58f9f65e6ad1b15d2f76e4f1b9f1 Mon Sep 17 00:00:00 2001
 From: Benjamin Leggett <benjamin@edera.io>
 Date: Mon, 28 Apr 2025 19:29:39 -0400
 Subject: [PATCH] hacktest
 
 ---
- arch/x86/pci/xen.c                            | 25 +++++--
- drivers/gpu/drm/amd/amdgpu/amdgpu_device.c    |  7 +-
+ arch/x86/pci/xen.c                            | 29 ++++++---
+ drivers/gpu/drm/amd/amdgpu/amdgpu_device.c    |  7 ++-
  drivers/gpu/drm/amd/amdgpu/amdgpu_irq.c       | 11 ++--
- drivers/pci/msi/msi.c                         | 65 ++++++++++++++++---
+ drivers/pci/msi/msi.c                         | 62 ++++++++++++++++---
  drivers/pci/pci.c                             |  2 +
- drivers/pci/xen-pcifront.c                    | 31 +++++----
+ drivers/pci/xen-pcifront.c                    | 31 ++++++----
  drivers/xen/xen-pciback/conf_space.c          | 16 ++---
  .../xen/xen-pciback/conf_space_capability.c   |  4 +-
  drivers/xen/xen-pciback/conf_space_header.c   | 12 ++--
- drivers/xen/xen-pciback/pci_stub.c            | 49 +++++++-------
- drivers/xen/xen-pciback/pciback_ops.c         | 14 ++--
- drivers/xen/xen-pciback/xenbus.c              | 36 +++++-----
- 12 files changed, 177 insertions(+), 95 deletions(-)
+ drivers/xen/xen-pciback/pci_stub.c            | 49 ++++++++-------
+ drivers/xen/xen-pciback/pciback_ops.c         | 14 ++---
+ drivers/xen/xen-pciback/xenbus.c              | 36 +++++------
+ 12 files changed, 177 insertions(+), 96 deletions(-)
 
 diff --git a/arch/x86/pci/xen.c b/arch/x86/pci/xen.c
-index 0f2fe524f60d..df30d94d8b39 100644
+index 0f2fe524f60d..b17faa7f5c40 100644
 --- a/arch/x86/pci/xen.c
 +++ b/arch/x86/pci/xen.c
 @@ -170,12 +170,17 @@ static int xen_setup_msi_irqs(struct pci_dev *dev, int nvec, int type)
@@ -123,6 +123,17 @@ index 0f2fe524f60d..df30d94d8b39 100644
  			map_irq.type = MAP_PIRQ_TYPE_MSI;
  			map_irq.index = -1;
  			map_irq.pirq = -1;
+@@ -355,8 +370,8 @@ bool xen_initdom_restore_msi(struct pci_dev *dev)
+ {
+ 	int ret = 0;
+ 
+-	if (!xen_initial_domain())
+-		return true;
++	/* if (!xen_initial_domain()) */
++	/* 	return true; */
+ 
+ 	if (pci_seg_supported) {
+ 		struct physdev_pci_device restore_ext;
 diff --git a/drivers/gpu/drm/amd/amdgpu/amdgpu_device.c b/drivers/gpu/drm/amd/amdgpu/amdgpu_device.c
 index 018dfccd771b..0764a3fc07b6 100644
 --- a/drivers/gpu/drm/amd/amdgpu/amdgpu_device.c
@@ -199,7 +210,7 @@ index 19ce4da285e8..c4cafd52c15a 100644
  
  free_vectors:
 diff --git a/drivers/pci/msi/msi.c b/drivers/pci/msi/msi.c
-index 2f647cac4cae..b28258c0ce83 100644
+index 2f647cac4cae..b592b5d96861 100644
 --- a/drivers/pci/msi/msi.c
 +++ b/drivers/pci/msi/msi.c
 @@ -208,12 +208,17 @@ static inline void pci_write_msg_msi(struct pci_dev *dev, struct msi_desc *desc,
@@ -325,7 +336,7 @@ index 2f647cac4cae..b28258c0ce83 100644
  }
  
  static void __iomem *msix_map_region(struct pci_dev *dev,
-@@ -861,24 +898,36 @@ void __pci_restore_msix_state(struct pci_dev *dev)
+@@ -861,24 +898,35 @@ void __pci_restore_msix_state(struct pci_dev *dev)
  	struct msi_desc *entry;
  	bool write_msg;
  
@@ -347,12 +358,10 @@ index 2f647cac4cae..b28258c0ce83 100644
  	msi_lock_descs(&dev->dev);
  	msi_for_each_desc(entry, &dev->dev, MSI_DESC_ALL) {
 -		if (write_msg)
--			__pci_write_msi_msg(entry, &entry->msg);
-+		/* if (write_msg) { */
-+		/* 	pci_info(dev,"printing before write msi msg"); */
-+		/* 	pci_info(dev, "writing msix msg %d for entry %u\n", entry->nvec_used, entry->msg.data); */
-+		/* 	__pci_write_msi_msg(entry, &entry->msg); */
-+		/* } */
++		if (write_msg) {
++			pci_info(dev,"printing before write msi msg");
+ 			__pci_write_msi_msg(entry, &entry->msg);
++		}
 +		pci_info(dev, "writing msix vector control %p for entry %p\n", &entry->pci.msix_ctrl, &entry);
  		pci_msix_write_vector_ctrl(entry, entry->pci.msix_ctrl);
  	}
