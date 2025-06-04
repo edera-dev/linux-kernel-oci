@@ -5,6 +5,8 @@ architectures:
 flavors:
 - name: zone
 - name: zone-amdgpu
+  constraints:
+    lower: '6.1'
 - name: zone-openpax
   constraints:
     series:
@@ -56,7 +58,7 @@ patches:
   - series: '6.12'
     upper: '6.12.1'
 - patch: hack-around-pci-msix-restore-bugs-in-pv-domu.patch
-  lower: '5.4'
+  lower: '6.1'
   flavors:
   - zone-amdgpu
 images:
