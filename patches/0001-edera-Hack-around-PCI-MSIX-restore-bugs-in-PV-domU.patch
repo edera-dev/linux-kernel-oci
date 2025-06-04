@@ -1,0 +1,29 @@
+From c634842013a1722f3e157876682aa39be14831f3 Mon Sep 17 00:00:00 2001
+From: Benjamin Leggett <benjamin@edera.io>
+Date: Wed, 4 Jun 2025 12:20:45 -0400
+Subject: [PATCH] edera: Hack around PCI MSIX restore bugs in PV domU
+
+---
+ arch/x86/pci/xen.c | 6 ++++++
+ 1 file changed, 6 insertions(+)
+
+diff --git a/arch/x86/pci/xen.c b/arch/x86/pci/xen.c
+index 0f2fe524f60d..7be968e90f67 100644
+--- a/arch/x86/pci/xen.c
++++ b/arch/x86/pci/xen.c
+@@ -354,6 +354,12 @@ static int xen_initdom_setup_msi_irqs(struct pci_dev *dev, int nvec, int type)
+ bool xen_initdom_restore_msi(struct pci_dev *dev)
+ {
+ 	int ret = 0;
++	// TODO(bmleggett) this effectively
++	// causes MSI writes to be *entirely* skipped on standard PCI
++	// restore for PV domU. This works, but is (probably) not correct -
++	// something like what `pci-hyperv.c` does is (likely) we actually need.
++	if (xen_pv_domain())
++		return false;
+ 
+ 	if (!xen_initial_domain())
+ 		return true;
+-- 
+2.49.0
+
