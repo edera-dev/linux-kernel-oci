@@ -55,6 +55,10 @@ patches:
     upper: '6.6.63'
   - series: '6.12'
     upper: '6.12.1'
+- patch: hack-around-pci-msix-restore-bugs-in-pv-domu.patch
+  lower: '5.4'
+  flavors:
+  - zone-amdgpu
 images:
 - target: kernelsrc
   name: kernel-src
