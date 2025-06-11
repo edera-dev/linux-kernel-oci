@@ -44,7 +44,7 @@ RUN if [ "${KERNEL_FLAVOR}" = "zone-amdgpu" ]; then \
         ./hack/build/docker-build-internal.sh; \
     fi
 
-FROM alpine:3.21@sha256:a8560b36e8b8210634f77d9f7f9efd7ffa463e380b75e2e74aff4511df3ef88c AS sdkbuild
+FROM alpine:3.22@sha256:8a1f59ffb675680d47db6337b49d22281a139e9d709335b492be023728e11715 AS sdkbuild
 ARG KERNEL_VERSION=
 ARG KERNEL_FLAVOR=zone
 COPY --from=build /build/target/sdk.tar.gz /sdk.tar.gz
