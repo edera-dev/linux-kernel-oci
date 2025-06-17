@@ -1,0 +1,24 @@
+From 461bca83f786a8dee0a4fe9dd52cd6716184593f Mon Sep 17 00:00:00 2001
+From: Benjamin Leggett <benjamin@edera.io>
+Date: Tue, 17 Jun 2025 17:06:53 -0400
+Subject: [PATCH] Add logging line for xen swiotlb alloc
+
+---
+ drivers/xen/swiotlb-xen.c | 1 +
+ 1 file changed, 1 insertion(+)
+
+diff --git a/drivers/xen/swiotlb-xen.c b/drivers/xen/swiotlb-xen.c
+index 1f65795cf5d7..06f5c75db47b 100644
+--- a/drivers/xen/swiotlb-xen.c
++++ b/drivers/xen/swiotlb-xen.c
+@@ -109,6 +109,7 @@ static struct io_tlb_pool *xen_swiotlb_find_pool(struct device *dev,
+ 	 */
+ 	if (pfn_valid(PFN_DOWN(paddr)))
+ 		return swiotlb_find_pool(dev, paddr);
++	printk("WTF: didn't find address in domain's pool: addr %llx, DMA addr %llx, Xen PFN: %lx, BFN: %lx \n", paddr, dma_addr, xen_pfn, bfn);
+ 	return NULL;
+ }
+ 
+-- 
+2.49.0
+
