@@ -1,21 +1,28 @@
-From 461bca83f786a8dee0a4fe9dd52cd6716184593f Mon Sep 17 00:00:00 2001
+From b104963eeec90b2a3b6a18ec7177dd98149e3c98 Mon Sep 17 00:00:00 2001
 From: Benjamin Leggett <benjamin@edera.io>
 Date: Tue, 17 Jun 2025 17:06:53 -0400
 Subject: [PATCH] Add logging line for xen swiotlb alloc
 
 ---
- drivers/xen/swiotlb-xen.c | 1 +
- 1 file changed, 1 insertion(+)
+ drivers/xen/swiotlb-xen.c | 2 ++
+ 1 file changed, 2 insertions(+)
 
 diff --git a/drivers/xen/swiotlb-xen.c b/drivers/xen/swiotlb-xen.c
-index 1f65795cf5d7..06f5c75db47b 100644
+index 1f65795cf5d7..0ab941d2c4a8 100644
 --- a/drivers/xen/swiotlb-xen.c
 +++ b/drivers/xen/swiotlb-xen.c
-@@ -109,6 +109,7 @@ static struct io_tlb_pool *xen_swiotlb_find_pool(struct device *dev,
+@@ -103,12 +103,14 @@ static struct io_tlb_pool *xen_swiotlb_find_pool(struct device *dev,
+ 	unsigned long xen_pfn = bfn_to_local_pfn(bfn);
+ 	phys_addr_t paddr = (phys_addr_t)xen_pfn << XEN_PAGE_SHIFT;
+ 
++	printk(KERN_INFO "WTF: looking for pool at %llx", dma_addr);
+ 	/* If the address is outside our domain, it CAN
+ 	 * have the same virtual address as another address
+ 	 * in our domain. Therefore _only_ check address within our domain.
  	 */
  	if (pfn_valid(PFN_DOWN(paddr)))
  		return swiotlb_find_pool(dev, paddr);
-+	printk("WTF: didn't find address in domain's pool: addr %llx, DMA addr %llx, Xen PFN: %lx, BFN: %lx \n", paddr, dma_addr, xen_pfn, bfn);
++	printk(KERN_INFO "WTF: didn't find address in domain's pool: addr %llx, DMA addr %llx, Xen PFN: %lx, BFN: %lx \n", paddr, dma_addr, xen_pfn, bfn);
  	return NULL;
  }
  
