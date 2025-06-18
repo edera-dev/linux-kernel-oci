@@ -1,12 +1,13 @@
-From 77778df0b3f4cda8fbfed0f0acd6b7147e12d8c5 Mon Sep 17 00:00:00 2001
+From 254f6a7800ed9fa97a21cb1e3375a4a96a4a0b91 Mon Sep 17 00:00:00 2001
 From: Benjamin Leggett <benjamin@edera.io>
 Date: Tue, 17 Jun 2025 17:06:53 -0400
 Subject: [PATCH] Add logging line for xen swiotlb alloc
 
 ---
  arch/x86/xen/mmu_pv.c     |  4 +++-
- drivers/xen/swiotlb-xen.c | 18 ++++++++++++++----
- 2 files changed, 17 insertions(+), 5 deletions(-)
+ drivers/xen/swiotlb-xen.c | 17 +++++++++++++----
+ kernel/dma/swiotlb.c      | 14 +++++++++++---
+ 3 files changed, 27 insertions(+), 8 deletions(-)
 
 diff --git a/arch/x86/xen/mmu_pv.c b/arch/x86/xen/mmu_pv.c
 index d078de2c952b..46b21349594e 100644
@@ -25,57 +26,50 @@ index d078de2c952b..46b21349594e 100644
  	vstart = (unsigned long)phys_to_virt(pstart);
  	memset((void *) vstart, 0, PAGE_SIZE << order);
 diff --git a/drivers/xen/swiotlb-xen.c b/drivers/xen/swiotlb-xen.c
-index 1f65795cf5d7..ef5a65225c1d 100644
+index 1f65795cf5d7..a79ed62b6239 100644
 --- a/drivers/xen/swiotlb-xen.c
 +++ b/drivers/xen/swiotlb-xen.c
-@@ -103,12 +103,14 @@ static struct io_tlb_pool *xen_swiotlb_find_pool(struct device *dev,
- 	unsigned long xen_pfn = bfn_to_local_pfn(bfn);
- 	phys_addr_t paddr = (phys_addr_t)xen_pfn << XEN_PAGE_SHIFT;
- 
-+	printk(KERN_INFO "WTF: looking for pool at %llx\n", dma_addr);
- 	/* If the address is outside our domain, it CAN
- 	 * have the same virtual address as another address
- 	 * in our domain. Therefore _only_ check address within our domain.
+@@ -109,6 +109,7 @@ static struct io_tlb_pool *xen_swiotlb_find_pool(struct device *dev,
  	 */
  	if (pfn_valid(PFN_DOWN(paddr)))
  		return swiotlb_find_pool(dev, paddr);
-+	printk(KERN_INFO "WTF: didn't find address in domain's pool: addr %llx, DMA addr %llx, Xen PFN: %lx, BFN: %lx \n", paddr, dma_addr, xen_pfn, bfn);
++	printk(KERN_INFO "SEEMS: didn't find address in domain's pool: addr %llx, DMA addr %llx, Xen PFN: %lx, BFN: %lx \n", paddr, dma_addr, xen_pfn, bfn);
  	return NULL;
  }
  
-@@ -131,8 +133,10 @@ int __init xen_swiotlb_fixup(void *buf, unsigned long nslabs)
+@@ -131,8 +132,10 @@ int __init xen_swiotlb_fixup(void *buf, unsigned long nslabs)
  				p + (i << IO_TLB_SHIFT), order,
  				dma_bits, &dma_handle);
  		} while (rc && dma_bits++ < MAX_DMA_BITS);
 -		if (rc)
 +		if (rc) {
-+			printk(KERN_INFO "BOMBED in slab alloc\n");
++			printk(KERN_INFO "SEEMS bombed in slab alloc\n");
  			return rc;
 +		}
  
  		i += IO_TLB_SEGSIZE;
  	} while (i < nslabs);
-@@ -152,8 +156,10 @@ xen_swiotlb_alloc_coherent(struct device *dev, size_t size,
+@@ -152,8 +155,10 @@ xen_swiotlb_alloc_coherent(struct device *dev, size_t size,
  	size = ALIGN(size, XEN_PAGE_SIZE);
  
  	ret = (void *)__get_free_pages(flags, get_order(size));
 -	if (!ret)
 +	if (!ret) {
-+		printk(KERN_WARNING "BIFFED on get_free_pages\n");
++		printk(KERN_WARNING "SEEMS bombed on get_free_pages\n");
  		return ret;
 +	}
  	phys = virt_to_phys(ret);
  
  	*dma_handle = xen_phys_to_dma(dev, phys);
-@@ -170,6 +176,7 @@ xen_swiotlb_alloc_coherent(struct device *dev, size_t size,
+@@ -170,6 +175,7 @@ xen_swiotlb_alloc_coherent(struct device *dev, size_t size,
  	return ret;
  
  out_free_pages:
-+	printk(KERN_WARNING "DORKED on create_contiguous_region\n");
++	printk(KERN_WARNING "SEEMS like bombed on create_contiguous_region\n");
  	free_pages((unsigned long)ret, get_order(size));
  	return NULL;
  }
-@@ -246,10 +253,13 @@ static dma_addr_t xen_swiotlb_map_page(struct device *dev, struct page *page,
+@@ -246,10 +252,13 @@ static dma_addr_t xen_swiotlb_map_page(struct device *dev, struct page *page,
  
  done:
  	if (!dev_is_dma_coherent(dev) && !(attrs & DMA_ATTR_SKIP_CPU_SYNC)) {
@@ -91,6 +85,60 @@ index 1f65795cf5d7..ef5a65225c1d 100644
  	}
  	return dev_addr;
  }
+diff --git a/kernel/dma/swiotlb.c b/kernel/dma/swiotlb.c
+index abcf3fa63a56..de75b1d83d8f 100644
+--- a/kernel/dma/swiotlb.c
++++ b/kernel/dma/swiotlb.c
+@@ -1090,6 +1090,7 @@ static int swiotlb_search_pool_area(struct device *dev, struct io_tlb_pool *pool
+ 	}
+ 
+ not_found:
++	printk(KERN_INFO "BML: out of slots! nslots: %u, pool slabs: %u, used area: %lu\n", nslots, pool->area_nslabs, area->used);
+ 	spin_unlock_irqrestore(&area->lock, flags);
+ 	return -1;
+ 
+@@ -1190,8 +1191,10 @@ static int swiotlb_find_slots(struct device *dev, phys_addr_t orig_addr,
+ 	int cpu, i;
+ 	int index;
+ 
+-	if (alloc_size > IO_TLB_SEGSIZE * IO_TLB_SIZE)
++	if (alloc_size > IO_TLB_SEGSIZE * IO_TLB_SIZE) {
++		printk(KERN_INFO "BML: alloc_size %zu greater than SEGSIZE %d times TLBSIZE %d\n", alloc_size, IO_TLB_SEGSIZE, IO_TLB_SIZE);
+ 		return -1;
++	}
+ 
+ 	cpu = raw_smp_processor_id();
+ 	for (i = 0; i < default_nareas; ++i) {
+@@ -1201,8 +1204,10 @@ static int swiotlb_find_slots(struct device *dev, phys_addr_t orig_addr,
+ 			goto found;
+ 	}
+ 
+-	if (!mem->can_grow)
++	if (!mem->can_grow) {
++		printk(KERN_INFO "BML: memory ungrowable\n");
+ 		return -1;
++	}
+ 
+ 	schedule_work(&mem->dyn_alloc);
+ 
+@@ -1210,13 +1215,16 @@ static int swiotlb_find_slots(struct device *dev, phys_addr_t orig_addr,
+ 	phys_limit = min_not_zero(*dev->dma_mask, dev->bus_dma_limit);
+ 	pool = swiotlb_alloc_pool(dev, nslabs, nslabs, 1, phys_limit,
+ 				  GFP_NOWAIT | __GFP_NOWARN);
+-	if (!pool)
++	if (!pool) {
++		printk(KERN_INFO "BML: can't alloc pool\n");
+ 		return -1;
++	}
+ 
+ 	index = swiotlb_search_pool_area(dev, pool, 0, orig_addr,
+ 					 alloc_size, alloc_align_mask);
+ 	if (index < 0) {
+ 		swiotlb_dyn_free(&pool->rcu);
++		printk(KERN_INFO "BML: pool search failed\n");
+ 		return -1;
+ 	}
+ 
 -- 
 2.49.0
 
