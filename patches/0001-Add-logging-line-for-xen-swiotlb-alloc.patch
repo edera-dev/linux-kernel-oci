@@ -1,21 +1,38 @@
-From b104963eeec90b2a3b6a18ec7177dd98149e3c98 Mon Sep 17 00:00:00 2001
+From 434b5b11450c602b6624c69e4302502bbeccd467 Mon Sep 17 00:00:00 2001
 From: Benjamin Leggett <benjamin@edera.io>
 Date: Tue, 17 Jun 2025 17:06:53 -0400
 Subject: [PATCH] Add logging line for xen swiotlb alloc
 
 ---
- drivers/xen/swiotlb-xen.c | 2 ++
- 1 file changed, 2 insertions(+)
+ arch/x86/xen/mmu_pv.c     |  4 +++-
+ drivers/xen/swiotlb-xen.c | 18 ++++++++++++++----
+ 2 files changed, 17 insertions(+), 5 deletions(-)
 
+diff --git a/arch/x86/xen/mmu_pv.c b/arch/x86/xen/mmu_pv.c
+index d078de2c952b..46b21349594e 100644
+--- a/arch/x86/xen/mmu_pv.c
++++ b/arch/x86/xen/mmu_pv.c
+@@ -2414,8 +2414,10 @@ void xen_destroy_contiguous_region(phys_addr_t pstart, unsigned int order)
+ 	int success;
+ 	unsigned long vstart;
+ 
+-	if (unlikely(order > discontig_frames_order))
++	if (unlikely(order > discontig_frames_order)) {
++		printk(KERN_INFO "order > discontig_order, skipping destroy\n");
+ 		return;
++	}
+ 
+ 	vstart = (unsigned long)phys_to_virt(pstart);
+ 	memset((void *) vstart, 0, PAGE_SIZE << order);
 diff --git a/drivers/xen/swiotlb-xen.c b/drivers/xen/swiotlb-xen.c
-index 1f65795cf5d7..0ab941d2c4a8 100644
+index 1f65795cf5d7..c8e35040ba6b 100644
 --- a/drivers/xen/swiotlb-xen.c
 +++ b/drivers/xen/swiotlb-xen.c
 @@ -103,12 +103,14 @@ static struct io_tlb_pool *xen_swiotlb_find_pool(struct device *dev,
  	unsigned long xen_pfn = bfn_to_local_pfn(bfn);
  	phys_addr_t paddr = (phys_addr_t)xen_pfn << XEN_PAGE_SHIFT;
  
-+	printk(KERN_INFO "WTF: looking for pool at %llx", dma_addr);
++	printk(KERN_INFO "WTF: looking for pool at %llx\n", dma_addr);
  	/* If the address is outside our domain, it CAN
  	 * have the same virtual address as another address
  	 * in our domain. Therefore _only_ check address within our domain.
@@ -26,6 +43,54 @@ index 1f65795cf5d7..0ab941d2c4a8 100644
  	return NULL;
  }
  
+@@ -131,8 +133,10 @@ int __init xen_swiotlb_fixup(void *buf, unsigned long nslabs)
+ 				p + (i << IO_TLB_SHIFT), order,
+ 				dma_bits, &dma_handle);
+ 		} while (rc && dma_bits++ < MAX_DMA_BITS);
+-		if (rc)
++		if (rc) {
++			printk(KERN_INFO "BOMBED in slab alloc\n");
+ 			return rc;
++		}
+ 
+ 		i += IO_TLB_SEGSIZE;
+ 	} while (i < nslabs);
+@@ -152,8 +156,10 @@ xen_swiotlb_alloc_coherent(struct device *dev, size_t size,
+ 	size = ALIGN(size, XEN_PAGE_SIZE);
+ 
+ 	ret = (void *)__get_free_pages(flags, get_order(size));
+-	if (!ret)
++	if (!ret) {
++		printk(KERN_WARNING "BIFFED on get_free_pages\n");
+ 		return ret;
++	}
+ 	phys = virt_to_phys(ret);
+ 
+ 	*dma_handle = xen_phys_to_dma(dev, phys);
+@@ -170,6 +176,7 @@ xen_swiotlb_alloc_coherent(struct device *dev, size_t size,
+ 	return ret;
+ 
+ out_free_pages:
++	printk(KERN_WARN "DORKED on create_contiguous_region\n");
+ 	free_pages((unsigned long)ret, get_order(size));
+ 	return NULL;
+ }
+@@ -246,10 +253,13 @@ static dma_addr_t xen_swiotlb_map_page(struct device *dev, struct page *page,
+ 
+ done:
+ 	if (!dev_is_dma_coherent(dev) && !(attrs & DMA_ATTR_SKIP_CPU_SYNC)) {
+-		if (pfn_valid(PFN_DOWN(dma_to_phys(dev, dev_addr))))
++		if (pfn_valid(PFN_DOWN(dma_to_phys(dev, dev_addr)))) {
++			printk(KERN_INFO "SEEMS like a valid PFN, using arch dma sync %llx\n", dev_addr);
+ 			arch_sync_dma_for_device(phys, size, dir);
+-		else
++		} else {
++			printk(KERN_INFO "SEEMS like an invalid PFN, using xen dma sync %llx\n", dev_addr);
+ 			xen_dma_sync_for_device(dev, dev_addr, size, dir);
++		}
+ 	}
+ 	return dev_addr;
+ }
 -- 
 2.49.0
 
