@@ -1,4 +1,4 @@
-From 434b5b11450c602b6624c69e4302502bbeccd467 Mon Sep 17 00:00:00 2001
+From 77778df0b3f4cda8fbfed0f0acd6b7147e12d8c5 Mon Sep 17 00:00:00 2001
 From: Benjamin Leggett <benjamin@edera.io>
 Date: Tue, 17 Jun 2025 17:06:53 -0400
 Subject: [PATCH] Add logging line for xen swiotlb alloc
@@ -25,7 +25,7 @@ index d078de2c952b..46b21349594e 100644
  	vstart = (unsigned long)phys_to_virt(pstart);
  	memset((void *) vstart, 0, PAGE_SIZE << order);
 diff --git a/drivers/xen/swiotlb-xen.c b/drivers/xen/swiotlb-xen.c
-index 1f65795cf5d7..c8e35040ba6b 100644
+index 1f65795cf5d7..ef5a65225c1d 100644
 --- a/drivers/xen/swiotlb-xen.c
 +++ b/drivers/xen/swiotlb-xen.c
 @@ -103,12 +103,14 @@ static struct io_tlb_pool *xen_swiotlb_find_pool(struct device *dev,
@@ -71,7 +71,7 @@ index 1f65795cf5d7..c8e35040ba6b 100644
  	return ret;
  
  out_free_pages:
-+	printk(KERN_WARN "DORKED on create_contiguous_region\n");
++	printk(KERN_WARNING "DORKED on create_contiguous_region\n");
  	free_pages((unsigned long)ret, get_order(size));
  	return NULL;
  }
