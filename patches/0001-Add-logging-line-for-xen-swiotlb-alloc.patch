@@ -1,4 +1,4 @@
-From fb686fd005dc67ae7b5fc460c325f8831ce91089 Mon Sep 17 00:00:00 2001
+From f1a6685d65966c4574c4707b65473c3eba5c8fd4 Mon Sep 17 00:00:00 2001
 From: Benjamin Leggett <benjamin@edera.io>
 Date: Tue, 17 Jun 2025 17:06:53 -0400
 Subject: [PATCH] Add logging line for xen swiotlb alloc
@@ -14,7 +14,7 @@ Subject: [PATCH] Add logging line for xen swiotlb alloc
  7 files changed, 66 insertions(+), 17 deletions(-)
 
 diff --git a/arch/x86/xen/mmu_pv.c b/arch/x86/xen/mmu_pv.c
-index d078de2c952b..db2e0671bd40 100644
+index d078de2c952b..1631992ae382 100644
 --- a/arch/x86/xen/mmu_pv.c
 +++ b/arch/x86/xen/mmu_pv.c
 @@ -313,15 +313,21 @@ static bool xen_batched_set_pte(pte_t *ptep, pte_t pteval)
@@ -33,7 +33,7 @@ index d078de2c952b..db2e0671bd40 100644
  	u.ptr = virt_to_machine(ptep).maddr | MMU_NORMAL_PT_UPDATE;
 +	printk(KERN_INFO "BML: pte val\n");
  	u.val = pte_val_ma(pteval);
-+	printk(KERN_INFO "BML: mmu update with ptr addr: %p and val: %llx \n", u.ptr, u.val);
++	printk(KERN_INFO "BML: mmu update with ptr addr: %llx and val: %llx \n", u.ptr, u.val);
  	xen_extend_mmu_update(&u);
  
 +	printk(KERN_INFO "BML: issue batch\n");
@@ -45,7 +45,7 @@ index d078de2c952b..db2e0671bd40 100644
  static inline void __xen_set_pte(pte_t *ptep, pte_t pteval)
  {
 +
-+	printk(KERN_INFO "BML: __xen_set_pte: %p, val: %lx\n", ptep, pteval);
++	printk(KERN_INFO "BML: __xen_set_pte: %p, val: %lx\n", ptep, pteval.pte);
  	if (!xen_batched_set_pte(ptep, pteval)) {
 +		printk(KERN_INFO "BML: prepping hypercall\n");
  		/*
@@ -57,7 +57,7 @@ index d078de2c952b..db2e0671bd40 100644
  		u.ptr = virt_to_machine(ptep).maddr | MMU_NORMAL_PT_UPDATE;
 +		printk(KERN_INFO "BML: pte val\n");
  		u.val = pte_val_ma(pteval);
-+		printk(KERN_INFO "BML: making MMU update hypercall with ptr addr: %p and val: %llx \n", u.ptr, u.val);
++		printk(KERN_INFO "BML: making MMU update hypercall with ptr addr: %llx and val: %llx \n", u.ptr, u.val);
  		HYPERVISOR_mmu_update(&u, 1, NULL, DOMID_SELF);
  	}
  }
