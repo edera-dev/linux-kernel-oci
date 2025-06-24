@@ -1,20 +1,20 @@
-From f1a6685d65966c4574c4707b65473c3eba5c8fd4 Mon Sep 17 00:00:00 2001
+From a33e420e61d54c07cbefeed7eb089e7bb1517b85 Mon Sep 17 00:00:00 2001
 From: Benjamin Leggett <benjamin@edera.io>
 Date: Tue, 17 Jun 2025 17:06:53 -0400
 Subject: [PATCH] Add logging line for xen swiotlb alloc
 
 ---
- arch/x86/xen/mmu_pv.c                           | 17 +++++++++++++++--
- .../gpu/drm/amd/amdgpu/amdgpu_amdkfd_gpuvm.c    |  9 +++++++--
- drivers/gpu/drm/amd/amdgpu/amdgpu_ttm.c         | 11 +++++++++--
- drivers/iommu/dma-iommu.c                       |  4 +++-
- drivers/xen/swiotlb-xen.c                       | 17 +++++++++++++----
- kernel/dma/mapping.c                            | 11 ++++++++---
- kernel/dma/swiotlb.c                            | 14 +++++++++++---
- 7 files changed, 66 insertions(+), 17 deletions(-)
+ arch/x86/xen/mmu_pv.c                         | 20 +++++++++++++++++--
+ .../gpu/drm/amd/amdgpu/amdgpu_amdkfd_gpuvm.c  |  9 +++++++--
+ drivers/gpu/drm/amd/amdgpu/amdgpu_ttm.c       | 11 ++++++++--
+ drivers/iommu/dma-iommu.c                     |  4 +++-
+ drivers/xen/swiotlb-xen.c                     | 17 ++++++++++++----
+ kernel/dma/mapping.c                          | 11 +++++++---
+ kernel/dma/swiotlb.c                          | 14 ++++++++++---
+ 7 files changed, 69 insertions(+), 17 deletions(-)
 
 diff --git a/arch/x86/xen/mmu_pv.c b/arch/x86/xen/mmu_pv.c
-index d078de2c952b..1631992ae382 100644
+index d078de2c952b..f765b9eff185 100644
 --- a/arch/x86/xen/mmu_pv.c
 +++ b/arch/x86/xen/mmu_pv.c
 @@ -313,15 +313,21 @@ static bool xen_batched_set_pte(pte_t *ptep, pte_t pteval)
@@ -61,7 +61,24 @@ index d078de2c952b..1631992ae382 100644
  		HYPERVISOR_mmu_update(&u, 1, NULL, DOMID_SELF);
  	}
  }
-@@ -2414,8 +2425,10 @@ void xen_destroy_contiguous_region(phys_addr_t pstart, unsigned int order)
+@@ -398,6 +409,8 @@ static pteval_t pte_pfn_to_mfn(pteval_t val)
+ 
+ 		mfn = __pfn_to_mfn(pfn);
+ 
++		printk(KERN_INFO "BML: pte_pfn_to_mfn: Got MFN: %lx\n", mfn);
++
+ 		/*
+ 		 * If there's no mfn for the pfn, then just create an
+ 		 * empty non-present pte.  Unfortunately this loses
+@@ -405,6 +418,7 @@ static pteval_t pte_pfn_to_mfn(pteval_t val)
+ 		 * pte_mfn_to_pfn is asymmetric.
+ 		 */
+ 		if (unlikely(mfn == INVALID_P2M_ENTRY)) {
++			printk(KERN_INFO "BML: pte_pfn_to_mfn: invalid P2M entry: %lx\n", val);
+ 			mfn = 0;
+ 			flags = 0;
+ 		} else
+@@ -2414,8 +2428,10 @@ void xen_destroy_contiguous_region(phys_addr_t pstart, unsigned int order)
  	int success;
  	unsigned long vstart;
  
