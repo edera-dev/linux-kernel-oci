@@ -1,17 +1,18 @@
-From a33e420e61d54c07cbefeed7eb089e7bb1517b85 Mon Sep 17 00:00:00 2001
+From 47755c0845427d65db3073e6956c52d5eccc2a25 Mon Sep 17 00:00:00 2001
 From: Benjamin Leggett <benjamin@edera.io>
 Date: Tue, 17 Jun 2025 17:06:53 -0400
 Subject: [PATCH] Add logging line for xen swiotlb alloc
 
 ---
  arch/x86/xen/mmu_pv.c                         | 20 +++++++++++++++++--
- .../gpu/drm/amd/amdgpu/amdgpu_amdkfd_gpuvm.c  |  9 +++++++--
- drivers/gpu/drm/amd/amdgpu/amdgpu_ttm.c       | 11 ++++++++--
+ .../gpu/drm/amd/amdgpu/amdgpu_amdkfd_gpuvm.c  |  5 +++++
+ drivers/gpu/drm/amd/amdgpu/amdgpu_ttm.c       |  7 +++++++
  drivers/iommu/dma-iommu.c                     |  4 +++-
  drivers/xen/swiotlb-xen.c                     | 17 ++++++++++++----
+ include/linux/swiotlb.h                       |  4 ++--
  kernel/dma/mapping.c                          | 11 +++++++---
  kernel/dma/swiotlb.c                          | 14 ++++++++++---
- 7 files changed, 69 insertions(+), 17 deletions(-)
+ 8 files changed, 67 insertions(+), 15 deletions(-)
 
 diff --git a/arch/x86/xen/mmu_pv.c b/arch/x86/xen/mmu_pv.c
 index d078de2c952b..f765b9eff185 100644
@@ -91,7 +92,7 @@ index d078de2c952b..f765b9eff185 100644
  	vstart = (unsigned long)phys_to_virt(pstart);
  	memset((void *) vstart, 0, PAGE_SIZE << order);
 diff --git a/drivers/gpu/drm/amd/amdgpu/amdgpu_amdkfd_gpuvm.c b/drivers/gpu/drm/amd/amdgpu/amdgpu_amdkfd_gpuvm.c
-index 1e998f972c30..b6333d2eda20 100644
+index 1e998f972c30..96bc48dea01a 100644
 --- a/drivers/gpu/drm/amd/amdgpu/amdgpu_amdkfd_gpuvm.c
 +++ b/drivers/gpu/drm/amd/amdgpu/amdgpu_amdkfd_gpuvm.c
 @@ -20,6 +20,7 @@
@@ -102,45 +103,33 @@ index 1e998f972c30..b6333d2eda20 100644
  #include <linux/dma-buf.h>
  #include <linux/list.h>
  #include <linux/pagemap.h>
-@@ -569,10 +570,14 @@ kfd_mem_dmamap_userptr(struct kgd_mem *mem,
+@@ -569,6 +570,10 @@ kfd_mem_dmamap_userptr(struct kgd_mem *mem,
  		return -ENOMEM;
  
  	/* Same sequence as in amdgpu_ttm_tt_pin_userptr */
--	ret = sg_alloc_table_from_pages(ttm->sg, src_ttm->pages,
-+	size_t max_segment = 0;
-+	max_segment = dma_max_mapping_size(adev->dev);
-+	if (max_segment == 0)
-+		max_segment = UINT_MAX;
-+	ret = sg_alloc_table_from_pages_segment(ttm->sg, src_ttm->pages,
++	/* size_t max_segment = 0; */
++	/* max_segment = dma_max_mapping_size(adev->dev); */
++	/* if (max_segment == 0) */
++	/* 	max_segment = UINT_MAX; */
+ 	ret = sg_alloc_table_from_pages(ttm->sg, src_ttm->pages,
  					ttm->num_pages, 0,
  					(u64)ttm->num_pages << PAGE_SHIFT,
--					GFP_KERNEL);
-+					max_segment, GFP_KERNEL);
- 	if (unlikely(ret))
- 		goto free_sg;
- 
 diff --git a/drivers/gpu/drm/amd/amdgpu/amdgpu_ttm.c b/drivers/gpu/drm/amd/amdgpu/amdgpu_ttm.c
-index 262bd010a283..47f0250f18f0 100644
+index 262bd010a283..0adf13100b9e 100644
 --- a/drivers/gpu/drm/amd/amdgpu/amdgpu_ttm.c
 +++ b/drivers/gpu/drm/amd/amdgpu/amdgpu_ttm.c
-@@ -806,10 +806,15 @@ static int amdgpu_ttm_tt_pin_userptr(struct ttm_device *bdev,
+@@ -806,6 +806,11 @@ static int amdgpu_ttm_tt_pin_userptr(struct ttm_device *bdev,
  		DMA_BIDIRECTIONAL : DMA_TO_DEVICE;
  	int r;
  
 +
-+	size_t max_segment = 0;
-+	max_segment = dma_max_mapping_size(adev->dev);
-+	if (max_segment == 0)
-+		max_segment = UINT_MAX;
++	/* size_t max_segment = 0; */
++	/* max_segment = dma_max_mapping_size(adev->dev); */
++	/* if (max_segment == 0) */
++	/* 	max_segment = UINT_MAX; */
  	/* Allocate an SG array and squash pages into it */
--	r = sg_alloc_table_from_pages(ttm->sg, ttm->pages, ttm->num_pages, 0,
-+	r = sg_alloc_table_from_pages_segment(ttm->sg, ttm->pages, ttm->num_pages, 0,
+ 	r = sg_alloc_table_from_pages(ttm->sg, ttm->pages, ttm->num_pages, 0,
  				      (u64)ttm->num_pages << PAGE_SHIFT,
--				      GFP_KERNEL);
-+				      max_segment, GFP_KERNEL);
- 	if (r)
- 		goto release_sg;
- 
 @@ -825,8 +830,10 @@ static int amdgpu_ttm_tt_pin_userptr(struct ttm_device *bdev,
  	return 0;
  
@@ -228,6 +217,26 @@ index 1f65795cf5d7..a79ed62b6239 100644
  	}
  	return dev_addr;
  }
+diff --git a/include/linux/swiotlb.h b/include/linux/swiotlb.h
+index 3dae0f592063..342daa7d84d2 100644
+--- a/include/linux/swiotlb.h
++++ b/include/linux/swiotlb.h
+@@ -23,13 +23,13 @@ struct scatterlist;
+  * must be a power of 2.  What is the appropriate value ?
+  * The complexity of {map,unmap}_single is linearly dependent on this value.
+  */
+-#define IO_TLB_SEGSIZE	128
++#define IO_TLB_SEGSIZE 32768
+ 
+ /*
+  * log of the size of each IO TLB slab.  The number of slabs is command line
+  * controllable.
+  */
+-#define IO_TLB_SHIFT 11
++#define IO_TLB_SHIFT 12
+ #define IO_TLB_SIZE (1 << IO_TLB_SHIFT)
+ 
+ /* default to 64MB */
 diff --git a/kernel/dma/mapping.c b/kernel/dma/mapping.c
 index cda127027e48..2311603a09d2 100644
 --- a/kernel/dma/mapping.c
