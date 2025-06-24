@@ -1,23 +1,67 @@
-From d11f6198fd16553d1f7d35c7ad789444baf4f3b1 Mon Sep 17 00:00:00 2001
+From fb686fd005dc67ae7b5fc460c325f8831ce91089 Mon Sep 17 00:00:00 2001
 From: Benjamin Leggett <benjamin@edera.io>
 Date: Tue, 17 Jun 2025 17:06:53 -0400
 Subject: [PATCH] Add logging line for xen swiotlb alloc
 
 ---
- arch/x86/xen/mmu_pv.c                           |  4 +++-
+ arch/x86/xen/mmu_pv.c                           | 17 +++++++++++++++--
  .../gpu/drm/amd/amdgpu/amdgpu_amdkfd_gpuvm.c    |  9 +++++++--
- drivers/gpu/drm/amd/amdgpu/amdgpu_ttm.c         |  9 +++++++--
+ drivers/gpu/drm/amd/amdgpu/amdgpu_ttm.c         | 11 +++++++++--
  drivers/iommu/dma-iommu.c                       |  4 +++-
  drivers/xen/swiotlb-xen.c                       | 17 +++++++++++++----
  kernel/dma/mapping.c                            | 11 ++++++++---
- kernel/dma/swiotlb.c                            | 15 ++++++++++++---
- 7 files changed, 53 insertions(+), 16 deletions(-)
+ kernel/dma/swiotlb.c                            | 14 +++++++++++---
+ 7 files changed, 66 insertions(+), 17 deletions(-)
 
 diff --git a/arch/x86/xen/mmu_pv.c b/arch/x86/xen/mmu_pv.c
-index d078de2c952b..46b21349594e 100644
+index d078de2c952b..db2e0671bd40 100644
 --- a/arch/x86/xen/mmu_pv.c
 +++ b/arch/x86/xen/mmu_pv.c
-@@ -2414,8 +2414,10 @@ void xen_destroy_contiguous_region(phys_addr_t pstart, unsigned int order)
+@@ -313,15 +313,21 @@ static bool xen_batched_set_pte(pte_t *ptep, pte_t pteval)
+ {
+ 	struct mmu_update u;
+ 
+-	if (xen_get_lazy_mode() != XEN_LAZY_MMU)
++	if (xen_get_lazy_mode() != XEN_LAZY_MMU) {
++		printk(KERN_INFO "BML: not using LAZY_MMU\n");
+ 		return false;
++	}
+ 
+ 	xen_mc_batch();
+ 
++	printk(KERN_INFO "BML: starting call batch\n");
+ 	u.ptr = virt_to_machine(ptep).maddr | MMU_NORMAL_PT_UPDATE;
++	printk(KERN_INFO "BML: pte val\n");
+ 	u.val = pte_val_ma(pteval);
++	printk(KERN_INFO "BML: mmu update with ptr addr: %p and val: %llx \n", u.ptr, u.val);
+ 	xen_extend_mmu_update(&u);
+ 
++	printk(KERN_INFO "BML: issue batch\n");
+ 	xen_mc_issue(XEN_LAZY_MMU);
+ 
+ 	return true;
+@@ -329,7 +335,10 @@ static bool xen_batched_set_pte(pte_t *ptep, pte_t pteval)
+ 
+ static inline void __xen_set_pte(pte_t *ptep, pte_t pteval)
+ {
++
++	printk(KERN_INFO "BML: __xen_set_pte: %p, val: %lx\n", ptep, pteval);
+ 	if (!xen_batched_set_pte(ptep, pteval)) {
++		printk(KERN_INFO "BML: prepping hypercall\n");
+ 		/*
+ 		 * Could call native_set_pte() here and trap and
+ 		 * emulate the PTE write, but a hypercall is much cheaper.
+@@ -337,7 +346,9 @@ static inline void __xen_set_pte(pte_t *ptep, pte_t pteval)
+ 		struct mmu_update u;
+ 
+ 		u.ptr = virt_to_machine(ptep).maddr | MMU_NORMAL_PT_UPDATE;
++		printk(KERN_INFO "BML: pte val\n");
+ 		u.val = pte_val_ma(pteval);
++		printk(KERN_INFO "BML: making MMU update hypercall with ptr addr: %p and val: %llx \n", u.ptr, u.val);
+ 		HYPERVISOR_mmu_update(&u, 1, NULL, DOMID_SELF);
+ 	}
+ }
+@@ -2414,8 +2425,10 @@ void xen_destroy_contiguous_region(phys_addr_t pstart, unsigned int order)
  	int success;
  	unsigned long vstart;
  
@@ -59,7 +103,7 @@ index 1e998f972c30..b6333d2eda20 100644
  		goto free_sg;
  
 diff --git a/drivers/gpu/drm/amd/amdgpu/amdgpu_ttm.c b/drivers/gpu/drm/amd/amdgpu/amdgpu_ttm.c
-index 262bd010a283..2be7a659a16d 100644
+index 262bd010a283..47f0250f18f0 100644
 --- a/drivers/gpu/drm/amd/amdgpu/amdgpu_ttm.c
 +++ b/drivers/gpu/drm/amd/amdgpu/amdgpu_ttm.c
 @@ -806,10 +806,15 @@ static int amdgpu_ttm_tt_pin_userptr(struct ttm_device *bdev,
@@ -80,6 +124,17 @@ index 262bd010a283..2be7a659a16d 100644
  	if (r)
  		goto release_sg;
  
+@@ -825,8 +830,10 @@ static int amdgpu_ttm_tt_pin_userptr(struct ttm_device *bdev,
+ 	return 0;
+ 
+ release_sg_table:
++	printk(KERN_INFO "BML: couldn't DMA map sg table\n");
+ 	sg_free_table(ttm->sg);
+ release_sg:
++	printk(KERN_INFO "BML: couldn't alloc sg table from pages\n");
+ 	kfree(ttm->sg);
+ 	ttm->sg = NULL;
+ 	return r;
 diff --git a/drivers/iommu/dma-iommu.c b/drivers/iommu/dma-iommu.c
 index 2a9fa0c8cc00..c1b75833c61c 100644
 --- a/drivers/iommu/dma-iommu.c
@@ -189,7 +244,7 @@ index cda127027e48..2311603a09d2 100644
  	return size;
  }
 diff --git a/kernel/dma/swiotlb.c b/kernel/dma/swiotlb.c
-index abcf3fa63a56..62bb07373fb5 100644
+index abcf3fa63a56..de75b1d83d8f 100644
 --- a/kernel/dma/swiotlb.c
 +++ b/kernel/dma/swiotlb.c
 @@ -1090,6 +1090,7 @@ static int swiotlb_search_pool_area(struct device *dev, struct io_tlb_pool *pool
@@ -241,14 +296,6 @@ index abcf3fa63a56..62bb07373fb5 100644
 +		printk(KERN_INFO "BML: pool search failed\n");
  		return -1;
  	}
- 
-@@ -1615,6 +1623,7 @@ size_t swiotlb_max_mapping_size(struct device *dev)
- 	if (min_align_mask)
- 		min_align = roundup(min_align_mask, IO_TLB_SIZE);
- 
-+	printk(KERN_INFO "BML: swiotlb max mapping size requested\n");
- 	return ((size_t)IO_TLB_SIZE) * IO_TLB_SEGSIZE - min_align;
- }
  
 -- 
 2.49.0
