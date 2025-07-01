@@ -18,8 +18,8 @@ rm -rf "${METADATA_PATH}"
 make -C "${KERNEL_OBJ}" ARCH="${TARGET_ARCH_KERNEL}" -j"${KERNEL_BUILD_JOBS}" "${CROSS_COMPILE_MAKE}" INSTALL_MOD_PATH="${MODULES_INSTALL_PATH}" modules_install
 KERNEL_MODULES_VER="$(ls "${MODULES_INSTALL_PATH}/lib/modules")"
 
-# . "${KERNEL_DIR}/hack/build/common.sh"
-
+# shellcheck source-path=SCRIPTDIR source=nvidiagpu-common.sh
+. "${KERNEL_DIR}/hack/build/nvidiagpu-common.sh"
 
 mkdir -p "${ADDONS_OUTPUT_PATH}"
 
