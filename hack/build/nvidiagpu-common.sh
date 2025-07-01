@@ -31,8 +31,8 @@ OLDPWD=$(pwd)
 cd "$NV_EXTRACT_PATH"/"$NV_KMOD_REPO_OWNER"-*
 
 # make SYSSRC=~/Source/edera-dev/linux-kernel-oci/linux-6.14.6 SYSOUT=/home/bleggett/Source/edera-dev/linux-kernel-oci/obj INSTALL_MOD_PATH=/home/bleggett/Source/edera-dev/linux-kernel-oci/obj modules_instal
-make SYSSRC="${KERNEL_SRC}" TARGET_ARCH="${TARGET_ARCH_KERNEL}" -j"${KERNEL_BUILD_JOBS}" "${CROSS_COMPILE_MAKE}"  modules
+make SYSSRC="${KERNEL_SRC}" SYSOUT="${KERNEL_OUT}" TARGET_ARCH="${TARGET_ARCH_KERNEL}" -j"${KERNEL_BUILD_JOBS}" "${CROSS_COMPILE_MAKE}"  modules
 
-make SYSSRC="${KERNEL_SRC}" TARGET_ARCH="${TARGET_ARCH_KERNEL}" -j"${KERNEL_BUILD_JOBS}" "${CROSS_COMPILE_MAKE}" INSTALL_MOD_PATH="${MODULES_INSTALL_PATH}" modules_install
+make SYSSRC="${KERNEL_SRC}" SYSOUT="${KERNEL_OUT}" TARGET_ARCH="${TARGET_ARCH_KERNEL}" -j"${KERNEL_BUILD_JOBS}" "${CROSS_COMPILE_MAKE}" INSTALL_MOD_PATH="${MODULES_INSTALL_PATH}" modules_install
 
 cd "$OLDPWD"
