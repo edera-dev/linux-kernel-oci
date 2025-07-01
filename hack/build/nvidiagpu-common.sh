@@ -1,25 +1,27 @@
 #!/bin/sh
 set -e
 
-REAL_SCRIPT="$(realpath "${0}")"
-cd "$(dirname "${REAL_SCRIPT}")/../.."
-KERNEL_DIR="$(realpath "${PWD}")"
+if [ "${KERNEL_FLAVOR}" != "zone-nvidiagpu" ]; then
+	return
+fi
 
+NV_KMOD_REPO=https://github.com/NVIDIA/open-gpu-kernel-modules
+NV_KMOD_REPO_BRANCH=main
 NV_CLONE_PATH=/tmp/nvidia-modules
+echo "Cloning nvidia out-of-tree module repo"
 
-git clone git@github.com:NVIDIA/open-gpu-kernel-modules.git -b main $NV_CLONE_PATH
+git clone "${NV_KMOD_REPO} -b ${NV_KMOD_REPO_BRANCH}" ${NV_CLONE_PATH}
 
+cd $NV_CLONE_PATH
 
-make -C "${KERNEL_OBJ}" ARCH="${TARGET_ARCH_KERNEL}" -j"${KERNEL_BUILD_JOBS}" "${CROSS_COMPILE_MAKE}" "${IMAGE_TARGET}" modules
+# make SYSSRC=~/Source/edera-dev/linux-kernel-oci/linux-6.14.6 SYSOUT=/home/bleggett/Source/edera-dev/linux-kernel-oci/obj INSTALL_MOD_PATH=/home/bleggett/Source/edera-dev/linux-kernel-oci/obj modules_instal
+#
+# make -C "${KERNEL_OBJ}" TARGET_ARCH="${TARGET_ARCH_KERNEL}" -j"${KERNEL_BUILD_JOBS}" "${CROSS_COMPILE_MAKE}" "${IMAGE_TARGET}" modules
+make -C "${KERNEL_OBJ}" TARGET_ARCH="${TARGET_ARCH_KERNEL}" -j"${KERNEL_BUILD_JOBS}" "${CROSS_COMPILE_MAKE}"  modules
 
-rm -rf "${MODULES_INSTALL_PATH}"
-rm -rf "${ADDONS_OUTPUT_PATH}"
-rm -rf "${ADDONS_SQUASHFS_PATH}"
-rm -rf "${METADATA_PATH}"
+make -C "${KERNEL_OBJ}" TARGET_ARCH="${TARGET_ARCH_KERNEL}" -j"${KERNEL_BUILD_JOBS}" "${CROSS_COMPILE_MAKE}" INSTALL_MOD_PATH="${MODULES_INSTALL_PATH}" modules_install
+# REAL_SCRIPT="$(realpath "${0}")"
+# cd "$(dirname "${REAL_SCRIPT}")/../.."
+# KERNEL_DIR="$(realpath "${PWD}")"
 
-make -C "${KERNEL_OBJ}" ARCH="${TARGET_ARCH_KERNEL}" -j"${KERNEL_BUILD_JOBS}" "${CROSS_COMPILE_MAKE}" INSTALL_MOD_PATH="${MODULES_INSTALL_PATH}" modules_install
-KERNEL_MODULES_VER="$(ls "${MODULES_INSTALL_PATH}/lib/modules")"
-
-. "${KERNEL_DIR}/hack/build/nvidiagpu-common.sh"
-
-mkdir -p "${ADDONS_OUTPUT_PATH}"
+# cd "${KERNEL_DIR}"
