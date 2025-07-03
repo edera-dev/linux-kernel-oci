@@ -34,6 +34,9 @@ mksquashfs "${ADDONS_OUTPUT_PATH}" "${ADDONS_SQUASHFS_PATH}" -all-root
 
 SQUASH_SIZE=$(stat -c %s "${ADDONS_SQUASHFS_PATH}")
 
+# Generally we want to keep zone kernels small, because large kernels -> longer pull times -> increased zone cold boot times.
+# We don't really care how big the host kernel is.
+# Nvidia kernels have chonker firmwares, even compressed (like 200MB total size), so not much we can really do there.
 case "$KERNEL_FLAVOR" in
     zone-debug)
         # Skip the check for zone-debug, it is allowed to be big
