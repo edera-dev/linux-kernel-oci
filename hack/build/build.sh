@@ -36,6 +36,9 @@ case "$KERNEL_FLAVOR" in
     zone-debug)
         # Skip the check for zone-debug, it is allowed to be big
         ;;
+    zone-nvidiagpu)
+        # Firmware means this is unavoidably quite large
+        ;;
     zone*)
         if [ "$(stat -c %s "${ADDONS_SQUASHFS_PATH}")" -gt 52428800 ]; then
             echo "ERROR: squashfs is >50MB in size which is undesirable for the 'zone' kernel, validate kconfig options!" >&2

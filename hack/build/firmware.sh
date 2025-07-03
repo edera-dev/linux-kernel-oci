@@ -44,3 +44,31 @@ if [ -n "${FIRMWARE_URL}" ]; then
 		cd "${OLDDIR}"
 	fi
 fi
+
+# For nvidia kernel, firmware is distributed via their out-of-tree .run userspace
+# package, which we need to fetch and extract.
+# TODO hardcoded ARCH
+if [ "${KERNEL_FLAVOR}" = "zone-nvidiagpu" ]; then
+	# Check that we already set NV_VERSION when building the out-of-tree kmod,
+	# naturally, we must fetch the matching runtime package.
+	if [ -z "${NV_VERSION}" ]; then
+		echo "ERROR: flavor is zone-nvidiagpu but no NV_VERSION is set"
+		exit 1
+	fi
+
+	OLDDIR=$PWD
+
+	NV_RUN_URL="https://us.download.nvidia.com/XFree86/Linux-x86_64/${NV_VERSION}/${NV_RUN_FILE}"
+	NV_RUN_FILE="NVIDIA-Linux-x86_64-${NV_VERSION}.run"
+
+	echo "Downloading NVIDIA runtime package for driver ${NV_VERSION} from: $NV_RUN_URL"
+	curl -L -o "$NV_RUN_FILE" "$NV_RUN_URL"
+	chmod +x "$NV_RUN_FILE"
+	"$NV_RUN_FILE" -x --target "$NV_EXTRACT_PATH/extracted"
+	# Compress firmwares on-disk
+	# As of 6.x kernels the kconfig explicitly says you must use crc32 or none, not the default crc64.
+	xz -C crc32 "$NV_EXTRACT_PATH/extracted/firmware/*"
+	ls -lah "$NV_EXTRACT_PATH/extracted/firmware/"
+	cp "$NV_EXTRACT_PATH/extracted/firmware/*.xz" "${FIRMWARE_OUTPUT_PATH}"
+	cd "${OLDDIR}"
+fi
