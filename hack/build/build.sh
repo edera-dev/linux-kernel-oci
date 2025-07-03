@@ -18,10 +18,10 @@ rm -rf "${METADATA_PATH}"
 make -C "${KERNEL_OBJ}" ARCH="${TARGET_ARCH_KERNEL}" -j"${KERNEL_BUILD_JOBS}" "${CROSS_COMPILE_MAKE}" INSTALL_MOD_PATH="${MODULES_INSTALL_PATH}" modules_install
 KERNEL_MODULES_VER="$(ls "${MODULES_INSTALL_PATH}/lib/modules")"
 
+mkdir -p "${ADDONS_OUTPUT_PATH}"
+
 # shellcheck source-path=SCRIPTDIR source=nvidiagpu-common.sh
 . "${KERNEL_DIR}/hack/build/nvidiagpu-common.sh"
-
-mkdir -p "${ADDONS_OUTPUT_PATH}"
 
 # shellcheck source-path=SCRIPTDIR source=firmware.sh
 . "${KERNEL_DIR}/hack/build/firmware.sh"
@@ -32,8 +32,13 @@ rm -rf "${MODULES_INSTALL_PATH}"
 
 mksquashfs "${ADDONS_OUTPUT_PATH}" "${ADDONS_SQUASHFS_PATH}" -all-root
 
-if [ "$KERNEL_FLAVOR" != "host" ] && [ "$(stat -c %s "${ADDONS_SQUASHFS_PATH}")" -gt 52428800 ]; then
-	echo "ERROR: squashfs is >50MB in size $(stat -c %s "${ADDONS_SQUASHFS_PATH}") which is undesirable for non-host kernels, validate kconfig options!" >&2
+SQUASH_SIZE=$(stat -c %s "${ADDONS_SQUASHFS_PATH}")
+
+# Generally we want to keep zone kernels small, because large kernels -> longer pull times -> increased zone cold boot times.
+# We don't really care how big the host kernel is.
+# Nvidia kernels have chonker firmwares, even compressed (like 200MB total size), so not much we can really do there.
+if [ "$KERNEL_FLAVOR" != "host" ] && [ "$KERNEL_FLAVOR" != "zone-nvidiagpu" ] && [ "${SQUASH_SIZE}" -gt 52428800 ]; then
+	echo "ERROR: squashfs is >50MB in size (${SQUASH_SIZE} bytes) which is undesirable for non-host kernels, validate kconfig options!" >&2
 	exit 1
 fi
 
