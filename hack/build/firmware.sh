@@ -51,7 +51,6 @@ fi
 
 # For nvidia kernel, firmware is distributed via their out-of-tree .run userspace
 # package, which we need to fetch and extract.
-# TODO hardcoded ARCH
 if [ "${KERNEL_FLAVOR}" = "zone-nvidiagpu" ]; then
 	# Check that we already set NV_VERSION when building the out-of-tree kmod,
 	# naturally, we must fetch the matching runtime package.
@@ -62,8 +61,15 @@ if [ "${KERNEL_FLAVOR}" = "zone-nvidiagpu" ]; then
 
 	OLDDIR=$PWD
 
-	NV_RUN_FILE="NVIDIA-Linux-x86_64-${NV_VERSION}.run"
-	NV_RUN_URL="https://us.download.nvidia.com/XFree86/Linux-x86_64/${NV_VERSION}/${NV_RUN_FILE}"
+	# TBH it's probably the same firmware regardless
+	if [ "${TARGET_ARCH_STANDARD}" = "aarch64" ]; then
+		NV_RUN_FILE="NVIDIA-Linux-aarch64-${NV_VERSION}.run"
+		NV_RUN_URL="https://us.download.nvidia.com/XFree86/aarch64/${NV_VERSION}/${NV_RUN_FILE}"
+	elif [ "${TARGET_ARCH_STANDARD}" = "x86_64" ]; then
+		NV_RUN_FILE="NVIDIA-Linux-x86_64-${NV_VERSION}.run"
+		NV_RUN_URL="https://us.download.nvidia.com/XFree86/Linux-x86_64/${NV_VERSION}/${NV_RUN_FILE}"
+	fi
+
 	NV_EXTRACT_PATH="/tmp/extracted-${NV_VERSION}"
 	rm -rf "$NV_EXTRACT_PATH"
 	mkdir -p "$NV_EXTRACT_PATH"
