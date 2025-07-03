@@ -4,6 +4,11 @@ set -e
 # shellcheck disable=SC2034
 FIRMWARE_OUTPUT_PATH="${ADDONS_OUTPUT_PATH}/firmware"
 
+# Any firmwares (if any needed) that should ultimately end up in the squashfs
+# should be sitting at this location when this script finishes.
+# (will go in ${ADDONS_PATH}/firmware, siblings with `${ADDONS_PATH}/modules`)
+mkdir -p "${FIRMWARE_OUTPUT_PATH}"
+
 if [ -n "${FIRMWARE_SIG_URL}" ]; then
 	# Getting the pubkey from the signature is slightly stupid, ideally we should maintain
 	# a list of valid keys out-of-band, this is best-effort.
@@ -27,10 +32,9 @@ else
 	echo "No firmware signature defined, no validation will be performed"
 fi
 
-# Firmware handling (will go in ${ADDONS_PATH}/firmware, siblings with `${ADDONS_PATH}/modules`)
+
 # Note that this assumes the archive is a .tar file, and has already been validated elsewhere.
 if [ -n "${FIRMWARE_URL}" ]; then
-	mkdir -p "${FIRMWARE_OUTPUT_PATH}"
 	echo "untarring firmware at $FIRMWARE_URL"
 	tar -xf "${FIRMWARE_URL}" -C "${FIRMWARE_OUTPUT_PATH}" --strip-components=1
 	# For amdgpu zone kernel, we only want the amdgpu firmwares, so remove the rest to keep the addons small
@@ -58,17 +62,20 @@ if [ "${KERNEL_FLAVOR}" = "zone-nvidiagpu" ]; then
 
 	OLDDIR=$PWD
 
-	NV_RUN_URL="https://us.download.nvidia.com/XFree86/Linux-x86_64/${NV_VERSION}/${NV_RUN_FILE}"
 	NV_RUN_FILE="NVIDIA-Linux-x86_64-${NV_VERSION}.run"
+	NV_RUN_URL="https://us.download.nvidia.com/XFree86/Linux-x86_64/${NV_VERSION}/${NV_RUN_FILE}"
+	NV_EXTRACT_PATH="/tmp/extracted-${NV_VERSION}"
+	rm -rf "$NV_EXTRACT_PATH"
+	mkdir -p "$NV_EXTRACT_PATH"
 
 	echo "Downloading NVIDIA runtime package for driver ${NV_VERSION} from: $NV_RUN_URL"
-	curl -L -o "$NV_RUN_FILE" "$NV_RUN_URL"
-	chmod +x "$NV_RUN_FILE"
-	"$NV_RUN_FILE" -x --target "$NV_EXTRACT_PATH/extracted"
+	curl -L -o "$NV_EXTRACT_PATH/$NV_RUN_FILE" "$NV_RUN_URL"
+	chmod +x "$NV_EXTRACT_PATH/$NV_RUN_FILE"
+	"$NV_EXTRACT_PATH/$NV_RUN_FILE" -x --target "$NV_EXTRACT_PATH/out"
 	# Compress firmwares on-disk
 	# As of 6.x kernels the kconfig explicitly says you must use crc32 or none, not the default crc64.
-	xz -C crc32 "$NV_EXTRACT_PATH/extracted/firmware/*"
-	ls -lah "$NV_EXTRACT_PATH/extracted/firmware/"
-	cp "$NV_EXTRACT_PATH/extracted/firmware/*.xz" "${FIRMWARE_OUTPUT_PATH}"
+	xz -C crc32 "$NV_EXTRACT_PATH"/out/firmware/*
+	ls -lah "$NV_EXTRACT_PATH/out/firmware/"
+	cp "$NV_EXTRACT_PATH"/out/firmware/*.xz "${FIRMWARE_OUTPUT_PATH}"
 	cd "${OLDDIR}"
 fi

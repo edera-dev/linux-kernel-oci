@@ -18,10 +18,10 @@ rm -rf "${METADATA_PATH}"
 make -C "${KERNEL_OBJ}" ARCH="${TARGET_ARCH_KERNEL}" -j"${KERNEL_BUILD_JOBS}" "${CROSS_COMPILE_MAKE}" INSTALL_MOD_PATH="${MODULES_INSTALL_PATH}" modules_install
 KERNEL_MODULES_VER="$(ls "${MODULES_INSTALL_PATH}/lib/modules")"
 
+mkdir -p "${ADDONS_OUTPUT_PATH}"
+
 # shellcheck source-path=SCRIPTDIR source=nvidiagpu-common.sh
 . "${KERNEL_DIR}/hack/build/nvidiagpu-common.sh"
-
-mkdir -p "${ADDONS_OUTPUT_PATH}"
 
 # shellcheck source-path=SCRIPTDIR source=firmware.sh
 . "${KERNEL_DIR}/hack/build/firmware.sh"
@@ -32,6 +32,8 @@ rm -rf "${MODULES_INSTALL_PATH}"
 
 mksquashfs "${ADDONS_OUTPUT_PATH}" "${ADDONS_SQUASHFS_PATH}" -all-root
 
+SQUASH_SIZE=$(stat -c %s "${ADDONS_SQUASHFS_PATH}")
+
 case "$KERNEL_FLAVOR" in
     zone-debug)
         # Skip the check for zone-debug, it is allowed to be big
@@ -40,8 +42,8 @@ case "$KERNEL_FLAVOR" in
         # Firmware means this is unavoidably quite large
         ;;
     zone*)
-        if [ "$(stat -c %s "${ADDONS_SQUASHFS_PATH}")" -gt 52428800 ]; then
-            echo "ERROR: squashfs is >50MB in size which is undesirable for the 'zone' kernel, validate kconfig options!" >&2
+        if [ "${SQUASH_SIZE}" -gt 52428800 ]; then
+            echo "ERROR: squashfs is >50MB in size (${SQUASH_SIZE} bytes) which is undesirable for the 'zone' kernel, validate kconfig options!" >&2
             exit 1
         fi
         ;;
