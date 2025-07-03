@@ -10,6 +10,9 @@ flavors:
 - name: zone-amdgpu
   constraints:
     lower: '6.1'
+- name: zone-nvidiagpu
+  constraints:
+    lower: '6.1'
 - name: zone-openpax
   constraints:
     series:
