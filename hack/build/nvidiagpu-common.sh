@@ -23,7 +23,7 @@ fi
 
 echo "Building NVIDIA driver version: $NV_VERSION"
 
-NV_WORKDIR=/tmp/nvidia-modules/${NV_VERSION}
+NV_WORKDIR="$(mktemp -d)/nvidia-modules/${NV_VERSION}"
 ARCHIVE="$NV_WORKDIR/driver-src.tar.gz"
 
 mkdir -p "$NV_WORKDIR"

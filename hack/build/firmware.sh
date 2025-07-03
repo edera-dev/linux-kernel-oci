@@ -70,8 +70,7 @@ if [ "${KERNEL_FLAVOR}" = "zone-nvidiagpu" ]; then
 		NV_RUN_URL="https://us.download.nvidia.com/XFree86/Linux-x86_64/${NV_VERSION}/${NV_RUN_FILE}"
 	fi
 
-	NV_EXTRACT_PATH="/tmp/extracted-${NV_VERSION}"
-	rm -rf "$NV_EXTRACT_PATH"
+	NV_EXTRACT_PATH="$(mktemp -d)/extracted-${NV_VERSION}"
 	mkdir -p "$NV_EXTRACT_PATH"
 
 	echo "Downloading NVIDIA runtime package for driver ${NV_VERSION} from: $NV_RUN_URL"
