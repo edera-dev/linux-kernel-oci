@@ -38,7 +38,7 @@ SQUASH_SIZE=$(stat -c %s "${ADDONS_SQUASHFS_PATH}")
 # We don't really care how big the host kernel is.
 # Nvidia kernels have chonker firmwares, even compressed (like 200MB total size), so not much we can really do there.
 if [ "$KERNEL_FLAVOR" != "host" ] && [ "$KERNEL_FLAVOR" != "zone-nvidiagpu" ] && [ "${SQUASH_SIZE}" -gt 52428800 ]; then
-	echo "ERROR: squashfs is >50MB in size (${SQUASH_SIZE} bytes) which is undesirable for non-host kernels, validate kconfig options!" >&2
+	echo "ERROR: squashfs is >50MB in size (${SQUASH_SIZE} bytes) which is undesirable for non-host kernels, validate kconfig options!"
 	exit 1
 fi
 
