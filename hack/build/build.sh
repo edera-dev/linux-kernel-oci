@@ -20,23 +20,11 @@ KERNEL_MODULES_VER="$(ls "${MODULES_INSTALL_PATH}/lib/modules")"
 
 mkdir -p "${ADDONS_OUTPUT_PATH}"
 
-# Firmware handling (will go in ${ADDONS_PATH}/firmware, siblings with `${ADDONS_PATH}/modules`)
-# Note that this assumes the archive is a .tar file, and has already been validated elsewhere.
-if [ -n "${FIRMWARE_URL}" ]; then
-	mkdir -p "${FIRMWARE_OUTPUT_PATH}"
-	echo "untarring firmware at $FIRMWARE_URL"
-	tar -xf "${FIRMWARE_URL}" -C "${FIRMWARE_OUTPUT_PATH}" --strip-components=1
-	# For amdgpu zone kernel, we only want the amdgpu firmwares, so remove the rest to keep the addons small
-	if [ "${KERNEL_FLAVOR}" = "zone-amdgpu" ]; then
-		OLDDIR=$PWD
-		cd "${FIRMWARE_OUTPUT_PATH}"
-		find . -maxdepth 1 ! -name 'amdgpu' ! -name "." -exec rm -rf {} +
-		# Compress firmwares on-disk
-		# As of 6.x kernels the kconfig explicitly says you must use crc32 or none, not the default crc64.
-		xz -C crc32 amdgpu/*
-		cd "${OLDDIR}"
-	fi
-fi
+# shellcheck source-path=SCRIPTDIR source=nvidiagpu-common.sh
+. "${KERNEL_DIR}/hack/build/nvidiagpu-common.sh"
+
+# shellcheck source-path=SCRIPTDIR source=firmware.sh
+. "${KERNEL_DIR}/hack/build/firmware.sh"
 
 mv "${MODULES_INSTALL_PATH}/lib/modules/${KERNEL_MODULES_VER}" "${MODULES_OUTPUT_PATH}"
 rm -rf "${MODULES_INSTALL_PATH}"
@@ -44,13 +32,21 @@ rm -rf "${MODULES_INSTALL_PATH}"
 
 mksquashfs "${ADDONS_OUTPUT_PATH}" "${ADDONS_SQUASHFS_PATH}" -all-root
 
+SQUASH_SIZE=$(stat -c %s "${ADDONS_SQUASHFS_PATH}")
+
+# Generally we want to keep zone kernels small, because large kernels -> longer pull times -> increased zone cold boot times.
+# We don't really care how big the host kernel is.
+# Nvidia kernels have chonker firmwares, even compressed (like 200MB total size), so not much we can really do there.
 case "$KERNEL_FLAVOR" in
     zone-debug)
         # Skip the check for zone-debug, it is allowed to be big
         ;;
+    zone-nvidiagpu)
+        # Firmware means this is unavoidably quite large
+        ;;
     zone*)
-        if [ "$(stat -c %s "${ADDONS_SQUASHFS_PATH}")" -gt 52428800 ]; then
-            echo "ERROR: squashfs is >50MB in size which is undesirable for the 'zone' kernel, validate kconfig options!" >&2
+        if [ "${SQUASH_SIZE}" -gt 52428800 ]; then
+            echo "ERROR: squashfs is >50MB in size (${SQUASH_SIZE} bytes) which is undesirable for the 'zone' kernel, validate kconfig options!" >&2
             exit 1
         fi
         ;;
