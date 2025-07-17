@@ -63,7 +63,7 @@ The simplest way to do that is to
    - When this command runs, it will generate a build matrix and print out what it will build.
 1. When the above command finishes, you can see the local OCI images that were built by running `docker image list`. The images will be tagged with the repo you specified in `imageNameFormat` in the [config.yaml](config.yaml).
 1. From this point, you may push those images to an OCI registry with standard commands like `docker image push <image tag>`, and consume them how you wish.
-1. If you wish to unpack and inspect the image (for instance, to make sure certain modules or firmware exist in the correct paths, or that the final `config.gz` has the options you expect), you can then do the following to fetch and extract the image artifact you just pushed to your local disk with [`crane`](https://github.com/google/go-containerregistry/blob/main/cmd/crane/README.md):
+1. If you wish to unpack and inspect the final image (for instance, to make sure certain modules or firmware exist in the correct paths, or that the final `config.gz` has the options you expect), you can do the following to fetch and extract the image artifact you just pushed to your local disk with [`crane`](https://github.com/google/go-containerregistry/blob/main/cmd/crane/README.md):
 
     ```sh
     crane export  ttl.sh/hackben/zone-kernel:6.15.6 - --platform=linux/amd64 | tar --keep-directory-symlink -xf - -C .
