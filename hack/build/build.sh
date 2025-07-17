@@ -44,8 +44,8 @@ rm -rf "${MODULES_INSTALL_PATH}"
 
 mksquashfs "${ADDONS_OUTPUT_PATH}" "${ADDONS_SQUASHFS_PATH}" -all-root
 
-if [ "$KERNEL_FLAVOR" != "host" ] && [ "$(stat -c %s "${ADDONS_SQUASHFS_PATH}")" -gt 52428800 ]; then
-	echo "ERROR: squashfs is >50MB in size which is undesirable for non-host kernels, validate kconfig options!" >&2
+if [ "$KERNEL_FLAVOR" == "zone" ] && [ "$(stat -c %s "${ADDONS_SQUASHFS_PATH}")" -gt 52428800 ]; then
+	echo "ERROR: squashfs is >50MB in size which is undesirable for the baseline 'zone' kernel, validate kconfig options!" >&2
 	exit 1
 fi
 
