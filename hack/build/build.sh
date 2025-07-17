@@ -44,10 +44,17 @@ rm -rf "${MODULES_INSTALL_PATH}"
 
 mksquashfs "${ADDONS_OUTPUT_PATH}" "${ADDONS_SQUASHFS_PATH}" -all-root
 
-if [[ "$KERNEL_FLAVOR" == zone* ]] && [ "$KERNEL_FLAVOR" != "zone-debug" ] && [ "$(stat -c %s "${ADDONS_SQUASHFS_PATH}")" -gt 52428800 ]; then
-	echo "ERROR: squashfs is >50MB in size which is undesirable for the baseline 'zone' kernel, validate kconfig options!" >&2
-	exit 1
-fi
+case "$KERNEL_FLAVOR" in
+    zone-debug)
+        # Skip the check for zone-debug, it is allowed to be big
+        ;;
+    zone*)
+        if [ "$(stat -c %s "${ADDONS_SQUASHFS_PATH}")" -gt 52428800 ]; then
+            echo "ERROR: squashfs is >50MB in size which is undesirable for the 'zone' kernel, validate kconfig options!" >&2
+            exit 1
+        fi
+        ;;
+esac
 
 if [ "${TARGET_ARCH_STANDARD}" = "x86_64" ]; then
 	cp "${KERNEL_OBJ}/arch/x86/boot/bzImage" "${OUTPUT_DIR}/kernel"
