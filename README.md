@@ -43,23 +43,23 @@ The simplest way to do that is to
             - series: '5.4'
         ```
 
-1. For example, if I wanted to only build the `zone` kernel flavor, only for `x86_64`, only the latest `6.15` point release, and tag the result for a custom `ttl.sh/hackben` registry, the final result would look something like this:
+   - For example, if I wanted to only build the `zone` kernel flavor, only for `x86_64`, only the latest `6.15` point release, and tag the result for a custom `ttl.sh/hackben` registry, the final result would look something like this:
 
-   ```yaml
-    imageNameFormat: "ttl.sh/hackben/[image]:[tag]"
-    architectures:
-    - x86_64
-    flavors:
-    - name: zone-debu
-    constraints:
-        series:
-        - '6.15'
-    versions:
-    - current: true
-   ```
+        ```yaml
+            imageNameFormat: "ttl.sh/hackben/[image]:[tag]"
+            architectures:
+            - x86_64
+            flavors:
+            - name: zone-debu
+            constraints:
+                series:
+                - '6.15'
+            versions:
+            - current: true
+        ```
 
 1. Run [hack/build/docker-build.sh](hack/build/docker-build.sh)
-   - It is **important** you follow step 2 above, and edit the [config.yaml](config.yaml) locally to reduce the number of kernels the script will try to build, or you may end up building 15+ different kernels in parallel on your local box, which will take a very, very long time.
+   - It is **important** you follow the previous step, and edit the [config.yaml](config.yaml) locally to reduce the number of kernels the script will try to build, or you may end up building 15+ different kernels in parallel on your local box, which will take a very, very long time.
    - When this command runs, it will generate a build matrix and print out what it will build.
 1. When the above command finishes, you can see the local OCI images that were built by running `docker image list`. The images will be tagged with the repo you specified in `imageNameFormat` in the [config.yaml](config.yaml).
 1. From this point, you may push those images to an OCI registry with standard commands like `docker image push <image tag>`, and consume them how you wish.
