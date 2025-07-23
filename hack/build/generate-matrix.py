@@ -3,6 +3,7 @@ import sys
 
 import matrix
 from util import parse_text_constraint, maybe
+from packaging.version import Version, parse
 
 
 def construct_stable_matrix():
@@ -64,9 +65,9 @@ elif build_spec_type == "only-latest":
     first_matrix = construct_stable_matrix()
     apply_config_versions = False
     matrix.sort_matrix(first_matrix)
-    last_version = first_matrix[-1]["version"]
+    last_version = parse(first_matrix[-1]["version"]).base_version
     last_version_builds = list(
-        filter(lambda build: build["version"] == last_version, first_matrix)
+        filter(lambda build: last_version in build["version"], first_matrix)
     )
     first_matrix = last_version_builds
 elif build_spec_type == "override":
