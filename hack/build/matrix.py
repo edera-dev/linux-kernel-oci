@@ -274,7 +274,7 @@ def generate_matrix(tags: dict[str, str]) -> list[dict[str, any]]:
                     produces = []
                     local_version_tags = []
                     for tag in version_tags:
-                        local_append = tag+"-"+local_tag
+                        local_append = tag+"+"+local_tag
                         local_version_tags.append(local_append)
                         # local_version = version+"-"+local_tag
                         kernel_output = format_image_name(
