@@ -1,7 +1,9 @@
 #!/bin/sh
 set -e
 
-if [ "${KERNEL_FLAVOR}" != "zone-nvidiagpu" ]; then
+# TODO(bleggett) upstream DOES support arm64 builds in theory but following their docs for it results in build
+# failures due to missing symbols that shouldn't be missing, so defer until/if we care.
+if [ "${KERNEL_FLAVOR}" != "zone-nvidiagpu" ] || "${TARGET_ARCH_STANDARD}" != "x86_64"; then
 	return
 fi
 
@@ -40,18 +42,17 @@ tar -xzf "$ARCHIVE" -C "$NV_WORKDIR"
 OLDPWD=$(pwd)
 cd "$NV_WORKDIR"/"$NV_KMOD_REPO_OWNER"-*
 
-# upstream does support arm64 builds with these overrides
 if [ "${TARGET_ARCH_STANDARD}" = "aarch64" ]; then
-    CROSS_ENV="env TARGET_ARCH=aarch64 CC=aarch64-linux-gnu-gcc LD=aarch64-linux-gnu-ld AR=aarch64-linux-gnu-ar CXX=aarch64-linux-gnu-g++ OBJCOPY=aarch64-linux-gnu-objcopy"
+	CROSS_ENV="env CC=aarch64-linux-gnu-gcc LD=aarch64-linux-gnu-ld AR=aarch64-linux-gnu-ar CXX=aarch64-linux-gnu-g++ OBJCOPY=aarch64-linux-gnu-objcopy KCFLAGS=-mno-outline-atomics"
 else
     CROSS_ENV=""
 fi
 
-${CROSS_ENV} make -C . SYSSRC="${KERNEL_SRC}" SYSOUT="${KERNEL_OBJ}" -j"${KERNEL_BUILD_JOBS}" "${CROSS_COMPILE_MAKE}"  modules
+${CROSS_ENV} NV_VERBOSE=1 make -C . ARCH="${TARGET_ARCH_KERNEL}" TARGET_ARCH="${TARGET_ARCH}" SYSSRC="${KERNEL_SRC}" SYSOUT="${KERNEL_OBJ}" -j"${KERNEL_BUILD_JOBS}" "${CROSS_COMPILE_MAKE}"  modules
 
 echo "Nvidia $NV_VERSION build done"
 
-${CROSS_ENV} make -C . SYSSRC="${KERNEL_SRC}" SYSOUT="${KERNEL_OBJ}" -j"${KERNEL_BUILD_JOBS}" "${CROSS_COMPILE_MAKE}" INSTALL_MOD_PATH="${MODULES_INSTALL_PATH}" modules_install
+${CROSS_ENV} NV_VERBOSE=1 make -C . ARCH="${TARGET_ARCH_KERNEL}" TARGET_ARCH="${TARGET_ARCH}" SYSSRC="${KERNEL_SRC}" SYSOUT="${KERNEL_OBJ}" -j"${KERNEL_BUILD_JOBS}" "${CROSS_COMPILE_MAKE}" INSTALL_MOD_PATH="${MODULES_INSTALL_PATH}" modules_install
 
 echo "Nvidia $NV_VERSION install done"
 
