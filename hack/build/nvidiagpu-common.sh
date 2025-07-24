@@ -10,14 +10,20 @@ NV_KMOD_REPO_NAME=open-gpu-kernel-modules
 
 rm -rf "$NV_EXTRACT_PATH"
 
-echo "Fetching latest nvidia module release"
+# This will also be used to later fetch the correct firmware blob from the userspace pkg
+NV_VERSION="$(echo "${KERNEL_VERSION}" | awk -F'+nvidia-' '{print $2}')"
 
-RELEASE_JSON=$(curl -s "https://api.github.com/repos/${NV_KMOD_REPO_OWNER}/${NV_KMOD_REPO_NAME}/releases/latest")
-NV_VERSION=$(echo "$RELEASE_JSON" | grep -o '"tag_name": *"[^"]*"' | sed 's/"tag_name": *"\(.*\)"/\1/')
-LATEST_RELEASE_URL=$(echo "$RELEASE_JSON" | grep -o '"tarball_url": *"[^"]*"' | sed 's/"tarball_url": *"\(.*\)"/\1/')
+if [ -z "$NV_VERSION" ]; then
+	echo "Could not extract nvidia driver version from ${NV_VERSION}!"
+	exit 1
+fi
 
-if [ -z "$LATEST_RELEASE_URL" ] || [ -z "$NV_VERSION" ]; then
-    echo "Failed to fetch latest release information"
+echo "Fetching nvidia module release: $NV_VERSION"
+
+RELEASE_JSON=$(curl -s "https://api.github.com/repos/${NV_KMOD_REPO_OWNER}/${NV_KMOD_REPO_NAME}/releases/tags/${NV_VERSION}")
+TARBALL_URL=$(echo "$RELEASE_JSON" | grep -o '"tarball_url": *"[^"]*"' | sed 's/"tarball_url": *"\(.*\)"/\1/')
+if [ -z "$TARBALL_URL" ]; then
+    echo "Failed to fetch release information for version $NV_VERSION"
     exit 1
 fi
 
@@ -28,7 +34,7 @@ ARCHIVE="$NV_WORKDIR/driver-src.tar.gz"
 
 mkdir -p "$NV_WORKDIR"
 
-curl -L -o "$ARCHIVE" "$LATEST_RELEASE_URL"
+curl -L -o "$ARCHIVE" "$TARBALL_URL"
 tar -xzf "$ARCHIVE" -C "$NV_WORKDIR"
 
 OLDPWD=$(pwd)
