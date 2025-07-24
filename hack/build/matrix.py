@@ -276,7 +276,6 @@ def generate_matrix(tags: dict[str, str]) -> list[dict[str, any]]:
                     for tag in version_tags:
                         local_append = tag+"-"+local_tag
                         local_version_tags.append(local_append)
-                        # local_version = version+"-"+local_tag
                         kernel_output = format_image_name(
                             image_name_format, flavor, version_info, "[flavor]-kernel", local_append
                         )
