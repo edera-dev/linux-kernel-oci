@@ -11,7 +11,7 @@ NV_KMOD_REPO_NAME=open-gpu-kernel-modules
 rm -rf "$NV_EXTRACT_PATH"
 
 # This will also be used to later fetch the correct firmware blob from the userspace pkg
-NV_VERSION="$(echo "${KERNEL_VERSION}" | awk -F'+nvidia-' '{print $2}')"
+NV_VERSION="$(echo "${KERNEL_VERSION}" | awk -F'-nvidia-' '{print $2}')"
 
 if [ -z "$NV_VERSION" ]; then
 	echo "Could not extract nvidia driver version from ${NV_VERSION}!"
