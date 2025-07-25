@@ -18,6 +18,11 @@ def is_publish_enabled() -> bool:
 def quoted(text: str) -> str:
     return '"%s"' % text
 
+def dockerify_version(version_string: str) -> str:
+    # "+" is valid for both python versions and semver,
+    # but docker rejects it for tags, so sanitize
+    return version_string.replace('+', '-')
+
 
 def docker_platforms(architectures: list[str]) -> list[str]:
     platforms = []
@@ -51,6 +56,7 @@ def docker_build(
 ) -> list[str]:
     lines = []
 
+    version = dockerify_version(version)
     root = format_image_name(
         image_name_format=CONFIG["imageNameFormat"],
         flavor=flavor,

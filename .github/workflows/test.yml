@@ -8,7 +8,7 @@ permissions:
   contents: read
   packages: read
 env:
-  TEST_MATRIX_SPEC: "only-latest:flavor=zone-nvidiagpu"
+  TEST_MATRIX_SPEC: "only-latest:flavor=host,zone,zone-amdgpu,zone-nvidiagpu"
 jobs:
   test:
     name: test
