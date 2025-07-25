@@ -3,7 +3,7 @@ set -e
 
 # TODO(bleggett) upstream DOES support arm64 builds in theory but following their docs for it results in build
 # failures due to missing symbols that shouldn't be missing, so defer until/if we care.
-if [ "${KERNEL_FLAVOR}" != "zone-nvidiagpu" ] || "${TARGET_ARCH_STANDARD}" != "x86_64"; then
+if [ "${KERNEL_FLAVOR}" != "zone-nvidiagpu" ] || [ "${TARGET_ARCH_STANDARD}" != "x86_64" ]; then
 	return
 fi
 
@@ -43,7 +43,7 @@ OLDPWD=$(pwd)
 cd "$NV_WORKDIR"/"$NV_KMOD_REPO_OWNER"-*
 
 if [ "${TARGET_ARCH_STANDARD}" = "aarch64" ]; then
-	CROSS_ENV="env CC=aarch64-linux-gnu-gcc LD=aarch64-linux-gnu-ld AR=aarch64-linux-gnu-ar CXX=aarch64-linux-gnu-g++ OBJCOPY=aarch64-linux-gnu-objcopy
+	CROSS_ENV="env CC=aarch64-linux-gnu-gcc LD=aarch64-linux-gnu-ld AR=aarch64-linux-gnu-ar CXX=aarch64-linux-gnu-g++ OBJCOPY=aarch64-linux-gnu-objcopy"
 else
 	CROSS_ENV=""
 fi
