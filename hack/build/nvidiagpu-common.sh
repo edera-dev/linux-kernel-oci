@@ -1,7 +1,9 @@
 #!/bin/sh
 set -e
 
-if [ "${KERNEL_FLAVOR}" != "zone-nvidiagpu" ]; then
+# TODO(bleggett) upstream DOES support arm64 builds in theory but following their docs for it results in build
+# failures due to missing symbols that shouldn't be missing, so defer until/if we care.
+if [ "${KERNEL_FLAVOR}" != "zone-nvidiagpu" ] || [ "${TARGET_ARCH_STANDARD}" != "x86_64" ]; then
 	return
 fi
 
