@@ -1,9 +1,7 @@
 #!/bin/sh
 set -e
 
-# TODO(bleggett) upstream DOES support arm64 builds in theory but following their docs for it results in build
-# failures due to missing symbols that shouldn't be missing, so defer until/if we care.
-if [ "${KERNEL_FLAVOR}" != "zone-nvidiagpu" ] || [ "${TARGET_ARCH_STANDARD}" != "x86_64" ]; then
+if [ "${KERNEL_FLAVOR}" != "zone-nvidiagpu" ]; then
 	return
 fi
 
@@ -48,13 +46,12 @@ else
 	CROSS_ENV=""
 fi
 
-${CROSS_ENV} make -C . ARCH="${TARGET_ARCH_KERNEL}" TARGET_ARCH="${TARGET_ARCH}" SYSSRC="${KERNEL_SRC}" SYSOUT="${KERNEL_OBJ}" -j"${KERNEL_BUILD_JOBS}" "${CROSS_COMPILE_MAKE}"  modules
+${CROSS_ENV} make -C . TARGET_ARCH="${TARGET_ARCH_STANDARD}" SYSSRC="${KERNEL_SRC}" SYSOUT="${KERNEL_OBJ}" -j"${KERNEL_BUILD_JOBS}" "${CROSS_COMPILE_MAKE}"  modules
 
 echo "Nvidia $NV_VERSION build done"
 
-${CROSS_ENV} make -C . ARCH="${TARGET_ARCH_KERNEL}" TARGET_ARCH="${TARGET_ARCH}" SYSSRC="${KERNEL_SRC}" SYSOUT="${KERNEL_OBJ}" -j"${KERNEL_BUILD_JOBS}" "${CROSS_COMPILE_MAKE}" INSTALL_MOD_PATH="${MODULES_INSTALL_PATH}" modules_install
+${CROSS_ENV} make -C . TARGET_ARCH="${TARGET_ARCH_STANDARD}" SYSSRC="${KERNEL_SRC}" SYSOUT="${KERNEL_OBJ}" -j"${KERNEL_BUILD_JOBS}" "${CROSS_COMPILE_MAKE}" INSTALL_MOD_PATH="${MODULES_INSTALL_PATH}" modules_install
 
 echo "Nvidia $NV_VERSION install done"
 
 cd "$OLDPWD"
-
