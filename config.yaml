@@ -77,6 +77,10 @@ patches:
   lower: '6.1'
   flavors:
   - zone-amdgpu
+- patch: x86-Use-Linux-s-PAT.patch
+  lower: '6.1'
+  flavors:
+  - zone-nvidiagpu
 images:
 - target: kernelsrc
   name: kernel-src
