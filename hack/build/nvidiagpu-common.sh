@@ -42,6 +42,9 @@ tar -xzf "$ARCHIVE" -C "$NV_WORKDIR"
 OLDPWD=$(pwd)
 cd "$NV_WORKDIR"/"$NV_KMOD_REPO_OWNER"-*
 
+# Apply nvidia hackpatches if we have them
+for patch in "${OLDPWD}"/patches-nvidia/*.patch; do patch -p1 < "$patch"; done
+
 if [ "${TARGET_ARCH_STANDARD}" = "aarch64" ]; then
 	CROSS_ENV="env CC=aarch64-linux-gnu-gcc LD=aarch64-linux-gnu-ld AR=aarch64-linux-gnu-ar CXX=aarch64-linux-gnu-g++ OBJCOPY=aarch64-linux-gnu-objcopy"
 else
