@@ -192,7 +192,7 @@ def filter_matrix(
         version = build["version"]
         version_info = parse(version)
         flavor = build["flavor"]
-        is_current_release = is_release_current(version)
+        is_current_release = is_release_current(version_info.base_version)
         should_build = matches_constraints(
             version_info, flavor, constraint, is_current_release=is_current_release
         )
@@ -207,7 +207,7 @@ def filter_config_versions(builds: list[dict[str, any]]) -> list[dict[str, any]]
         version = build["version"]
         version_info = parse(version)
         flavor = build["flavor"]
-        is_current_release = is_release_current(version)
+        is_current_release = is_release_current(version_info.base_version)
         should_build = False
         for constraint in CONFIG["versions"]:
             if matches_constraints(
@@ -269,30 +269,56 @@ def generate_matrix(tags: dict[str, str]) -> list[dict[str, any]]:
             ):
                 continue
 
-            produces = []
-            for tag in version_tags:
-                kernel_output = format_image_name(
-                    image_name_format, flavor, version_info, "[flavor]-kernel", tag
+            if "local_tags" in flavor_info:
+                for local_tag in flavor_info["local_tags"]:
+                    produces = []
+                    local_version_tags = []
+                    for tag in version_tags:
+                        local_append = tag+"-"+local_tag
+                        local_version_tags.append(local_append)
+                        kernel_output = format_image_name(
+                            image_name_format, flavor, version_info, "[flavor]-kernel", local_append
+                        )
+                        kernel_sdk_output = format_image_name(
+                            image_name_format, flavor, version_info, "[flavor]-kernel-sdk", local_append
+                        )
+                        produces.append(kernel_output)
+                        produces.append(kernel_sdk_output)
+                    version_builds.append(
+                        {
+                            "version": version+"+"+local_tag,
+                            "firmware_url": firmware_url,
+                            "firmware_sig_url": firmware_sig_url,
+                            "tags": local_version_tags,
+                            "source": src_url,
+                            "flavor": flavor,
+                            "architectures": build_architectures(),
+                            "produces": produces,
+                        }
+                    )
+            else:
+                produces = []
+                for tag in version_tags:
+                    kernel_output = format_image_name(
+                        image_name_format, flavor, version_info, "[flavor]-kernel", tag
+                    )
+                    kernel_sdk_output = format_image_name(
+                        image_name_format, flavor, version_info, "[flavor]-kernel-sdk", tag
+                    )
+                    produces.append(kernel_output)
+                    produces.append(kernel_sdk_output)
+                version_builds.append(
+                    {
+                        "version": version,
+                        "firmware_url": firmware_url,
+                        "firmware_sig_url": firmware_sig_url,
+                        "tags": version_tags,
+                        "source": src_url,
+                        "flavor": flavor,
+                        "architectures": build_architectures(),
+                        "produces": produces,
+                    }
                 )
-                kernel_sdk_output = format_image_name(
-                    image_name_format, flavor, version_info, "[flavor]-kernel-sdk", tag
-                )
-                produces.append(kernel_output)
-                produces.append(kernel_sdk_output)
-
-            version_builds.append(
-                {
-                    "version": version,
-                    "firmware_url": firmware_url,
-                    "firmware_sig_url": firmware_sig_url,
-                    "tags": version_tags,
-                    "source": src_url,
-                    "flavor": flavor,
-                    "architectures": build_architectures(),
-                    "produces": produces,
-                }
-            )
-
     return version_builds
 
 
@@ -336,37 +362,42 @@ def generate_stable_matrix() -> list[dict[str, any]]:
     tags = {}
     major_minors = {}
 
-    for version in known_releases:
-        parts = parse(version)
-        if parts.major < 5:
+    for raw_version in known_releases:
+        if raw_version == latest_stable:
+            tags["stable"] = raw_version
+
+
+        parsed_ver = parse(raw_version)
+
+        # Hardcode skip of pre-5.x.x kernels
+        if parsed_ver.major < 5:
+            print(f'skipping {raw_version}, too old to support')
             continue
 
-        if version == latest_stable:
-            tags["stable"] = version
-        major = str(parts.major)
-        major_minor = "%s.%s" % (parts.major, parts.minor)
-
+        major = str(parsed_ver.major)
+        major_minor = "%s.%s" % (parsed_ver.major, parsed_ver.minor)
         if major in tags:
             existing = tags[major]
-            if parse(existing) < parts:
-                tags[major] = version
+            if parse(existing) < parsed_ver:
+                tags[major] = raw_version
         else:
-            tags[major] = version
+            tags[major] = raw_version
 
         if major_minor in tags:
             existing = tags[major_minor]
-            if parse(existing) < parts:
-                tags[major_minor] = version
-                major_minors[major_minor] = version
+            if parse(existing) < parsed_ver:
+                tags[major_minor] = raw_version
+                major_minors[major_minor] = raw_version
+
         else:
-            tags[major_minor] = version
-            major_minors[major_minor] = version
+            tags[major_minor] = raw_version
+            major_minors[major_minor] = raw_version
 
     tags["latest"] = tags["stable"]
 
     for tag in list(tags.keys()):
-        version = tags[tag]
-        tags[version] = version
+        local_version = tags[tag]
+        tags[local_version] = local_version
     return generate_matrix(tags)
 
 
@@ -417,7 +448,7 @@ def pick_runner(build: dict[str, any]) -> str:
     flavor: str = build["flavor"]
     for runner in CONFIG["runners"]:
         if matches_constraints(
-            version_info, flavor, runner, is_current_release=is_release_current(version)
+            version_info, flavor, runner, is_current_release=is_release_current(version_info.base_version)
         ):
             return runner["name"]
     raise Exception("No runner found for build %s" % build)

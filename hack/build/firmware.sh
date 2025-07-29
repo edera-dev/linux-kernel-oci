@@ -81,6 +81,8 @@ if [ "${KERNEL_FLAVOR}" = "zone-nvidiagpu" ]; then
 	# As of 6.x kernels the kconfig explicitly says you must use crc32 or none, not the default crc64.
 	xz -C crc32 "$NV_EXTRACT_PATH"/out/firmware/*
 	ls -lah "$NV_EXTRACT_PATH/out/firmware/"
-	cp "$NV_EXTRACT_PATH"/out/firmware/*.xz "${FIRMWARE_OUTPUT_PATH}"
+	NV_FW_PATH="${FIRMWARE_OUTPUT_PATH}/nvidia/$NV_VERSION"
+	mkdir -p "${NV_FW_PATH}"
+	cp "$NV_EXTRACT_PATH"/out/firmware/*.xz "${NV_FW_PATH}"
 	cd "${OLDDIR}"
 fi

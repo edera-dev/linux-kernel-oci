@@ -11,8 +11,18 @@ flavors:
   constraints:
     lower: '6.1'
 - name: zone-nvidiagpu
+  # we will generate distinct images for each of these
+  # local tags. For `zone-nvidiagpu` specifically,
+  # we will build that distinct image with the nvidia driver
+  # version defined here.
+  local_tags:
+  - 'nvidia-575.64.05'
+  - 'nvidia-575.64.03'
+  - 'nvidia-575.64'
+  - 'nvidia-570.172.08'
   constraints:
-    lower: '6.1'
+    series:
+    - '6.15'
 - name: zone-openpax
   constraints:
     series:

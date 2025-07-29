@@ -17,9 +17,9 @@ RUN export DEBIAN_FRONTEND=noninteractive && apt-get update && apt-get install -
       rm -rf /var/lib/apt/lists/*
 ARG BUILDPLATFORM
 RUN if [ "${BUILDPLATFORM}" = "linux/amd64" ]; then \
-      apt-get update && apt-get install -y linux-headers-amd64 gcc-aarch64-linux-gnu && rm -rf /var/lib/apt/lists/*; fi
+      apt-get update && apt-get install -y linux-headers-amd64 g++-aarch64-linux-gnu gcc-aarch64-linux-gnu && rm -rf /var/lib/apt/lists/*; fi
 RUN if [ "${BUILDPLATFORM}" = "linux/arm64" ] || [ "${BUILDPLATFORM}" = "linux/aarch64" ]; then \
-      apt-get update && apt-get install -y linux-headers-arm64 gcc-x86-64-linux-gnu && rm -rf /var/lib/apt/lists/*; fi
+      apt-get update && apt-get install -y linux-headers-arm64 g++-x86-64-linux-gnu gcc-x86-64-linux-gnu && rm -rf /var/lib/apt/lists/*; fi
 RUN useradd -ms /bin/sh build
 COPY --chown=build:build . /build
 USER build
