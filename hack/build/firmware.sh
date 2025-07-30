@@ -51,7 +51,8 @@ fi
 
 # For nvidia kernel, firmware is distributed via their out-of-tree .run userspace
 # package, which we need to fetch and extract.
-if [ "${KERNEL_FLAVOR}" = "zone-nvidiagpu" ]; then
+# TODO(BML) fix arm64 builds
+if [ "${KERNEL_FLAVOR}" = "zone-nvidiagpu" ] && [ "${TARGET_ARCH_STANDARD}" = "x86_64" ]; then
 	# Check that we already set NV_VERSION when building the out-of-tree kmod,
 	# naturally, we must fetch the matching runtime package.
 	if [ -z "${NV_VERSION}" ]; then
