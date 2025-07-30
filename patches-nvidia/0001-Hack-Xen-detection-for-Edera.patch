@@ -1,0 +1,48 @@
+From d14d762911594a3b4c9dd11f15105e80d2e4335b Mon Sep 17 00:00:00 2001
+From: Benjamin Leggett <benjamin@edera.io>
+Date: Mon, 28 Jul 2025 20:06:45 -0400
+Subject: [PATCH] Edera hack
+
+---
+ kernel-open/nvidia/nv-pat.c | 11 ++++-------
+ 1 file changed, 4 insertions(+), 7 deletions(-)
+
+diff --git a/kernel-open/nvidia/nv-pat.c b/kernel-open/nvidia/nv-pat.c
+index 1fa530d9..83c00eab 100644
+--- a/kernel-open/nvidia/nv-pat.c
++++ b/kernel-open/nvidia/nv-pat.c
+@@ -40,12 +40,9 @@ int nv_pat_mode = NV_PAT_MODE_DISABLED;
+  * WC entry is as expected before using PAT.
+  */
+ 
+-#if defined(CONFIG_X86_PAT)
+-#define NV_ENABLE_BUILTIN_PAT_SUPPORT 0
+-#else
++// HACK(edera) - force use of builtin PAT even on x86 to work around
++// buggy PAT detection under Xen
+ #define NV_ENABLE_BUILTIN_PAT_SUPPORT 1
+-#endif
+-
+ 
+ #define NV_READ_PAT_ENTRIES(pat1, pat2)   rdmsr(0x277, (pat1), (pat2))
+ #define NV_WRITE_PAT_ENTRIES(pat1, pat2)  wrmsr(0x277, (pat1), (pat2))
+@@ -63,14 +60,14 @@ static inline void nv_disable_caches(unsigned long *cr4)
+     wbinvd();
+     *cr4 = NV_READ_CR4();
+     if (*cr4 & 0x80) NV_WRITE_CR4(*cr4 & ~0x80);
+-    __flush_tlb();
++    __flush_tlb_local();
+ }
+ 
+ static inline void nv_enable_caches(unsigned long cr4)
+ {
+     unsigned long cr0 = read_cr0();
+     wbinvd();
+-    __flush_tlb();
++    __flush_tlb_local();
+     write_cr0((cr0 & 0x9fffffff));
+     if (cr4 & 0x80) NV_WRITE_CR4(cr4);
+ }
+-- 
+2.50.1
+
