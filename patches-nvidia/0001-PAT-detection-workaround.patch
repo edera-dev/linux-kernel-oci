@@ -1,14 +1,14 @@
-From d14d762911594a3b4c9dd11f15105e80d2e4335b Mon Sep 17 00:00:00 2001
+From 3b6052e852abc1384020eff979d4ee886defee91 Mon Sep 17 00:00:00 2001
 From: Benjamin Leggett <benjamin@edera.io>
-Date: Mon, 28 Jul 2025 20:06:45 -0400
-Subject: [PATCH] Edera hack
+Date: Thu, 31 Jul 2025 19:36:18 -0400
+Subject: [PATCH] PAT detection workaround
 
 ---
- kernel-open/nvidia/nv-pat.c | 11 ++++-------
- 1 file changed, 4 insertions(+), 7 deletions(-)
+ kernel-open/nvidia/nv-pat.c | 19 ++++++++++---------
+ 1 file changed, 10 insertions(+), 9 deletions(-)
 
 diff --git a/kernel-open/nvidia/nv-pat.c b/kernel-open/nvidia/nv-pat.c
-index 1fa530d9..83c00eab 100644
+index 1fa530d9..2dc5cee7 100644
 --- a/kernel-open/nvidia/nv-pat.c
 +++ b/kernel-open/nvidia/nv-pat.c
 @@ -40,12 +40,9 @@ int nv_pat_mode = NV_PAT_MODE_DISABLED;
@@ -43,6 +43,21 @@ index 1fa530d9..83c00eab 100644
      write_cr0((cr0 & 0x9fffffff));
      if (cr4 & 0x80) NV_WRITE_CR4(cr4);
  }
+@@ -390,8 +387,12 @@ static int nv_determine_pat_mode(void)
+     else if (PAT_WC_index != 0xf)
+     {
+         nv_printf(NV_DBG_ERRORS,
+-            "NVRM: PAT configuration unsupported.\n");
+-        return NV_PAT_MODE_DISABLED;
++            "NVRM: Hardware PAT configuration unsupported, using builtin.\n");
++        #if NV_ENABLE_BUILTIN_PAT_SUPPORT
++                return NV_PAT_MODE_BUILTIN;
++        #else
++                return NV_PAT_MODE_DISABLED;
++        #endif /* NV_ENABLE_BUILTIN_PAT_SUPPORT */
+     }
+     else
+     {
 -- 
 2.50.1
 
