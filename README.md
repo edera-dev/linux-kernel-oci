@@ -30,7 +30,7 @@ Note that not all the patches will be applied to all kernel versions, this is dr
    1. Edit the line `imageNameFormat: "ghcr.io/edera-dev/[image]:[tag]"` and change it to `imageNameFormat: "ghcr.io/<your GH org>/[image]:[tag]"`
    1. Add or remove any `Kconfig` options you want to the `flavor` and `variant` Kconfig fragments in [configs](/configs), as outlined by the [README](/configs/README.md) in that folder.
    1. Commit those changes to `main` in your fork.
-1. From your forked repository's `Actions` tab, run the `Build Kernels` job with a Build Specification like: `stable:flavor=zone,host`. This will build `zone` and `host` kernel flavors using `stable` kernel.org releases.
+1. From your forked repository's `Actions` tab, run the `Build Kernels` job with a Build Specification like: `stable:flavor=zone,host`. This will build `zone` and `host` kernel flavors using `stable` kernel.org releases for all current LTS kernels.
    1. ![Example](/images/job-example.png)
 
 ## Building your own kernels with custom KConfig (Locally, for debugging)
