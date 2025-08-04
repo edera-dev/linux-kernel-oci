@@ -18,8 +18,7 @@ flavors:
   local_tags:
   - 'nvidia-575.64.05'
   - 'nvidia-575.64.03'
-  - 'nvidia-575.64'
-  - 'nvidia-570.172.08'
+  - 'nvidia-575.57.08'
   constraints:
     series:
     - '6.15'
