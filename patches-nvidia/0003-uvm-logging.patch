@@ -1,0 +1,220 @@
+From 0b373b9da3d3ccb821d645fcf0af2d639126d9c8 Mon Sep 17 00:00:00 2001
+From: Benjamin Leggett <benjamin@edera.io>
+Date: Mon, 4 Aug 2025 14:59:10 -0400
+Subject: [PATCH] uvm logging
+
+---
+ kernel-open/nvidia-uvm/uvm_pmm_gpu.c        | 20 +++++++++++++++-----
+ src/nvidia/generated/g_gpu_nvoc.c           |  6 +++++-
+ src/nvidia/src/kernel/gpu/gpu.c             |  2 ++
+ src/nvidia/src/kernel/gpu/mem_mgr/heap.c    | 11 ++++++++++-
+ src/nvidia/src/kernel/gpu/mem_mgr/mem_mgr.c | 10 ++++++++++
+ src/nvidia/src/kernel/rmapi/nv_gpu_ops.c    |  1 +
+ 6 files changed, 43 insertions(+), 7 deletions(-)
+
+diff --git a/kernel-open/nvidia-uvm/uvm_pmm_gpu.c b/kernel-open/nvidia-uvm/uvm_pmm_gpu.c
+index 9da6bbc2..59e9fd1b 100644
+--- a/kernel-open/nvidia-uvm/uvm_pmm_gpu.c
++++ b/kernel-open/nvidia-uvm/uvm_pmm_gpu.c
+@@ -2897,12 +2897,16 @@ static NV_STATUS init_caches(uvm_pmm_gpu_t *pmm)
+     NV_STATUS status;
+ 
+     status = init_pma_address_batch_cache(pmm);
+-    if (status != NV_OK)
++    if (status != NV_OK) {
++        UVM_INFO_PRINT("BML init PMA address batch cache FAILED: %s.\n", nvstatusToString(status));
+         goto cleanup;
++    }
+ 
+     status = init_chunk_split_cache(pmm);
+-    if (status != NV_OK)
++    if (status != NV_OK) {
++        UVM_INFO_PRINT("BML init chunk split cache FAILED: %s.\n", nvstatusToString(status));
+         goto cleanup;
++    }
+ 
+     return NV_OK;
+ 
+@@ -3495,22 +3499,28 @@ NV_STATUS uvm_pmm_gpu_init(uvm_pmm_gpu_t *pmm)
+     }
+ 
+     status = uvm_bit_locks_init(&pmm->root_chunks.bitlocks, pmm->root_chunks.count, UVM_LOCK_ORDER_PMM_ROOT_CHUNK);
+-    if (status != NV_OK)
++    if (status != NV_OK) {
++        UVM_INFO_PRINT("BML init PMA uvm_bit_locks FAILED: %s.\n", nvstatusToString(status));
+         goto cleanup;
++    }
+ 
+     if (gpu->mem_info.size != 0) {
+         status = uvm_rm_locked_call(nvUvmInterfaceGetPmaObject(uvm_gpu_device_handle(gpu), &pmm->pma, &pmm->pma_stats));
+ 
+-        if (status != NV_OK)
++        if (status != NV_OK) {
++            UVM_INFO_PRINT("BML init uvm_rm_locked_call FAILED: %s.\n", nvstatusToString(status));
+             goto cleanup;
++        }
+ 
+         if (gpu_supports_pma_eviction(gpu)) {
+             status = nvUvmInterfacePmaRegisterEvictionCallbacks(pmm->pma,
+                                                                 uvm_pmm_gpu_pma_evict_pages_wrapper_entry,
+                                                                 uvm_pmm_gpu_pma_evict_range_wrapper_entry,
+                                                                 pmm);
+-            if (status != NV_OK)
++            if (status != NV_OK) {
++                UVM_INFO_PRINT("BML register PMA eviction FAILED: %s.\n", nvstatusToString(status));
+                 goto cleanup;
++            }
+         }
+     }
+ 
+diff --git a/src/nvidia/generated/g_gpu_nvoc.c b/src/nvidia/generated/g_gpu_nvoc.c
+index 2ddc44a5..6279bc87 100644
+--- a/src/nvidia/generated/g_gpu_nvoc.c
++++ b/src/nvidia/generated/g_gpu_nvoc.c
+@@ -466,12 +466,16 @@ void __nvoc_init_dataField_OBJGPU(OBJGPU *pThis) {
+     pThis->deviceInstance = 32;
+ 
+     // Hal field -- isVirtual
+-    if (( ((rmVariantHal_HalVarIdx >> 5) == 0UL) && ((1UL << (rmVariantHal_HalVarIdx & 0x1f)) & 0x00000001UL) )) /* RmVariantHal: VF */ 
++    if ((((rmVariantHal_HalVarIdx >> 5) == 0UL) &&
++         ((1UL << (rmVariantHal_HalVarIdx & 0x1f)) &
++          0x00000001UL))) /* RmVariantHal: VF */
+     {
++        // TODO(bml)
+         pThis->isVirtual = NV_TRUE;
+     }
+     else if (( ((rmVariantHal_HalVarIdx >> 5) == 0UL) && ((1UL << (rmVariantHal_HalVarIdx & 0x1f)) & 0x00000002UL) )) /* RmVariantHal: PF_KERNEL_ONLY */ 
+     {
++        // TODO(bml)
+         pThis->isVirtual = NV_FALSE;
+     }
+ 
+diff --git a/src/nvidia/src/kernel/gpu/gpu.c b/src/nvidia/src/kernel/gpu/gpu.c
+index a9c01fb4..7b7404ae 100644
+--- a/src/nvidia/src/kernel/gpu/gpu.c
++++ b/src/nvidia/src/kernel/gpu/gpu.c
+@@ -341,10 +341,12 @@ gpuPostConstruct_IMPL
+         NvU32 config = GPU_REG_RD32(pGpu, NV_PMC_BOOT_1);
+         if (FLD_TEST_DRF(_PMC, _BOOT_1, _VGPU, _VF, config))
+         {
++            NV_PRINTF(LEVEL_INFO, "BML turning on virtual with SRIOV.\n");
+             pGpu->bIsVirtualWithSriov = NV_TRUE;
+         }
+         else
+         {
++            NV_PRINTF(LEVEL_INFO, "BML turning OFF virtual with SRIOV.\n");
+             pGpu->bIsVirtualWithSriov = NV_FALSE;
+         }
+     }
+diff --git a/src/nvidia/src/kernel/gpu/mem_mgr/heap.c b/src/nvidia/src/kernel/gpu/mem_mgr/heap.c
+index c3a1a42a..960aacb7 100644
+--- a/src/nvidia/src/kernel/gpu/mem_mgr/heap.c
++++ b/src/nvidia/src/kernel/gpu/mem_mgr/heap.c
+@@ -555,12 +555,17 @@ NV_STATUS heapInitInternal_IMPL
+         // Define PMA-managed regions
+         // This will be moved to memmgr once we refactor SMC partitions
+         //
++
++        NV_PRINTF(LEVEL_INFO, "BML checkin' for PMA init.\n");
+         if (memmgrIsPmaEnabled(pMemoryManager) &&
+             memmgrIsPmaSupportedOnPlatform(pMemoryManager) &&
+             (heapType != HEAP_TYPE_PARTITION_LOCAL))
+         {
++            NV_PRINTF(LEVEL_INFO, "BML Initializing PMA.\n");
+             memmgrSetPmaInitialized(pMemoryManager, NV_TRUE);
+             memmgrRegionSetupForPma(pGpu, pMemoryManager);
++        } else {
++            NV_PRINTF(LEVEL_INFO, "BML PMA not supported/enabled.\n");
+         }
+ 
+         if (heapType != HEAP_TYPE_PARTITION_LOCAL)
+@@ -774,8 +779,12 @@ heapDestruct_IMPL
+ 
+     if ((pHeap->bHasFbRegions) && (memmgrIsPmaInitialized(pMemoryManager)))
+     {
+-        if (pHeap->heapType != HEAP_TYPE_PARTITION_LOCAL)
++        if (pHeap->heapType != HEAP_TYPE_PARTITION_LOCAL) {
++            NV_PRINTF(LEVEL_INFO, "BML un-init-ing PMA during heap teardown\n");
+             memmgrSetPmaInitialized(pMemoryManager, NV_FALSE);
++        } else {
++            NV_PRINTF(LEVEL_INFO, "BML skipping PMA deinit due to non-local partition type\n");
++        }
+ 
+         pmaDestroy(&pHeap->pmaObject);
+         portMemSet(&pHeap->pmaObject, 0, sizeof(pHeap->pmaObject));
+diff --git a/src/nvidia/src/kernel/gpu/mem_mgr/mem_mgr.c b/src/nvidia/src/kernel/gpu/mem_mgr/mem_mgr.c
+index ef302c77..665eea02 100644
+--- a/src/nvidia/src/kernel/gpu/mem_mgr/mem_mgr.c
++++ b/src/nvidia/src/kernel/gpu/mem_mgr/mem_mgr.c
+@@ -245,14 +245,18 @@ _memmgrInitRegistryOverrides(OBJGPU *pGpu, MemoryManager *pMemoryManager)
+     // Override PMA enable.  PDB_PROP_FB_PMA_ENABLED is reconciled with
+     // PDB_PROP_FB_PLATFORM_PMA_SUPPORT to decide whether to enable PMA.
+     //
++
++    NV_PRINTF(LEVEL_INFO, "BML PMA enabled...\n");
+     if (osReadRegistryDword(pGpu, NV_REG_STR_RM_ENABLE_PMA, &data32) == NV_OK)
+     {
+         if (data32 == NV_REG_STR_RM_ENABLE_PMA_YES)
+         {
++            NV_PRINTF(LEVEL_INFO, "BML PMA is enabled!\n");
+             pMemoryManager->bPmaEnabled = NV_TRUE;
+         }
+         else
+         {
++            NV_PRINTF(LEVEL_INFO, "BML PMA is NOT enabled!\n");
+             pMemoryManager->bPmaEnabled = NV_FALSE;
+         }
+     }
+@@ -1832,6 +1836,7 @@ memmgrSetPlatformPmaSupport_IMPL
+         || RMCFG_FEATURE_PLATFORM_MODS
+         || RMCFG_FEATURE_PLATFORM_WINDOWS)
+     {
++        NV_PRINTF(LEVEL_INFO, "BML this is Unix, I know this - enabling PMA.\n");
+         pMemoryManager->bPmaSupportedOnPlatform = NV_TRUE;
+     }
+ 
+@@ -1843,17 +1848,21 @@ memmgrSetPlatformPmaSupport_IMPL
+     // TODO : Remove these constraints.
+     if (IS_VIRTUAL_WITHOUT_SRIOV(pGpu))
+     {
++        NV_PRINTF(LEVEL_INFO, "BML virtual WITHOUT SRIOV, disabling PMA again.\n");
+         pMemoryManager->bPmaSupportedOnPlatform = NV_FALSE;
+     }
+ 
++    NV_PRINTF(LEVEL_INFO, "BML checkin' PDB_PROP_GPU_IS_VIRTUALIZATION_MODE_HOST_VGPU.\n");
+     if (pGpu->getProperty(pGpu, PDB_PROP_GPU_IS_VIRTUALIZATION_MODE_HOST_VGPU))
+     {
+         if (pMemoryManager->bVgpuPmaSupport)
+         {
++            NV_PRINTF(LEVEL_INFO, "BML enabling VGPU PMA support.\n");
+             memmgrSetClientPageTablesPmaManaged(pMemoryManager, NV_FALSE);
+         }
+         else
+         {
++            NV_PRINTF(LEVEL_INFO, "BML VGPU but no PMA support, disabling.\n");
+             pMemoryManager->bPmaSupportedOnPlatform = NV_FALSE;
+         }
+     }
+@@ -3541,6 +3550,7 @@ _pmaInitFailed:
+         {
+             if (heapType != HEAP_TYPE_PARTITION_LOCAL)
+             {
++                NV_PRINTF(LEVEL_INFO, "BML un-init-ing PMA due to init failure\n");
+                 memmgrSetPmaInitialized(pMemoryManager, NV_FALSE);
+             }
+             pmaDestroy(pPma);
+diff --git a/src/nvidia/src/kernel/rmapi/nv_gpu_ops.c b/src/nvidia/src/kernel/rmapi/nv_gpu_ops.c
+index e2d62101..5e59a006 100644
+--- a/src/nvidia/src/kernel/rmapi/nv_gpu_ops.c
++++ b/src/nvidia/src/kernel/rmapi/nv_gpu_ops.c
+@@ -10561,6 +10561,7 @@ NV_STATUS nvGpuOpsGetPmaObject(struct gpuDevice *device,
+     else
+         pHeap = GPU_GET_HEAP(pGpu);
+ 
++    // BML: BRINGO
+     NV_CHECK_OR_ELSE(LEVEL_ERROR,
+         pHeap != NULL,
+         status = NV_ERR_OBJECT_NOT_FOUND; goto done; );
+-- 
+2.50.1
+

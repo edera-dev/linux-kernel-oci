@@ -1,0 +1,52 @@
+From 6208622af7fd17f1a1c9cae8244562107d0c5940 Mon Sep 17 00:00:00 2001
+From: Benjamin Leggett <benjamin@edera.io>
+Date: Tue, 5 Aug 2025 11:53:37 -0400
+Subject: [PATCH] disable vgpu probe for PMA
+
+---
+ src/nvidia/src/kernel/gpu/mem_mgr/mem_mgr.c | 29 +++++++++++----------
+ 1 file changed, 15 insertions(+), 14 deletions(-)
+
+diff --git a/src/nvidia/src/kernel/gpu/mem_mgr/mem_mgr.c b/src/nvidia/src/kernel/gpu/mem_mgr/mem_mgr.c
+index 665eea02..96579077 100644
+--- a/src/nvidia/src/kernel/gpu/mem_mgr/mem_mgr.c
++++ b/src/nvidia/src/kernel/gpu/mem_mgr/mem_mgr.c
+@@ -1852,20 +1852,21 @@ memmgrSetPlatformPmaSupport_IMPL
+         pMemoryManager->bPmaSupportedOnPlatform = NV_FALSE;
+     }
+ 
+-    NV_PRINTF(LEVEL_INFO, "BML checkin' PDB_PROP_GPU_IS_VIRTUALIZATION_MODE_HOST_VGPU.\n");
+-    if (pGpu->getProperty(pGpu, PDB_PROP_GPU_IS_VIRTUALIZATION_MODE_HOST_VGPU))
+-    {
+-        if (pMemoryManager->bVgpuPmaSupport)
+-        {
+-            NV_PRINTF(LEVEL_INFO, "BML enabling VGPU PMA support.\n");
+-            memmgrSetClientPageTablesPmaManaged(pMemoryManager, NV_FALSE);
+-        }
+-        else
+-        {
+-            NV_PRINTF(LEVEL_INFO, "BML VGPU but no PMA support, disabling.\n");
+-            pMemoryManager->bPmaSupportedOnPlatform = NV_FALSE;
+-        }
+-    }
++    /* NV_PRINTF(LEVEL_INFO, "BML checkin' PDB_PROP_GPU_IS_VIRTUALIZATION_MODE_HOST_VGPU.\n"); */
++    /* if (pGpu->getProperty(pGpu, PDB_PROP_GPU_IS_VIRTUALIZATION_MODE_HOST_VGPU)) */
++    /* { */
++    /*     if (pMemoryManager->bVgpuPmaSupport) */
++    /*     { */
++    /*         //BML BRINGO (2) */
++    /*         NV_PRINTF(LEVEL_INFO, "BML enabling VGPU PMA support.\n"); */
++    /*         memmgrSetClientPageTablesPmaManaged(pMemoryManager, NV_FALSE); */
++    /*     } */
++    /*     else */
++    /*     { */
++    /*         NV_PRINTF(LEVEL_INFO, "BML VGPU but no PMA support, disabling.\n"); */
++    /*         pMemoryManager->bPmaSupportedOnPlatform = NV_FALSE; */
++    /*     } */
++    /* } */
+     return (NV_OK);
+ }
+ 
+-- 
+2.50.1
+
