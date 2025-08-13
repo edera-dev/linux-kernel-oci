@@ -1,0 +1,31 @@
+From d0824dd15b78ecf491f6c06576914401bf8f571a Mon Sep 17 00:00:00 2001
+From: Steven Noonan <steven@edera.dev>
+Date: Wed, 13 Aug 2025 19:00:55 +0000
+Subject: [PATCH] nv-pci: support Xen PVH with no INTx interrupts
+
+Signed-off-by: Steven Noonan <steven@edera.dev>
+---
+ kernel-open/nvidia/nv-pci.c | 8 +++++++-
+ 1 file changed, 7 insertions(+), 1 deletion(-)
+
+diff --git a/kernel-open/nvidia/nv-pci.c b/kernel-open/nvidia/nv-pci.c
+index 6210ba13..e2f66664 100644
+--- a/kernel-open/nvidia/nv-pci.c
++++ b/kernel-open/nvidia/nv-pci.c
+@@ -83,7 +83,13 @@ done:
+ static NvBool nv_treat_missing_irq_as_error(void)
+ {
+ #if defined(NV_LINUX_PCIE_MSI_SUPPORTED)
+-    return (nv_get_hypervisor_type() != OS_HYPERVISOR_HYPERV);
++    switch (nv_get_hypervisor_type()) {
++    case OS_HYPERVISOR_XEN:
++    case OS_HYPERVISOR_HYPERV:
++        return NV_FALSE;
++    default:
++        return NV_TRUE;
++    }
+ #else
+     return NV_TRUE;
+ #endif
+--
+2.50.1
