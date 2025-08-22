@@ -1,8 +1,9 @@
-#!/bin/sh
+#!/bin/bash
 set -e
 
 # shellcheck disable=SC2034
 FIRMWARE_OUTPUT_PATH="${ADDONS_OUTPUT_PATH}/firmware"
+WORKLOAD_OVERLAY_PATH="${ADDONS_OUTPUT_PATH}/overlays/workload"
 
 # Any firmwares (if any needed) that should ultimately end up in the squashfs
 # should be sitting at this location when this script finishes.
@@ -85,5 +86,55 @@ if [ "${KERNEL_FLAVOR}" = "zone-nvidiagpu" ] && [ "${TARGET_ARCH_STANDARD}" = "x
 	NV_FW_PATH="${FIRMWARE_OUTPUT_PATH}/nvidia/$NV_VERSION"
 	mkdir -p "${NV_FW_PATH}"
 	cp "$NV_EXTRACT_PATH"/out/firmware/*.xz "${NV_FW_PATH}"
+
+	#
+	# Workload overlay
+	#
+	# Install various binaries necessary to make compute workloads run properly
+	# under containers.
+	#
+
+	# GTK (used by nvidia-settings, which we don't install)
+	rm -f "$NV_EXTRACT_PATH/out"/libnvidia-gtk*
+
+	# Wayland/GBM
+	rm -f "$NV_EXTRACT_PATH/out"/libglxserver_*
+	rm -f "$NV_EXTRACT_PATH/out"/libnvidia-wayland*
+	rm -f "$NV_EXTRACT_PATH/out"/libnvidia-allocator*
+
+	create_links() {
+		# create soname links
+		find "$WORKLOAD_OVERLAY_PATH" -type f -name '*.so*' ! -path '*xorg/*' -print0 | while read -d $'\0' _lib; do
+			_soname=$(dirname "${_lib}")/$(readelf -d "${_lib}" | grep -Po 'SONAME.*: \[\K[^]]*' || true)
+			_base=$(echo ${_soname} | sed -r 's/(.*)\.so.*/\1.so/')
+			[[ -e "${_soname}" ]] || ln -s $(basename "${_lib}") "${_soname}"
+			[[ -e "${_base}" ]] || ln -s $(basename "${_soname}") "${_base}"
+		done
+	}
+
+	for LIBRARY in "$NV_EXTRACT_PATH/out/"lib*.so*; do
+		BN="$(basename "$LIBRARY")"
+		install -Dm755 "$LIBRARY" "$WORKLOAD_OVERLAY_PATH/usr/lib/$BN"
+	done
+
+	for BINARY in "$NV_EXTRACT_PATH/out/"nvidia-{cuda-mps-control,cuda-mps-server,debugdump,pcc,smi}; do
+		BN="$(basename "$BINARY")"
+		install -Dm755 "$BINARY" "$WORKLOAD_OVERLAY_PATH/usr/bin/$BN"
+	done
+
+	for MAN1 in "$NV_EXTRACT_PATH/out/"nvidia-{cuda-mps-control,smi}.1.gz; do
+		BN="$(basename "$MAN1")"
+		install -Dm644 "$MAN1" "$WORKLOAD_OVERLAY_PATH/usr/share/man/man1/$BN"
+	done
+
+	# Install ICD loaders for OpenGL, Vulkan, and Vulkan SC
+	install -Dm644 "$NV_EXTRACT_PATH/out/"10_nvidia.json "$WORKLOAD_OVERLAY_PATH/usr/share/glvnd/egl_vendor.d/10_nvidia.json"
+	install -Dm644 "$NV_EXTRACT_PATH/out/"nvidia.icd  "$WORKLOAD_OVERLAY_PATH/etc/OpenCL/vendors/nvidia.icd"
+	install -Dm644 "$NV_EXTRACT_PATH/out/"nvidia_icd.json "$WORKLOAD_OVERLAY_PATH/usr/share/vulkan/icd.d/nvidia_icd.json"
+	install -Dm644 "$NV_EXTRACT_PATH/out/"nvidia_layers.json "$WORKLOAD_OVERLAY_PATH/usr/share/vulkan/implicit_layer.d/nvidia_layers.json"
+	install -Dm644 "$NV_EXTRACT_PATH/out/"nvidia_icd_vksc.json "$WORKLOAD_OVERLAY_PATH/usr/share/vulkansc/icd.d/nvidia_icd_vksc.json"
+
+	create_links
+
 	cd "${OLDDIR}"
 fi
