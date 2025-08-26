@@ -4,7 +4,7 @@ architectures:
 - aarch64
 flavors:
 - name: zone
-- name: zone-debug
+- name: zone-bpf
   constraints:
     lower: '6.1'
 - name: zone-amdgpu

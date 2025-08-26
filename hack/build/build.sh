@@ -38,8 +38,8 @@ SQUASH_SIZE=$(stat -c %s "${ADDONS_SQUASHFS_PATH}")
 # We don't really care how big the host kernel is.
 # Nvidia kernels have chonker firmwares, even compressed (like 200MB total size), so not much we can really do there.
 case "$KERNEL_FLAVOR" in
-    zone-debug)
-        # Skip the check for zone-debug, it is allowed to be big
+    zone-bpf)
+        # Skip the check for zone-bpf, it is allowed to be big
         ;;
     zone-nvidiagpu)
         # Firmware means this is unavoidably quite large
