@@ -12,7 +12,7 @@ env:
 jobs:
   test:
     name: test
-    runs-on: ubuntu-latest
+    runs-on: edera-large
     env:
       FIRMWARE_URL: "https://cdn.kernel.org/pub/linux/kernel/firmware/linux-firmware-20250410.tar.xz"
       FIRMWARE_SIG_URL: "https://cdn.kernel.org/pub/linux/kernel/firmware/linux-firmware-20250410.tar.sign"
