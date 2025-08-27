@@ -97,11 +97,6 @@ if [ "${KERNEL_FLAVOR}" = "zone-nvidiagpu" ] && [ "${TARGET_ARCH_STANDARD}" = "x
 	# GTK (used by nvidia-settings, which we don't install)
 	rm -f "$NV_EXTRACT_PATH/out"/libnvidia-gtk*
 
-	# Wayland/GBM
-	rm -f "$NV_EXTRACT_PATH/out"/libglxserver_*
-	rm -f "$NV_EXTRACT_PATH/out"/libnvidia-wayland*
-	rm -f "$NV_EXTRACT_PATH/out"/libnvidia-allocator*
-
 	create_links() {
 		# create soname links
 		find "$WORKLOAD_OVERLAY_PATH" -type f -name '*.so*' ! -path '*xorg/*' -print0 | while read -d $'\0' _lib; do
@@ -111,6 +106,26 @@ if [ "${KERNEL_FLAVOR}" = "zone-nvidiagpu" ] && [ "${TARGET_ARCH_STANDARD}" = "x
 			[[ -e "${_base}" ]] || ln -s $(basename "${_soname}") "${_base}"
 		done
 	}
+
+	# Wayland/GBM
+	mkdir -p "$WORKLOAD_OVERLAY_PATH/usr/lib/gbm"
+	ln -s ../libnvidia-allocator.so.$NV_VERSION "$WORKLOAD_OVERLAY_PATH/usr/lib/gbm/nvidia-drm_gbm.so"
+
+	# DRI driver
+	install -Dm755 "$NV_EXTRACT_PATH/out/"nvidia_drv.so "$WORKLOAD_OVERLAY_PATH/usr/lib/xorg/modules/drivers/nvidia_drv.so"
+
+	# GLX extensions
+	install -Dm755 "$NV_EXTRACT_PATH/out/"libglxserver_nvidia.so.$NV_VERSION "$WORKLOAD_OVERLAY_PATH/usr/lib/nvidia/xorg/libglxserver_nvidia.so.$NV_VERSION"
+	ln -s libglxserver_nvidia.so.$NV_VERSION "$WORKLOAD_OVERLAY_PATH/usr/lib/nvidia/xorg/libglxserver_nvidia.so.1"
+	ln -s libglxserver_nvidia.so.$NV_VERSION "$WORKLOAD_OVERLAY_PATH/usr/lib/nvidia/xorg/libglxserver_nvidia.so"
+
+	# Remove already-installed libs, so we don't accidentally include them in
+	# filters below
+	rm -f "$NV_EXTRACT_PATH/out"/nvidia-drv.so
+	rm -f "$NV_EXTRACT_PATH/out"/libglxserver_*
+
+	# Remove unnecessary libraries
+	rm -f "$NV_EXTRACT_PATH/out"/libnvidia-wayland*
 
 	for LIBRARY in "$NV_EXTRACT_PATH/out/"lib*.so*; do
 		BN="$(basename "$LIBRARY")"
