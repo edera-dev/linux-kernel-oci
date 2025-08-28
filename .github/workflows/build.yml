@@ -25,5 +25,5 @@ jobs:
   test:
     uses: ./.github/workflows/matrix.yml
     with:
-      spec: inputs.spec
-      publish: inputs.publish
+      spec: ${{ inputs.spec }}
+      publish: ${{ inputs.publish }}
