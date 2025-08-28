@@ -15,7 +15,7 @@ rm -rf "${ADDONS_OUTPUT_PATH}"
 rm -rf "${ADDONS_SQUASHFS_PATH}"
 rm -rf "${METADATA_PATH}"
 
-make -C "${KERNEL_OBJ}" ARCH="${TARGET_ARCH_KERNEL}" -j"${KERNEL_BUILD_JOBS}" "${CROSS_COMPILE_MAKE}" INSTALL_MOD_PATH="${MODULES_INSTALL_PATH}" modules_install
+make -C "${KERNEL_OBJ}" ARCH="${TARGET_ARCH_KERNEL}" -j"${KERNEL_BUILD_JOBS}" "${CROSS_COMPILE_MAKE}" INSTALL_MOD_STRIP=1 INSTALL_MOD_PATH="${MODULES_INSTALL_PATH}" modules_install
 KERNEL_MODULES_VER="$(ls "${MODULES_INSTALL_PATH}/lib/modules")"
 
 mkdir -p "${ADDONS_OUTPUT_PATH}"
@@ -33,6 +33,16 @@ rm -rf "${MODULES_INSTALL_PATH}"
 mksquashfs "${ADDONS_OUTPUT_PATH}" "${ADDONS_SQUASHFS_PATH}" -all-root
 
 SQUASH_SIZE=$(stat -c %s "${ADDONS_SQUASHFS_PATH}")
+
+# Host kernel size matters less, but we still don't want it to massively balloon all of a sudden.
+case "$KERNEL_FLAVOR" in
+    host*)
+        if [ "${SQUASH_SIZE}" -gt 419430400 ]; then
+            echo "ERROR: squashfs is >400MB in size (${SQUASH_SIZE} bytes) which is undesirable for the 'host' kernel, validate kconfig options!" >&2
+            exit 1
+        fi
+        ;;
+esac
 
 # Generally we want to keep zone kernels small, because large kernels -> longer pull times -> increased zone cold boot times.
 # We don't really care how big the host kernel is.
