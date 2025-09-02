@@ -22,7 +22,7 @@ fi
 
 echo "Fetching nvidia module release: $NV_VERSION"
 
-RELEASE_JSON=$(curl -s "https://api.github.com/repos/${NV_KMOD_REPO_OWNER}/${NV_KMOD_REPO_NAME}/releases/tags/${NV_VERSION}")
+RELEASE_JSON=$(curl -s --retry 5 --retry-delay 2 --retry-max-time 30 --retry-all-errors "https://api.github.com/repos/${NV_KMOD_REPO_OWNER}/${NV_KMOD_REPO_NAME}/releases/tags/${NV_VERSION}")
 TARBALL_URL=$(echo "$RELEASE_JSON" | grep -o '"tarball_url": *"[^"]*"' | sed 's/"tarball_url": *"\(.*\)"/\1/')
 if [ -z "$TARBALL_URL" ]; then
     echo "Failed to fetch release information for version $NV_VERSION"

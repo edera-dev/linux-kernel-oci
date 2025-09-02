@@ -75,7 +75,7 @@ if [ "${KERNEL_FLAVOR}" = "zone-nvidiagpu" ] && [ "${TARGET_ARCH_STANDARD}" = "x
 	mkdir -p "$NV_EXTRACT_PATH"
 
 	echo "Downloading NVIDIA runtime package for driver ${NV_VERSION} from: $NV_RUN_URL"
-	curl -L -o "$NV_EXTRACT_PATH/$NV_RUN_FILE" "$NV_RUN_URL"
+	curl --retry 5 --retry-delay 2 --retry-max-time 30 --retry-all-errors -L -o "$NV_EXTRACT_PATH/$NV_RUN_FILE" "$NV_RUN_URL"
 	chmod +x "$NV_EXTRACT_PATH/$NV_RUN_FILE"
 	"$NV_EXTRACT_PATH/$NV_RUN_FILE" -x --target "$NV_EXTRACT_PATH/out"
 	# Compress firmwares on-disk
