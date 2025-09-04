@@ -73,6 +73,8 @@ patches:
   lower: '6.1'
   flavors:
   - zone-amdgpu
+- patch: 0001-x86-CPU-AMD-avoid-printing-reset-reasons-on-Xen-domU.patch
+  lower: '6.16'
 images:
 - target: kernelsrc
   name: kernel-src
