@@ -1,7 +1,6 @@
 imageNameFormat: "ghcr.io/edera-dev/[image]:[tag]"
 architectures:
 - x86_64
-- aarch64
 flavors:
 - name: zone
 - name: zone-bpf
