@@ -15,8 +15,8 @@ flavors:
   # we will build that distinct image with the nvidia driver
   # version defined here.
   local_tags:
-  - 'nvidia-575.64.05'
-  - 'nvidia-575.64.03'
+  - 'nvidia-580.82.09'
+  - 'nvidia-580.95.05'
   constraints:
     lower: '6.15'
 - name: zone-openpax
