@@ -48,9 +48,6 @@ esac
 # We don't really care how big the host kernel is.
 # Nvidia kernels have chonker firmwares, even compressed (like 200MB total size), so not much we can really do there.
 case "$KERNEL_FLAVOR" in
-    zone-bpf)
-        # Skip the check for zone-bpf, it is allowed to be big
-        ;;
     zone-nvidiagpu)
         # Firmware means this is unavoidably quite large
         ;;
