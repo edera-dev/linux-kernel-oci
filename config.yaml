@@ -3,7 +3,6 @@ architectures:
 - x86_64
 flavors:
 - name: zone
-- name: zone-bpf
   constraints:
     lower: '6.1'
 - name: zone-amdgpu
