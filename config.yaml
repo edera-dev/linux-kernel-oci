@@ -74,6 +74,8 @@ patches:
   - zone-amdgpu
 - patch: 0001-x86-CPU-AMD-avoid-printing-reset-reasons-on-Xen-domU.patch
   lower: '6.16'
+- patch: 0001-xen-grant-table-cope-with-compounded-page-allocation.patch
+  lower: '6.1'
 images:
 - target: kernelsrc
   name: kernel-src
