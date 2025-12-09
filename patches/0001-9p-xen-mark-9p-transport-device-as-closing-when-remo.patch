@@ -1,0 +1,35 @@
+From 8e7d925b756b09c7c52b1b06a3c3c996d9127d64 Mon Sep 17 00:00:00 2001
+From: Ariadne Conill <ariadne@ariadne.space>
+Date: Mon, 8 Dec 2025 11:40:56 -0800
+Subject: [PATCH] 9p/xen: mark 9p transport device as closing when removing it
+
+We need to do this so that we can signal to the other end that the
+device is being removed, so that it will release its claim on the
+underlying memory allocation.  Otherwise releasing the grant-table
+entries is deferred resulting in a kernel oops since the pages have
+already been freed.
+
+Cc: Juergen Gross <jgross@suse.com>
+Cc: Stefano Stabellini <sstabellini@kernel.org>
+Fixes: 71ebd71921e45 ("xen/9pfs: connect to the backend")
+Signed-off-by: Ariadne Conill <ariadne@ariadne.space>
+Signed-off-by: Alex Zenla <alex@edera.dev>
+---
+ net/9p/trans_xen.c | 1 +
+ 1 file changed, 1 insertion(+)
+
+diff --git a/net/9p/trans_xen.c b/net/9p/trans_xen.c
+index b9ff69c7522a..cde283c42dc6 100644
+--- a/net/9p/trans_xen.c
++++ b/net/9p/trans_xen.c
+@@ -312,6 +312,7 @@ static void xen_9pfs_front_remove(struct xenbus_device *dev)
+ {
+ 	struct xen_9pfs_front_priv *priv = dev_get_drvdata(&dev->dev);
+ 
++	xenbus_switch_state(dev, XenbusStateClosing);
+ 	dev_set_drvdata(&dev->dev, NULL);
+ 	xen_9pfs_front_free(priv);
+ }
+-- 
+2.52.0
+
