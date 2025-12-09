@@ -98,4 +98,6 @@ runners:
 - name: edera-large
   flavors:
   - host
+  - zone-amdgpu
+  - zone-nvidiagpu
 - name: ubuntu-latest
