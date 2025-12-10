@@ -8,7 +8,7 @@ ARG FIRMWARE_SIG_URL=
 ADD ${FIRMWARE_URL} /firmware.tar.xz
 ADD ${FIRMWARE_SIG_URL} /firmware.tar.sign
 
-FROM --platform=$BUILDPLATFORM debian:bookworm@sha256:bd73076dc2cd9c88f48b5b358328f24f2a4289811bd73787c031e20db9f97123 AS buildenv
+FROM --platform=$BUILDPLATFORM debian:bookworm@sha256:7e5bc0e499a8d50cb1e32287944a90b9ec8fd7d500673e75daff3f52882f5798 AS buildenv
 RUN export DEBIAN_FRONTEND=noninteractive && apt-get update && apt-get install -y \
       build-essential squashfs-tools python3-yaml \
       patch diffutils sed mawk findutils zstd \
@@ -44,7 +44,7 @@ RUN if [ "${KERNEL_FLAVOR}" = "zone-amdgpu" ]; then \
         ./hack/build/docker-build-internal.sh; \
     fi
 
-FROM alpine:3.22@sha256:8a1f59ffb675680d47db6337b49d22281a139e9d709335b492be023728e11715 AS sdkbuild
+FROM alpine:3.23@sha256:51183f2cfa6320055da30872f211093f9ff1d3cf06f39a0bdb212314c5dc7375 AS sdkbuild
 ARG KERNEL_VERSION=
 ARG KERNEL_FLAVOR=zone
 COPY --from=build /build/target/sdk.tar.gz /sdk.tar.gz
