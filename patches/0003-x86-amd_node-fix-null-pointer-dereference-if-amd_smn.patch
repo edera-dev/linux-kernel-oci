@@ -1,0 +1,49 @@
+From 33ecda262c724d29f589bafb335c1afc4f47bdd7 Mon Sep 17 00:00:00 2001
+From: Steven Noonan <steven@uplinklabs.net>
+Date: Fri, 14 Nov 2025 11:41:48 -0800
+Subject: [PATCH 3/3] x86/amd_node: fix null pointer dereference if
+ amd_smn_init failed
+
+We should be checking the `smn_exclusive` flag before anything else,
+because that indicates whether we got through `amd_smn_init`
+successfully.
+
+Without this change, we dereference `amd_roots` even though it may not
+be allocated.
+
+Signed-off-by: Steven Noonan <steven@uplinklabs.net>
+Signed-off-by: Ariadne Conill <ariadne@ariadne.space>
+CC: Yazen Ghannam <yazen.ghannam@amd.com>
+CC: x86@vger.kernel.org
+CC: stable@vger.kernel.org
+---
+ arch/x86/kernel/amd_node.c | 6 +++---
+ 1 file changed, 3 insertions(+), 3 deletions(-)
+
+diff --git a/arch/x86/kernel/amd_node.c b/arch/x86/kernel/amd_node.c
+index cdc6ba224d4a..919932339f4a 100644
+--- a/arch/x86/kernel/amd_node.c
++++ b/arch/x86/kernel/amd_node.c
+@@ -88,6 +88,9 @@ static int __amd_smn_rw(u8 i_off, u8 d_off, u16 node, u32 address, u32 *value, b
+ 	struct pci_dev *root;
+ 	int err = -ENODEV;
+ 
++	if (!smn_exclusive)
++		return err;
++
+ 	if (node >= amd_num_nodes())
+ 		return err;
+ 
+@@ -95,9 +98,6 @@ static int __amd_smn_rw(u8 i_off, u8 d_off, u16 node, u32 address, u32 *value, b
+ 	if (!root)
+ 		return err;
+ 
+-	if (!smn_exclusive)
+-		return err;
+-
+ 	guard(mutex)(&smn_mutex);
+ 
+ 	err = pci_write_config_dword(root, i_off, address);
+-- 
+2.51.2
+

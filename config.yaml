@@ -76,6 +76,10 @@ patches:
   lower: '6.16'
 - patch: 0001-9p-xen-mark-9p-transport-device-as-closing-when-remo.patch
   lower: '6.1'
+- patch: 0002-x86-amd_node-fix-integer-divide-by-zero-during-init.patch
+  lower: '6.17'
+- patch: 0003-x86-amd_node-fix-null-pointer-dereference-if-amd_smn.patch
+  lower: '6.17'
 images:
 - target: kernelsrc
   name: kernel-src
