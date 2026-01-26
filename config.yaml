@@ -16,7 +16,7 @@ flavors:
   local_tags:
   - 'nvidia-590.48.01'  # Nvidia: "Latest New Feature Branch Version"
   - 'nvidia-590.44.01' # Nvidia: "Latest Beta Version"
-  - 'nvidia-580.126.12' # Nvidia: "Latest Production Branch Version"
+  - 'nvidia-580.126.09' # Nvidia: "Latest Production Branch Version"
   constraints:
     lower: '6.15'
 - name: zone-openpax
