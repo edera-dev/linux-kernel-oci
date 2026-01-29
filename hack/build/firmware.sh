@@ -95,8 +95,9 @@ if [ "${KERNEL_FLAVOR}" = "zone-nvidiagpu" ] && [ "${TARGET_ARCH_STANDARD}" = "x
 	#
 
 	create_links() {
+		local base_path="$1"
 		# create soname links
-		find "$WORKLOAD_OVERLAY_PATH" -type f -name '*.so*' ! -path '*xorg/*' -print0 | while read -d $'\0' _lib; do
+		find "$base_path" -type f -name '*.so*' ! -path '*xorg/*' -print0 | while read -d $'\0' _lib; do
 			_soname=$(dirname "${_lib}")/$(readelf -d "${_lib}" | grep -Po 'SONAME.*: \[\K[^]]*' || true)
 			_base=$(echo ${_soname} | sed -r 's/(.*)\.so.*/\1.so/')
 			[[ -e "${_soname}" ]] || ln -s $(basename "${_lib}") "${_soname}"
@@ -105,9 +106,10 @@ if [ "${KERNEL_FLAVOR}" = "zone-nvidiagpu" ] && [ "${TARGET_ARCH_STANDARD}" = "x
 	}
 
 	multiarch_symlink_mirror() {
-		local triplet="$1"
-		local src="${WORKLOAD_OVERLAY_PATH}/usr/lib"
-		local dst="${WORKLOAD_OVERLAY_PATH}/usr/lib/${triplet}"
+		local base_path="$1"
+		local triplet="$2"
+		local src="${base_path}/usr/lib"
+		local dst="${base_path}/usr/lib/${triplet}"
 		pushd "$src" >/dev/null
 
 		# 1) Recreate directory structure (excluding the triplet subtree to avoid recursion)
@@ -223,10 +225,47 @@ if [ "${KERNEL_FLAVOR}" = "zone-nvidiagpu" ] && [ "${TARGET_ARCH_STANDARD}" = "x
 	install -Dm644 "$NV_EXTRACT_PATH/out/"nvidia_layers.json "$WORKLOAD_OVERLAY_PATH/usr/share/vulkan/implicit_layer.d/nvidia_layers.json"
 	install -Dm644 "$NV_EXTRACT_PATH/out/"nvidia_icd_vksc.json "$WORKLOAD_OVERLAY_PATH/usr/share/vulkansc/icd.d/nvidia_icd_vksc.json"
 
-	create_links
+	create_links "$WORKLOAD_OVERLAY_PATH"
 
 	# For Debian-like distributions
-	multiarch_symlink_mirror x86_64-linux-gnu
+	multiarch_symlink_mirror "$WORKLOAD_OVERLAY_PATH" x86_64-linux-gnu
 
-	cd "${OLDDIR}"
+	#
+	# Create NVIDIA persistence mode hook, ensures the driver is loaded and
+	# initialized, and always ready to run a workload
+	#
+	NVIDIA_BOOTSTRAP_OVERLAY_PATH="$ADDONS_OUTPUT_PATH/overlays/nvidia-bootstrap"
+
+	mkdir -p "$NVIDIA_BOOTSTRAP_OVERLAY_PATH"
+
+	for BINARY in "$NV_EXTRACT_PATH/out/"nvidia-smi; do
+		BN="$(basename "$BINARY")"
+		install -Dm755 "$BINARY" "$NVIDIA_BOOTSTRAP_OVERLAY_PATH/usr/bin/$BN"
+	done
+
+	# HACK: Just using the builder's glibc binaries so we can run nvidia-smi
+	# without a full workload image
+	for LIBRARY in "$NV_EXTRACT_PATH/out/"libnvidia-ml.so* /lib64/ld-linux-x86-64.so.2 /lib/x86_64-linux-gnu/lib{pthread,m,dl,c,rt}.so.*; do
+		BN="$(basename "$LIBRARY")"
+		install -Dm755 "$LIBRARY" "$NVIDIA_BOOTSTRAP_OVERLAY_PATH/usr/lib/$BN"
+	done
+	ln -s usr/lib "$NVIDIA_BOOTSTRAP_OVERLAY_PATH/lib64"
+
+	create_links "$NVIDIA_BOOTSTRAP_OVERLAY_PATH"
+	multiarch_symlink_mirror "$NVIDIA_BOOTSTRAP_OVERLAY_PATH" x86_64-linux-gnu
+
+	mkdir -p "$ADDONS_OUTPUT_PATH/hooks"
+	cat > "$ADDONS_OUTPUT_PATH/hooks/nvidia-persist.toml" <<-EOF
+[[hooks.setup]]
+modules = ["nvidia", "nvidia_drm"]
+execute = ["/usr/bin/nvidia-smi", "-pm", "1"]
+ignore-failure = true
+
+[[hooks.hotplug]]
+modules = ["nvidia", "nvidia_drm"]
+execute = ["/usr/bin/nvidia-smi", "-pm", "1"]
+ignore-failure = true
+EOF
+
+	cd "$OLDDIR"
 fi
