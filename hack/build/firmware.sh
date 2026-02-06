@@ -257,11 +257,13 @@ if [ "${KERNEL_FLAVOR}" = "zone-nvidiagpu" ] && [ "${TARGET_ARCH_STANDARD}" = "x
 	mkdir -p "$ADDONS_OUTPUT_PATH/hooks"
 	cat > "$ADDONS_OUTPUT_PATH/hooks/nvidia-persist.toml" <<-EOF
 [[hooks.setup]]
+overlay = "nvidia-bootstrap"
 modules = ["nvidia", "nvidia_drm"]
 execute = ["/usr/bin/nvidia-smi", "-pm", "1"]
 ignore-failure = true
 
 [[hooks.hotplug]]
+overlay = "nvidia-bootstrap"
 modules = ["nvidia", "nvidia_drm"]
 execute = ["/usr/bin/nvidia-smi", "-pm", "1"]
 ignore-failure = true
