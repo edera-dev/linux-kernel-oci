@@ -11,6 +11,11 @@ def construct_stable_matrix():
     return stable_matrix
 
 
+def construct_lts_matrix():
+    lts_matrix = matrix.generate_lts_matrix()
+    return lts_matrix
+
+
 def construct_backbuild_matrix():
     backbuild_matrix = matrix.generate_backbuild_matrix()
     return backbuild_matrix
@@ -61,6 +66,17 @@ elif build_spec_type == "unsafe-all":
     apply_config_versions = False
 elif build_spec_type == "stable":
     first_matrix = construct_stable_matrix()
+elif build_spec_type == "lts":
+    first_matrix = construct_lts_matrix()
+elif build_spec_type == "only-latest-lts":
+    first_matrix = construct_lts_matrix()
+    apply_config_versions = False
+    matrix.sort_matrix(first_matrix)
+    last_version = parse(first_matrix[-1]["version"]).base_version
+    last_version_builds = list(
+        filter(lambda build: last_version in build["version"], first_matrix)
+    )
+    first_matrix = last_version_builds
 elif build_spec_type == "only-latest":
     first_matrix = construct_stable_matrix()
     apply_config_versions = False
