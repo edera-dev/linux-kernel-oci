@@ -11,5 +11,5 @@ jobs:
   test:
     uses: ./.github/workflows/matrix.yml
     with:
-      spec: "only-latest:flavor=host,zone,zone-nvidiagpu"
+      spec: "only-latest-lts:flavor=host,zone,zone-nvidiagpu"
       publish: false
