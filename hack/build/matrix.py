@@ -347,58 +347,41 @@ def summarize_matrix(builds: list[dict[str, any]]):
         )
 
 
-def generate_stable_matrix() -> list[dict[str, any]]:
-    current_kernel_releases = get_current_kernel_releases()
-    latest_stable = current_kernel_releases["latest_stable"]["version"]
-
-    known_releases = []
-
-    for release in current_kernel_releases["releases"]:
-        if (release["moniker"] in ["stable", "longterm"]) or release[
-            "version"
-        ] == latest_stable:
-            known_releases.append(release["version"])
-
+def build_release_tags(versions: list[str]) -> dict[str, str]:
     tags = {}
-    major_minors = {}
-
-    for raw_version in known_releases:
-        if raw_version == latest_stable:
-            tags["stable"] = raw_version
-
-
+    for raw_version in versions:
         parsed_ver = parse(raw_version)
-
         # Hardcode skip of pre-5.x.x kernels
         if parsed_ver.major < 5:
             print(f'skipping {raw_version}, too old to support')
             continue
-
         major = str(parsed_ver.major)
         major_minor = "%s.%s" % (parsed_ver.major, parsed_ver.minor)
-        if major in tags:
-            existing = tags[major]
-            if parse(existing) < parsed_ver:
-                tags[major] = raw_version
-        else:
+        if major not in tags or parse(tags[major]) < parsed_ver:
             tags[major] = raw_version
-
-        if major_minor in tags:
-            existing = tags[major_minor]
-            if parse(existing) < parsed_ver:
-                tags[major_minor] = raw_version
-                major_minors[major_minor] = raw_version
-
-        else:
+        if major_minor not in tags or parse(tags[major_minor]) < parsed_ver:
             tags[major_minor] = raw_version
-            major_minors[major_minor] = raw_version
-
-    tags["latest"] = tags["stable"]
-
     for tag in list(tags.keys()):
-        local_version = tags[tag]
-        tags[local_version] = local_version
+        tags[tags[tag]] = tags[tag]
+    return tags
+
+
+def generate_stable_matrix() -> list[dict[str, any]]:
+    current_kernel_releases = get_current_kernel_releases()
+    latest_stable = current_kernel_releases["latest_stable"]["version"]
+    versions = [r["version"] for r in current_kernel_releases["releases"]
+                if r["moniker"] in ["stable", "longterm"]]
+    tags = build_release_tags(versions)
+    tags["stable"] = latest_stable
+    tags["latest"] = latest_stable
     return generate_matrix(tags)
+
+
+def generate_lts_matrix() -> list[dict[str, any]]:
+    current_kernel_releases = get_current_kernel_releases()
+    versions = [r["version"] for r in current_kernel_releases["releases"]
+                if r["moniker"] == "longterm"]
+    return generate_matrix(build_release_tags(versions))
 
 
 def generate_backbuild_matrix() -> list[dict[str, any]]:
