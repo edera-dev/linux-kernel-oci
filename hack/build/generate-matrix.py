@@ -29,10 +29,7 @@ def construct_all_matrix():
 
 
 def construct_manual_matrix(exact_versions):
-    reflective = {}
-    for version in exact_versions:
-        reflective[version] = version
-    return matrix.generate_matrix(reflective)
+    return matrix.generate_matrix(matrix.build_release_tags(exact_versions))
 
 
 DEFAULT_BUILD_SPEC = "new"
