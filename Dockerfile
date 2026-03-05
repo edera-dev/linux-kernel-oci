@@ -8,7 +8,7 @@ ARG FIRMWARE_SIG_URL=
 ADD ${FIRMWARE_URL} /firmware.tar.xz
 ADD ${FIRMWARE_SIG_URL} /firmware.tar.sign
 
-FROM --platform=$BUILDPLATFORM debian:bookworm@sha256:34e7f0ae7c10a61bfbef6e1b2ed205d9b47bb12e90c50696f729a5c7a01cf1f2 AS buildenv
+FROM --platform=$BUILDPLATFORM debian:bookworm@sha256:0a5bf4ecacfc050bad0131c8e1401063fd1e8343a418723f6dbd3cd13a7b9e33 AS buildenv
 RUN export DEBIAN_FRONTEND=noninteractive && apt-get update && apt-get install -y \
       build-essential squashfs-tools python3-yaml \
       patch diffutils sed mawk findutils zstd \
