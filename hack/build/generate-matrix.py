@@ -2,7 +2,7 @@ import json
 import sys
 
 import matrix
-from util import parse_text_constraint, maybe
+from util import parse_text_constraint, maybe, get_branch_tag_suffix
 from packaging.version import Version, parse
 
 
@@ -106,6 +106,12 @@ if len(build_spec_data) > 0:
 
 matrix.validate_produce_conflicts(final_matrix)
 matrix.fill_runners(final_matrix)
+
+branch_suffix = get_branch_tag_suffix()
+if branch_suffix:
+    for build in final_matrix:
+        build["tags"] = ["%s-%s" % (t, branch_suffix) for t in build["tags"]]
+        build["produces"] = ["%s-%s" % (p, branch_suffix) for p in build["produces"]]
 
 print("generated %s builds" % len(final_matrix))
 matrix.summarize_matrix(final_matrix)
