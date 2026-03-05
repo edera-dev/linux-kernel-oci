@@ -8,7 +8,7 @@ on:
       spec:
         description: 'Build Specification'
         type: string
-        default: "new"
+        default: "lts"
         required: true
       publish:
         description: 'Publish Builds'
