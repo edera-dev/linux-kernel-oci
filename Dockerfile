@@ -21,7 +21,7 @@ RUN if [ "${BUILDPLATFORM}" = "linux/amd64" ]; then \
 RUN if [ "${BUILDPLATFORM}" = "linux/arm64" ] || [ "${BUILDPLATFORM}" = "linux/aarch64" ]; then \
       apt-get update && apt-get install -y linux-headers-arm64 g++-x86-64-linux-gnu gcc-x86-64-linux-gnu && rm -rf /var/lib/apt/lists/*; fi
 ENV PATH="/usr/lib/ccache:${PATH}"
-RUN useradd -u 1000 -ms /bin/sh build
+RUN useradd -ms /bin/sh build
 COPY --chown=build:build . /build
 USER build
 WORKDIR /build

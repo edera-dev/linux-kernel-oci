@@ -98,7 +98,7 @@ def docker_compile(
     stage_target = "build-staged-amdgpu" if has_firmware else "build-staged"
     staged_iidfile = "image-id-%s-%s-%s" % (version, flavor, stage_target)
 
-    lines += ["", "rm -rf target && mkdir -p target"]
+    lines += ["", "rm -rf target && mkdir -p target && chmod a+rwX target"]
     lines += ['mkdir -p "${HOME}/.cache/kernel-ccache" && chmod -R a+rwX "${HOME}/.cache/kernel-ccache"']
 
     for arch in architectures:
