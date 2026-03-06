@@ -100,7 +100,6 @@ jobs:
       - name: run docker script
         run: sh -x docker.sh
       - name: save ccache
-        if: always()
         uses: actions/cache/save@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.2
         with:
           path: ~/.cache/kernel-ccache
