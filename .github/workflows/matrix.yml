@@ -83,7 +83,7 @@ jobs:
           username: "${{github.actor}}"
           password: "${{secrets.GITHUB_TOKEN}}"
       - name: restore ccache
-        uses: actions/cache/restore@6849a6489940f00c2f30c0fb92c6274307ccb58a # v4.1.2
+        uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.2
         with:
           path: ~/.cache/kernel-ccache
           key: "ccache-${{ matrix.builds.flavor }}-${{ join(matrix.builds.architectures, '-') }}-${{ github.run_id }}"
@@ -102,7 +102,7 @@ jobs:
         run: sh -x docker.sh
       - name: save ccache
         if: always()
-        uses: actions/cache/save@6849a6489940f00c2f30c0fb92c6274307ccb58a # v4.1.2
+        uses: actions/cache/save@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.2
         with:
           path: ~/.cache/kernel-ccache
           key: "ccache-${{ matrix.builds.flavor }}-${{ join(matrix.builds.architectures, '-') }}-${{ github.run_id }}"
