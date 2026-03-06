@@ -61,7 +61,7 @@ def docker_build_staged(
 ) -> list[str]:
     """Build the build-staged image: buildenv with kernel source (and firmware for amdgpu) baked in."""
     version = dockerify_version(version)
-    has_firmware = bool(firmware_url and firmware_sig_url)
+    has_firmware = flavor == "zone-amdgpu"
     target = "build-staged-amdgpu" if has_firmware else "build-staged"
     iidfile = "image-id-%s-%s-%s" % (version, flavor, target)
     command = [
@@ -94,7 +94,7 @@ def docker_compile(
     """Generate docker run commands to compile the kernel with ccache."""
     lines = []
     version = dockerify_version(version)
-    has_firmware = bool(firmware_url and firmware_sig_url)
+    has_firmware = flavor == "zone-amdgpu"
     stage_target = "build-staged-amdgpu" if has_firmware else "build-staged"
     staged_iidfile = "image-id-%s-%s-%s" % (version, flavor, stage_target)
 
