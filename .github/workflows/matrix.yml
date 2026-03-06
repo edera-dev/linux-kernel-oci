@@ -82,6 +82,14 @@ jobs:
           registry: ghcr.io
           username: "${{github.actor}}"
           password: "${{secrets.GITHUB_TOKEN}}"
+      - name: restore ccache
+        uses: actions/cache/restore@6849a6489940f00c2f30c0fb92c6274307ccb58a # v4.1.2
+        with:
+          path: ~/.cache/kernel-ccache
+          key: "ccache-${{ matrix.builds.flavor }}-${{ join(matrix.builds.architectures, '-') }}-${{ github.run_id }}"
+          restore-keys: |
+            ccache-${{ matrix.builds.flavor }}-${{ join(matrix.builds.architectures, '-') }}-
+            ccache-${{ matrix.builds.flavor }}-
       - name: generate docker script
         run: "./hack/build/generate-docker-script.sh"
       - name: upload docker script
@@ -92,3 +100,9 @@ jobs:
           compression-level: 0
       - name: run docker script
         run: sh -x docker.sh
+      - name: save ccache
+        if: always()
+        uses: actions/cache/save@6849a6489940f00c2f30c0fb92c6274307ccb58a # v4.1.2
+        with:
+          path: ~/.cache/kernel-ccache
+          key: "ccache-${{ matrix.builds.flavor }}-${{ join(matrix.builds.architectures, '-') }}-${{ github.run_id }}"

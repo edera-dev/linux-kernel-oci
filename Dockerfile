@@ -13,14 +13,15 @@ RUN export DEBIAN_FRONTEND=noninteractive && apt-get update && apt-get install -
       build-essential squashfs-tools python3-yaml \
       patch diffutils sed mawk findutils zstd \
       python3 python3-packaging curl rsync cpio gpg grep \
-      flex bison pahole libssl-dev libelf-dev bc kmod && \
+      flex bison pahole libssl-dev libelf-dev bc kmod ccache && \
       rm -rf /var/lib/apt/lists/*
 ARG BUILDPLATFORM
 RUN if [ "${BUILDPLATFORM}" = "linux/amd64" ]; then \
       apt-get update && apt-get install -y linux-headers-amd64 g++-aarch64-linux-gnu gcc-aarch64-linux-gnu && rm -rf /var/lib/apt/lists/*; fi
 RUN if [ "${BUILDPLATFORM}" = "linux/arm64" ] || [ "${BUILDPLATFORM}" = "linux/aarch64" ]; then \
       apt-get update && apt-get install -y linux-headers-arm64 g++-x86-64-linux-gnu gcc-x86-64-linux-gnu && rm -rf /var/lib/apt/lists/*; fi
-RUN useradd -ms /bin/sh build
+ENV PATH="/usr/lib/ccache:${PATH}"
+RUN useradd -u 1000 -ms /bin/sh build
 COPY --chown=build:build . /build
 USER build
 WORKDIR /build
@@ -65,3 +66,24 @@ COPY --from=build /build/target/metadata /kernel/metadata
 
 FROM scratch AS kernel
 COPY --from=kernelcopy /kernel /kernel
+
+# Prebuilt packaging stages: use --build-context prebuilt=./target after a
+# docker run compile phase (with ccache bind-mounted from the host).
+FROM scratch AS kernel-prebuilt
+COPY --from=prebuilt kernel /kernel/image
+COPY --from=prebuilt config.gz /kernel/config.gz
+COPY --from=prebuilt addons.squashfs /kernel/addons.squashfs
+COPY --from=prebuilt metadata /kernel/metadata
+
+FROM alpine:3.23@sha256:25109184c71bdad752c8312a8623239686a9a2071e8825f20acb8f2198c3f659 AS sdkbuild-prebuilt
+ARG KERNEL_VERSION=
+ARG KERNEL_FLAVOR=zone
+COPY --from=prebuilt sdk.tar.gz /sdk.tar.gz
+RUN mkdir -p /usr/src/kernel-sdk-${KERNEL_VERSION}-${KERNEL_FLAVOR} && \
+    tar -zx -C /usr/src/kernel-sdk-${KERNEL_VERSION}-${KERNEL_FLAVOR} -f /sdk.tar.gz && \
+    mkdir -p /lib/modules/${KERNEL_VERSION} && \
+    ln -sf /usr/src/kernel-sdk-${KERNEL_VERSION}-${KERNEL_FLAVOR} /lib/modules/${KERNEL_VERSION}/build && \
+    rm -rf /sdk.tar.gz
+
+FROM scratch AS sdk-prebuilt
+COPY --from=sdkbuild-prebuilt /usr/src /usr/src

@@ -9,6 +9,15 @@ from packaging.version import parse, Version
 from matrix import CONFIG
 from util import format_image_name, maybe, smart_script_split, parse_text_bool
 
+# Targets that are handled via docker run + prebuilt packaging stages.
+PREBUILT_TARGET_MAP = {
+    "kernel": "kernel-prebuilt",
+    "sdk": "sdk-prebuilt",
+}
+
+# Targets skipped during the packaging phase (handled separately or not needed).
+SKIP_PACKAGING_TARGETS = {"kernelsrc", "buildenv"}
+
 
 def is_publish_enabled() -> bool:
     root_publish = os.getenv("KERNEL_PUBLISH", "false")
@@ -17,6 +26,7 @@ def is_publish_enabled() -> bool:
 
 def quoted(text: str) -> str:
     return '"%s"' % text
+
 
 def dockerify_version(version_string: str) -> str:
     # "+" is valid for both python versions and semver,
@@ -27,16 +37,77 @@ def dockerify_version(version_string: str) -> str:
 def docker_platforms(architectures: list[str]) -> list[str]:
     platforms = []
     for arch in architectures:
-        platform = ""
-        if arch == "aarch64":
-            platform = "linux/aarch64"
-        elif arch == "x86_64":
-            platform = "linux/amd64"
-        if len(platform) == 0:
-            print("unknown platform %s" % arch, file=sys.stderr)
-            sys.exit(1)
+        platform = arch_to_platform(arch)
         platforms.append(platform)
     return platforms
+
+
+def arch_to_platform(arch: str) -> str:
+    if arch == "aarch64":
+        return "linux/aarch64"
+    elif arch == "x86_64":
+        return "linux/amd64"
+    print("unknown arch %s" % arch, file=sys.stderr)
+    sys.exit(1)
+
+
+def docker_compile(
+    version: str,
+    flavor: str,
+    architectures: list[str],
+    src_url: str,
+    firmware_url: str,
+    firmware_sig_url: str,
+) -> list[str]:
+    """Generate docker run commands to compile the kernel with ccache."""
+    lines = []
+    version = dockerify_version(version)
+    buildenv_iidfile = "image-id-local-%s-buildenv" % flavor
+
+    lines += ["", "rm -rf target && mkdir -p target"]
+    lines += ['mkdir -p "${HOME}/.cache/kernel-ccache"']
+
+    for arch in architectures:
+        platform = arch_to_platform(arch)
+        compile_command = [
+            "docker",
+            "run",
+            "--rm",
+            "--platform", quoted(platform),
+            "-e", quoted("KERNEL_VERSION=%s" % version),
+            "-e", quoted("KERNEL_FLAVOR=%s" % flavor),
+            "-e", quoted("KERNEL_SRC_URL=%s" % src_url),
+            "-e", quoted("CCACHE_DIR=/home/build/.cache/ccache"),
+            "-e", quoted("CCACHE_COMPRESS=1"),
+            "-v", quoted("${HOME}/.cache/kernel-ccache:/home/build/.cache/ccache"),
+            "-v", quoted("${PWD}/target:/build/target"),
+        ]
+        if firmware_url and firmware_sig_url:
+            compile_command += [
+                "-e", quoted("FIRMWARE_URL=/build/firmware-staging/firmware.tar.xz"),
+                "-e", quoted("FIRMWARE_SIG_URL=/build/firmware-staging/firmware.tar.sign"),
+                "-v", quoted("${PWD}/firmware-staging:/build/firmware-staging"),
+            ]
+        compile_command += [
+            '"$(cat %s)"' % buildenv_iidfile,
+            "./hack/build/docker-build-internal.sh",
+        ]
+        lines += [""]
+        lines += smart_script_split(
+            compile_command,
+            "stage=compile flavor=%s version=%s arch=%s" % (flavor, version, arch),
+        )
+    return lines
+
+
+def docker_firmware_download(firmware_url: str, firmware_sig_url: str) -> list[str]:
+    """Pre-download firmware files to the host so they can be bind-mounted into docker run."""
+    return [
+        "",
+        "mkdir -p firmware-staging",
+        "curl -fsSL -o firmware-staging/firmware.tar.xz %s" % quoted(firmware_url),
+        "curl -fsSL -o firmware-staging/firmware.tar.sign %s" % quoted(firmware_sig_url),
+    ]
 
 
 def docker_build(
@@ -53,10 +124,13 @@ def docker_build(
     mark_format: Optional[str],
     firmware_url: str,
     firmware_sig_url: str,
+    use_prebuilt: bool = False,
 ) -> list[str]:
     lines = []
 
     version = dockerify_version(version)
+    actual_target = PREBUILT_TARGET_MAP.get(target, target) if use_prebuilt else target
+
     root = format_image_name(
         image_name_format=CONFIG["imageNameFormat"],
         flavor=flavor,
@@ -75,13 +149,16 @@ def docker_build(
         "-f",
         quoted("Dockerfile"),
         "--target",
-        quoted(target),
+        quoted(actual_target),
         "--iidfile",
-        quoted("image-id-%s-%s-%s" % (version, flavor, target)),
+        quoted("image-id-%s-%s-%s" % (version, flavor, actual_target)),
     ]
 
     for build_platform in docker_platforms(architectures):
         image_build_command += ["--platform", quoted(build_platform)]
+
+    if use_prebuilt:
+        image_build_command += ["--build-context", quoted("prebuilt=target")]
 
     if mark_format is not None:
         image_build_command += [
@@ -96,14 +173,17 @@ def docker_build(
             "--build-arg",
             quoted("KERNEL_VERSION=%s" % version),
             "--build-arg",
-            quoted("KERNEL_SRC_URL=%s" % src_url),
-            "--build-arg",
             quoted("KERNEL_FLAVOR=%s" % flavor),
-            "--build-arg",
-            quoted("FIRMWARE_URL=%s" % firmware_url),
-            "--build-arg",
-            quoted("FIRMWARE_SIG_URL=%s" % firmware_sig_url),
         ]
+        if not use_prebuilt:
+            image_build_command += [
+                "--build-arg",
+                quoted("KERNEL_SRC_URL=%s" % src_url),
+                "--build-arg",
+                quoted("FIRMWARE_URL=%s" % firmware_url),
+                "--build-arg",
+                quoted("FIRMWARE_SIG_URL=%s" % firmware_sig_url),
+            ]
 
     if mark_format is not None:
         image_build_command += [
@@ -149,7 +229,7 @@ def docker_build(
                 "sign",
                 "--yes",
                 quoted(
-                    '%s@$(cat "image-id-%s-%s-%s")' % (tag, version, flavor, target)
+                    '%s@$(cat "image-id-%s-%s-%s")' % (tag, version, flavor, actual_target)
                 ),
             ]
             lines += [""]
@@ -180,9 +260,51 @@ def generate_builds(
     lines = []
     kernel_version_info = parse(kernel_version)
     image_configs = CONFIG["images"]
+
+    # Phase 1: Build the buildenv image (provides the compile environment).
     for image_config in image_configs:
+        if image_config["target"] != "buildenv":
+            continue
         image_name = image_config["name"]
-        image_target = image_config["target"]
+        image_version = maybe(image_config, "version", kernel_version)
+        image_tags = maybe(image_config, "tags", kernel_tags)
+        lines += docker_build(
+            target="buildenv",
+            name=image_name,
+            version=image_version,
+            version_info=kernel_version_info,
+            tags=image_tags,
+            publish=False,
+            pass_build_args=False,
+            mark_format=None,
+            flavor=kernel_flavor,
+            src_url=kernel_src_url,
+            architectures=kernel_architectures,
+            firmware_url=firmware_url,
+            firmware_sig_url=firmware_sig_url,
+        )
+        break
+
+    # Phase 1b: Pre-download firmware to the host if needed (zone-amdgpu only).
+    if firmware_url and firmware_sig_url:
+        lines += docker_firmware_download(firmware_url, firmware_sig_url)
+
+    # Phase 2: Compile kernel via docker run with ccache bind-mounted from host.
+    lines += docker_compile(
+        version=kernel_version,
+        flavor=kernel_flavor,
+        architectures=kernel_architectures,
+        src_url=kernel_src_url,
+        firmware_url=firmware_url,
+        firmware_sig_url=firmware_sig_url,
+    )
+
+    # Phase 3: Package kernel and SDK images from the prebuilt artifacts.
+    for image_config in image_configs:
+        target = image_config["target"]
+        if target in SKIP_PACKAGING_TARGETS:
+            continue
+        image_name = image_config["name"]
         image_version = maybe(image_config, "version", kernel_version)
         image_tags = maybe(image_config, "tags", kernel_tags)
         image_format = maybe(image_config, "format")
@@ -190,8 +312,8 @@ def generate_builds(
         if not is_publish_enabled():
             should_publish = False
         should_pass_build_args = maybe(image_config, "passBuildArgs", True)
-        image_lines = docker_build(
-            target=image_target,
+        lines += docker_build(
+            target=target,
             name=image_name,
             version=image_version,
             version_info=kernel_version_info,
@@ -204,8 +326,8 @@ def generate_builds(
             architectures=kernel_architectures,
             firmware_url=firmware_url,
             firmware_sig_url=firmware_sig_url,
+            use_prebuilt=True,
         )
-        lines += image_lines
     return lines
 
 
