@@ -65,7 +65,7 @@ def docker_compile(
     buildenv_iidfile = "image-id-local-%s-buildenv" % flavor
 
     lines += ["", "rm -rf target && mkdir -p target"]
-    lines += ['mkdir -p "${HOME}/.cache/kernel-ccache"']
+    lines += ['mkdir -p "${HOME}/.cache/kernel-ccache" && chmod a+rwx "${HOME}/.cache/kernel-ccache"']
 
     for arch in architectures:
         platform = arch_to_platform(arch)
