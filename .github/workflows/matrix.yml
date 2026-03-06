@@ -86,9 +86,8 @@ jobs:
         uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.2
         with:
           path: ~/.cache/kernel-ccache
-          key: "ccache-${{ matrix.builds.flavor }}-${{ join(matrix.builds.architectures, '-') }}-${{ github.run_id }}"
+          key: "ccache-${{ matrix.builds.flavor }}-${{ join(matrix.builds.architectures, '-') }}"
           restore-keys: |
-            ccache-${{ matrix.builds.flavor }}-${{ join(matrix.builds.architectures, '-') }}-
             ccache-${{ matrix.builds.flavor }}-
       - name: generate docker script
         run: "./hack/build/generate-docker-script.sh"
@@ -105,4 +104,4 @@ jobs:
         uses: actions/cache/save@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.2
         with:
           path: ~/.cache/kernel-ccache
-          key: "ccache-${{ matrix.builds.flavor }}-${{ join(matrix.builds.architectures, '-') }}-${{ github.run_id }}"
+          key: "ccache-${{ matrix.builds.flavor }}-${{ join(matrix.builds.architectures, '-') }}"
