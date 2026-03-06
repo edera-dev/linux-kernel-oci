@@ -8,6 +8,10 @@ ARG FIRMWARE_SIG_URL=
 ADD ${FIRMWARE_URL} /firmware.tar.xz
 ADD ${FIRMWARE_SIG_URL} /firmware.tar.sign
 
+FROM --platform=$BUILDPLATFORM scratch AS nvidia-modules
+ARG NV_MODULES_TARBALL_URL=
+ADD ${NV_MODULES_TARBALL_URL} /nvidia-modules.tar.gz
+
 FROM --platform=$BUILDPLATFORM debian:bookworm@sha256:0a5bf4ecacfc050bad0131c8e1401063fd1e8343a418723f6dbd3cd13a7b9e33 AS buildenv
 RUN export DEBIAN_FRONTEND=noninteractive && apt-get update && apt-get install -y \
       build-essential squashfs-tools python3-yaml \
@@ -33,6 +37,9 @@ COPY --from=kernelsrc --chown=build:build /src.tar.xz /build/override-kernel-src
 FROM build-staged AS build-staged-amdgpu
 COPY --from=firmware --chown=build:build /firmware.tar.xz /build/override-firmware.tar.xz
 COPY --from=firmware --chown=build:build /firmware.tar.sign /build/override-firmware.tar.sign
+
+FROM build-staged AS build-staged-nvidiagpu
+COPY --from=nvidia-modules --chown=build:build /nvidia-modules.tar.gz /build/override-nvidia-modules.tar.gz
 
 FROM scratch AS kernel-ccachebuild
 COPY --from=ccachebuild kernel /kernel/image

@@ -22,25 +22,28 @@ fi
 
 echo "Fetching nvidia module release: $NV_VERSION"
 
-RELEASE_JSON=$(curl -s --retry 5 --retry-delay 2 --retry-max-time 30 --retry-all-errors "https://api.github.com/repos/${NV_KMOD_REPO_OWNER}/${NV_KMOD_REPO_NAME}/releases/tags/${NV_VERSION}")
-TARBALL_URL=$(echo "$RELEASE_JSON" | grep -o '"tarball_url": *"[^"]*"' | sed 's/"tarball_url": *"\(.*\)"/\1/')
-if [ -z "$TARBALL_URL" ]; then
-    echo "Failed to fetch release information for version $NV_VERSION"
-    exit 1
+NV_WORKDIR="$(mktemp -d)/nvidia-modules/${NV_VERSION}"
+mkdir -p "$NV_WORKDIR"
+
+if [ -n "${NVIDIA_MODULES_PATH}" ] && [ -f "${NVIDIA_MODULES_PATH}" ]; then
+    ARCHIVE="${NVIDIA_MODULES_PATH}"
+else
+    RELEASE_JSON=$(curl -s --retry 5 --retry-delay 2 --retry-max-time 30 --retry-all-errors "https://api.github.com/repos/${NV_KMOD_REPO_OWNER}/${NV_KMOD_REPO_NAME}/releases/tags/${NV_VERSION}")
+    TARBALL_URL=$(echo "$RELEASE_JSON" | grep -o '"tarball_url": *"[^"]*"' | sed 's/"tarball_url": *"\(.*\)"/\1/')
+    if [ -z "$TARBALL_URL" ]; then
+        echo "Failed to fetch release information for version $NV_VERSION"
+        exit 1
+    fi
+    ARCHIVE="$NV_WORKDIR/driver-src.tar.gz"
+    curl -L -o "$ARCHIVE" "$TARBALL_URL"
 fi
 
 echo "Building NVIDIA driver version: $NV_VERSION"
 
-NV_WORKDIR="$(mktemp -d)/nvidia-modules/${NV_VERSION}"
-ARCHIVE="$NV_WORKDIR/driver-src.tar.gz"
-
-mkdir -p "$NV_WORKDIR"
-
-curl -L -o "$ARCHIVE" "$TARBALL_URL"
 tar -xzf "$ARCHIVE" -C "$NV_WORKDIR"
 
 OLDPWD=$(pwd)
-cd "$NV_WORKDIR"/"$NV_KMOD_REPO_OWNER"-*
+cd "$(find "$NV_WORKDIR" -mindepth 1 -maxdepth 1 -type d | head -1)"
 
 # Apply nvidia hackpatches if we have them
 for patch in "${OLDPWD}"/patches-nvidia/*.patch; do patch -p1 < "$patch"; done

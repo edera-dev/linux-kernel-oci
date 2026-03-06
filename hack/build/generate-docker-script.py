@@ -59,10 +59,19 @@ def docker_build_staged(
     firmware_url: str,
     firmware_sig_url: str,
 ) -> list[str]:
-    """Build the build-staged image: buildenv with kernel source (and firmware for amdgpu) baked in."""
-    version = dockerify_version(version)
+    """Build the build-staged image: buildenv with kernel source (and firmware/nvidia-modules for gpu flavors) baked in."""
     has_firmware = flavor == "zone-amdgpu"
-    target = "build-staged-amdgpu" if has_firmware else "build-staged"
+    has_nvidia = flavor == "zone-nvidiagpu"
+    if has_nvidia:
+        nv_version = version.split("+nvidia-")[1] if "+nvidia-" in version else version.split("-nvidia-")[1]
+        nv_modules_url = "https://github.com/NVIDIA/open-gpu-kernel-modules/archive/refs/tags/%s.tar.gz" % nv_version
+    version = dockerify_version(version)
+    if has_nvidia:
+        target = "build-staged-nvidiagpu"
+    elif has_firmware:
+        target = "build-staged-amdgpu"
+    else:
+        target = "build-staged"
     iidfile = "image-id-%s-%s-%s" % (version, flavor, target)
     command = [
         "docker", "buildx", "build",
@@ -80,6 +89,8 @@ def docker_build_staged(
             "--build-arg", quoted("FIRMWARE_URL=%s" % firmware_url),
             "--build-arg", quoted("FIRMWARE_SIG_URL=%s" % firmware_sig_url),
         ]
+    if has_nvidia:
+        command += ["--build-arg", quoted("NV_MODULES_TARBALL_URL=%s" % nv_modules_url)]
     command += ["."]
     return [""] + smart_script_split(command, "stage=stage flavor=%s version=%s" % (flavor, version))
 
@@ -93,9 +104,15 @@ def docker_compile(
 ) -> list[str]:
     """Generate docker run commands to compile the kernel with ccache."""
     lines = []
-    version = dockerify_version(version)
     has_firmware = flavor == "zone-amdgpu"
-    stage_target = "build-staged-amdgpu" if has_firmware else "build-staged"
+    has_nvidia = flavor == "zone-nvidiagpu"
+    version = dockerify_version(version)
+    if has_nvidia:
+        stage_target = "build-staged-nvidiagpu"
+    elif has_firmware:
+        stage_target = "build-staged-amdgpu"
+    else:
+        stage_target = "build-staged"
     staged_iidfile = "image-id-%s-%s-%s" % (version, flavor, stage_target)
 
     lines += ["", "rm -rf target && mkdir -p target && chmod a+rwX target"]
@@ -120,6 +137,10 @@ def docker_compile(
             compile_command += [
                 "-e", quoted("FIRMWARE_URL=/build/override-firmware.tar.xz"),
                 "-e", quoted("FIRMWARE_SIG_URL=/build/override-firmware.tar.sign"),
+            ]
+        if has_nvidia:
+            compile_command += [
+                "-e", quoted("NVIDIA_MODULES_PATH=/build/override-nvidia-modules.tar.gz"),
             ]
         compile_command += [
             '"$(cat %s)"' % staged_iidfile,
