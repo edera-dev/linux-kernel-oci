@@ -9,10 +9,10 @@ from packaging.version import parse, Version
 from matrix import CONFIG
 from util import format_image_name, maybe, smart_script_split, parse_text_bool
 
-# Targets that are handled via docker run + prebuilt packaging stages.
-PREBUILT_TARGET_MAP = {
-    "kernel": "kernel-prebuilt",
-    "sdk": "sdk-prebuilt",
+# Targets that are handled via docker run + host CCACHE packaging stages.
+CCACHE_TARGET_MAP = {
+    "kernel": "kernel-ccachebuild",
+    "sdk": "sdk-ccachebuild",
 }
 
 # Targets skipped during the packaging phase (handled separately or not needed).
@@ -51,7 +51,7 @@ def arch_to_platform(arch: str) -> str:
     sys.exit(1)
 
 
-def docker_compile(
+def docker_build_staged(
     version: str,
     flavor: str,
     architectures: list[str],
@@ -59,10 +59,44 @@ def docker_compile(
     firmware_url: str,
     firmware_sig_url: str,
 ) -> list[str]:
+    """Build the build-staged image: buildenv with kernel source (and firmware for amdgpu) baked in."""
+    version = dockerify_version(version)
+    has_firmware = bool(firmware_url and firmware_sig_url)
+    target = "build-staged-amdgpu" if has_firmware else "build-staged"
+    iidfile = "image-id-%s-%s-%s" % (version, flavor, target)
+    command = [
+        "docker", "buildx", "build",
+        "--builder", "edera",
+        "--load",
+        "-f", quoted("Dockerfile"),
+        "--target", quoted(target),
+        "--iidfile", quoted(iidfile),
+    ]
+    for platform in docker_platforms(architectures):
+        command += ["--platform", quoted(platform)]
+    command += ["--build-arg", quoted("KERNEL_SRC_URL=%s" % src_url)]
+    if has_firmware:
+        command += [
+            "--build-arg", quoted("FIRMWARE_URL=%s" % firmware_url),
+            "--build-arg", quoted("FIRMWARE_SIG_URL=%s" % firmware_sig_url),
+        ]
+    command += ["."]
+    return [""] + smart_script_split(command, "stage=stage flavor=%s version=%s" % (flavor, version))
+
+
+def docker_compile(
+    version: str,
+    flavor: str,
+    architectures: list[str],
+    firmware_url: str,
+    firmware_sig_url: str,
+) -> list[str]:
     """Generate docker run commands to compile the kernel with ccache."""
     lines = []
     version = dockerify_version(version)
-    buildenv_iidfile = "image-id-local-%s-buildenv" % flavor
+    has_firmware = bool(firmware_url and firmware_sig_url)
+    stage_target = "build-staged-amdgpu" if has_firmware else "build-staged"
+    staged_iidfile = "image-id-%s-%s-%s" % (version, flavor, stage_target)
 
     lines += ["", "rm -rf target && mkdir -p target"]
     lines += ['mkdir -p "${HOME}/.cache/kernel-ccache" && chmod a+rwx "${HOME}/.cache/kernel-ccache"']
@@ -76,20 +110,19 @@ def docker_compile(
             "--platform", quoted(platform),
             "-e", quoted("KERNEL_VERSION=%s" % version),
             "-e", quoted("KERNEL_FLAVOR=%s" % flavor),
-            "-e", quoted("KERNEL_SRC_URL=%s" % src_url),
+            "-e", quoted("KERNEL_SRC_URL=/build/override-kernel-src.tar.xz"),
             "-e", quoted("CCACHE_DIR=/home/build/.cache/ccache"),
             "-e", quoted("CCACHE_COMPRESS=1"),
             "-v", quoted("${HOME}/.cache/kernel-ccache:/home/build/.cache/ccache"),
             "-v", quoted("${PWD}/target:/build/target"),
         ]
-        if firmware_url and firmware_sig_url:
+        if has_firmware:
             compile_command += [
-                "-e", quoted("FIRMWARE_URL=/build/firmware-staging/firmware.tar.xz"),
-                "-e", quoted("FIRMWARE_SIG_URL=/build/firmware-staging/firmware.tar.sign"),
-                "-v", quoted("${PWD}/firmware-staging:/build/firmware-staging"),
+                "-e", quoted("FIRMWARE_URL=/build/override-firmware.tar.xz"),
+                "-e", quoted("FIRMWARE_SIG_URL=/build/override-firmware.tar.sign"),
             ]
         compile_command += [
-            '"$(cat %s)"' % buildenv_iidfile,
+            '"$(cat %s)"' % staged_iidfile,
             "./hack/build/docker-build-internal.sh",
         ]
         lines += [""]
@@ -100,15 +133,6 @@ def docker_compile(
     return lines
 
 
-def docker_firmware_download(firmware_url: str, firmware_sig_url: str) -> list[str]:
-    """Pre-download firmware files to the host so they can be bind-mounted into docker run."""
-    return [
-        "",
-        "mkdir -p firmware-staging",
-        "curl -fsSL -o firmware-staging/firmware.tar.xz %s" % quoted(firmware_url),
-        "curl -fsSL -o firmware-staging/firmware.tar.sign %s" % quoted(firmware_sig_url),
-    ]
-
 
 def docker_build(
     target: str,
@@ -118,18 +142,14 @@ def docker_build(
     version_info: Version,
     tags: list[str],
     architectures: list[str],
-    src_url: str,
     publish: bool,
     pass_build_args: bool,
     mark_format: Optional[str],
-    firmware_url: str,
-    firmware_sig_url: str,
-    use_prebuilt: bool = False,
 ) -> list[str]:
     lines = []
 
     version = dockerify_version(version)
-    actual_target = PREBUILT_TARGET_MAP.get(target, target) if use_prebuilt else target
+    actual_target = CCACHE_TARGET_MAP.get(target, target)
 
     root = format_image_name(
         image_name_format=CONFIG["imageNameFormat"],
@@ -157,8 +177,8 @@ def docker_build(
     for build_platform in docker_platforms(architectures):
         image_build_command += ["--platform", quoted(build_platform)]
 
-    if use_prebuilt:
-        image_build_command += ["--build-context", quoted("prebuilt=target")]
+    if actual_target != target:
+        image_build_command += ["--build-context", quoted("ccachebuild=target")]
 
     if mark_format is not None:
         image_build_command += [
@@ -175,15 +195,6 @@ def docker_build(
             "--build-arg",
             quoted("KERNEL_FLAVOR=%s" % flavor),
         ]
-        if not use_prebuilt:
-            image_build_command += [
-                "--build-arg",
-                quoted("KERNEL_SRC_URL=%s" % src_url),
-                "--build-arg",
-                quoted("FIRMWARE_URL=%s" % firmware_url),
-                "--build-arg",
-                quoted("FIRMWARE_SIG_URL=%s" % firmware_sig_url),
-            ]
 
     if mark_format is not None:
         image_build_command += [
@@ -261,36 +272,8 @@ def generate_builds(
     kernel_version_info = parse(kernel_version)
     image_configs = CONFIG["images"]
 
-    # Phase 1: Build the buildenv image (provides the compile environment).
-    for image_config in image_configs:
-        if image_config["target"] != "buildenv":
-            continue
-        image_name = image_config["name"]
-        image_version = maybe(image_config, "version", kernel_version)
-        image_tags = maybe(image_config, "tags", kernel_tags)
-        lines += docker_build(
-            target="buildenv",
-            name=image_name,
-            version=image_version,
-            version_info=kernel_version_info,
-            tags=image_tags,
-            publish=False,
-            pass_build_args=False,
-            mark_format=None,
-            flavor=kernel_flavor,
-            src_url=kernel_src_url,
-            architectures=kernel_architectures,
-            firmware_url=firmware_url,
-            firmware_sig_url=firmware_sig_url,
-        )
-        break
-
-    # Phase 1b: Pre-download firmware to the host if needed (zone-amdgpu only).
-    if firmware_url and firmware_sig_url:
-        lines += docker_firmware_download(firmware_url, firmware_sig_url)
-
-    # Phase 2: Compile kernel via docker run with ccache bind-mounted from host.
-    lines += docker_compile(
+    # Phase 1: Build the build-staged image (buildenv + kernel source + firmware baked in).
+    lines += docker_build_staged(
         version=kernel_version,
         flavor=kernel_flavor,
         architectures=kernel_architectures,
@@ -299,7 +282,16 @@ def generate_builds(
         firmware_sig_url=firmware_sig_url,
     )
 
-    # Phase 3: Package kernel and SDK images from the prebuilt artifacts.
+    # Phase 2: Compile kernel via docker run with ccache bind-mounted from host.
+    lines += docker_compile(
+        version=kernel_version,
+        flavor=kernel_flavor,
+        architectures=kernel_architectures,
+        firmware_url=firmware_url,
+        firmware_sig_url=firmware_sig_url,
+    )
+
+    # Phase 3: Package kernel and SDK images from the ccache-built artifacts.
     for image_config in image_configs:
         target = image_config["target"]
         if target in SKIP_PACKAGING_TARGETS:
@@ -322,11 +314,7 @@ def generate_builds(
             pass_build_args=should_pass_build_args,
             mark_format=image_format,
             flavor=kernel_flavor,
-            src_url=kernel_src_url,
             architectures=kernel_architectures,
-            firmware_url=firmware_url,
-            firmware_sig_url=firmware_sig_url,
-            use_prebuilt=True,
         )
     return lines
 
