@@ -7,7 +7,7 @@ from typing import Optional
 from packaging.version import parse, Version
 
 from matrix import CONFIG
-from util import format_image_name, maybe, smart_script_split, parse_text_bool
+from util import format_image_name, maybe, smart_script_split, parse_text_bool, get_branch_tag_suffix
 
 # Targets that are handled via docker run + host CCACHE packaging stages.
 CCACHE_TARGET_MAP = {
@@ -166,18 +166,28 @@ def docker_build(
     publish: bool,
     pass_build_args: bool,
     mark_format: Optional[str],
+    firmware_url: str,
+    firmware_sig_url: str,
+    tag_suffix: Optional[str] = None,
 ) -> list[str]:
     lines = []
 
     version = dockerify_version(version)
     actual_target = CCACHE_TARGET_MAP.get(target, target)
 
+    # tag_version is the version string used for OCI tags; version is the
+    # actual kernel version passed as a build arg and recorded in annotations.
+    # They differ when building from a non-main branch to avoid tag collisions.
+    # Tags in the list are already branch-suffixed (applied during matrix generation).
+    tag_version = "%s-%s" % (version, tag_suffix) if tag_suffix else version
+    oci_tags = list(tags)
+
     root = format_image_name(
         image_name_format=CONFIG["imageNameFormat"],
         flavor=flavor,
         version_info=version_info,
         name=name,
-        tag=version,
+        tag=tag_version,
     )
 
     image_build_command = [
@@ -192,7 +202,7 @@ def docker_build(
         "--target",
         quoted(actual_target),
         "--iidfile",
-        quoted("image-id-%s-%s-%s" % (version, flavor, actual_target)),
+        quoted("image-id-%s-%s-%s" % (tag_version, flavor, actual_target)),
     ]
 
     for build_platform in docker_platforms(architectures):
@@ -229,8 +239,8 @@ def docker_build(
     all_tags = [root]
     additional_tags = []
 
-    for tag in tags:
-        if tag == version:
+    for tag in oci_tags:
+        if tag == tag_version:
             continue
         additional_tags.append(
             format_image_name(
@@ -261,7 +271,7 @@ def docker_build(
                 "sign",
                 "--yes",
                 quoted(
-                    '%s@$(cat "image-id-%s-%s-%s")' % (tag, version, flavor, actual_target)
+                    '%s@$(cat "image-id-%s-%s-%s")' % (tag, tag_version, flavor, actual_target)
                 ),
             ]
             lines += [""]
@@ -288,6 +298,7 @@ def generate_builds(
     kernel_architectures: list[str],
     firmware_url: str,
     firmware_sig_url: str,
+    tag_suffix: Optional[str] = None,
 ) -> list[str]:
     lines = []
     kernel_version_info = parse(kernel_version)
@@ -336,6 +347,9 @@ def generate_builds(
             mark_format=image_format,
             flavor=kernel_flavor,
             architectures=kernel_architectures,
+            firmware_url=firmware_url,
+            firmware_sig_url=firmware_sig_url,
+            tag_suffix=tag_suffix,
         )
     return lines
 
@@ -356,11 +370,13 @@ def generate_build_from_env() -> list[str]:
         kernel_architectures=root_kernel_architectures,
         firmware_url=root_firmware_url,
         firmware_sig_url=root_firmware_sig_url,
+        tag_suffix=get_branch_tag_suffix(),
     )
 
 
 def generate_builds_from_matrix(matrix) -> list[str]:
     lines = []
+    tag_suffix = get_branch_tag_suffix()
     builds = matrix["builds"]  # type: list[dict[str, any]]
     for build in builds:
         build_version = build["version"]
@@ -378,6 +394,7 @@ def generate_builds_from_matrix(matrix) -> list[str]:
             kernel_architectures=build_architectures,
             firmware_url=firmware_url,
             firmware_sig_url=firmware_sig_url,
+            tag_suffix=tag_suffix,
         )
     return lines
 
