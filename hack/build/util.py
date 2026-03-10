@@ -1,7 +1,16 @@
+import os
+import re
 from typing import Optional
 
 from packaging.version import Version
 import subprocess
+
+
+def get_branch_tag_suffix() -> Optional[str]:
+    ref_name = os.getenv("GITHUB_REF_NAME", "")
+    if not ref_name or ref_name == "main":
+        return None
+    return re.sub(r'[^a-zA-Z0-9._-]', '_', ref_name)
 
 
 def format_image_name(
