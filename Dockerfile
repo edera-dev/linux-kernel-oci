@@ -48,14 +48,15 @@ COPY --from=ccachebuild addons.squashfs /kernel/addons.squashfs
 COPY --from=ccachebuild metadata /kernel/metadata
 
 FROM alpine:3.23@sha256:25109184c71bdad752c8312a8623239686a9a2071e8825f20acb8f2198c3f659 AS sdkbuild-ccachebuild
-ARG KERNEL_VERSION=
 ARG KERNEL_FLAVOR=zone
 COPY --from=ccachebuild sdk.tar.gz /sdk.tar.gz
-RUN mkdir -p /usr/src/kernel-sdk-${KERNEL_VERSION}-${KERNEL_FLAVOR} && \
-    tar -zx -C /usr/src/kernel-sdk-${KERNEL_VERSION}-${KERNEL_FLAVOR} -f /sdk.tar.gz && \
-    mkdir -p /lib/modules/${KERNEL_VERSION} && \
-    ln -sf /usr/src/kernel-sdk-${KERNEL_VERSION}-${KERNEL_FLAVOR} /lib/modules/${KERNEL_VERSION}/build && \
-    rm -rf /sdk.tar.gz
+COPY --from=ccachebuild metadata /metadata
+RUN KERNEL_UNAME_R=$(grep '^KERNEL_UNAME_R=' /metadata | cut -d= -f2) && \
+    mkdir -p /usr/src/kernel-sdk-${KERNEL_UNAME_R}-${KERNEL_FLAVOR} && \
+    tar -zx -C /usr/src/kernel-sdk-${KERNEL_UNAME_R}-${KERNEL_FLAVOR} -f /sdk.tar.gz && \
+    mkdir -p /lib/modules/${KERNEL_UNAME_R} && \
+    ln -sf /usr/src/kernel-sdk-${KERNEL_UNAME_R}-${KERNEL_FLAVOR} /lib/modules/${KERNEL_UNAME_R}/build && \
+    rm -rf /sdk.tar.gz /metadata
 
 FROM scratch AS sdk-ccachebuild
 COPY --from=sdkbuild-ccachebuild /usr/src /usr/src
