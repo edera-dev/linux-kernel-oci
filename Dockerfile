@@ -12,7 +12,7 @@ FROM --platform=$BUILDPLATFORM scratch AS nvidia-modules
 ARG NV_MODULES_TARBALL_URL=
 ADD ${NV_MODULES_TARBALL_URL} /nvidia-modules.tar.gz
 
-FROM --platform=$BUILDPLATFORM debian:bookworm@sha256:0a5bf4ecacfc050bad0131c8e1401063fd1e8343a418723f6dbd3cd13a7b9e33 AS buildenv
+FROM --platform=$BUILDPLATFORM debian:bookworm@sha256:bc960ef50e6feed90686c593361df158517556ed1d2d98e5d1df3724024e0f49 AS buildenv
 RUN export DEBIAN_FRONTEND=noninteractive && apt-get update && apt-get install -y \
       build-essential squashfs-tools python3-yaml \
       patch diffutils sed mawk findutils zstd \
