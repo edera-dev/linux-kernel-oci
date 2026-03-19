@@ -1,0 +1,65 @@
+name: Refresh ccache TTL
+on:
+  # We use ccache with github save/restore to dramatically cut kernel build times.
+  # This works well, but GH has a 10GB limit for all cache entries,
+  # and a 7-day TTL for *each* cache entry. Which means that if we don't build a kernel for a week,
+  # we lose our cache benefit entirely, which stinks. The *correct* way to work around this is
+  # to replace GH's cache action with one that saves/restores directly from a dedicated S3 bucket
+  # we set up and manage.
+  #
+  # What *this* does is save/restore the cache every 4 days, well within the 7-day TTL,
+  # to keep GH from expiring them. Which is disgusting, but cheap.
+  schedule:
+    - cron: "0 0 */4 * *"
+  workflow_dispatch:
+jobs:
+  discover:
+    name: discover cache keys
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.list.outputs.matrix }}
+    steps:
+      - name: Harden the runner (Audit all outbound calls)
+        uses: step-security/harden-runner@a90bcbc6539c36a85cdfeb73f7e2f433735f215b # v2.15.0
+        with:
+          egress-policy: audit
+      - name: list ccache entries
+        id: list
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          # List all ccache-* cache keys, strip the run_id suffix to deduplicate by flavor/arch.
+          matrix=$(gh api "/repos/${{ github.repository }}/actions/caches" --paginate \
+            --jq '[.actions_caches[]
+                  | select(.key | startswith("ccache-"))
+                  | {prefix: (.key | gsub("-[0-9]+$"; ""))}]
+                  | unique_by(.prefix)
+                  | {entry: .}')
+          echo "matrix=$matrix" >> "$GITHUB_OUTPUT"
+  refresh:
+    name: "refresh ${{ matrix.entry.prefix }}"
+    needs: discover
+    if: needs.discover.outputs.matrix != '{"entry":[]}'
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.discover.outputs.matrix) }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Harden the runner (Audit all outbound calls)
+        uses: step-security/harden-runner@a90bcbc6539c36a85cdfeb73f7e2f433735f215b # v2.15.0
+        with:
+          egress-policy: audit
+      - name: restore ccache
+        id: restore
+        uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.2
+        with:
+          path: ~/.cache/kernel-ccache
+          key: "${{ matrix.entry.prefix }}-${{ github.run_id }}"
+          restore-keys: |
+            ${{ matrix.entry.prefix }}-
+      - name: save ccache
+        if: steps.restore.outputs.cache-matched-key != ''
+        uses: actions/cache/save@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.2
+        with:
+          path: ~/.cache/kernel-ccache
+          key: "${{ matrix.entry.prefix }}-${{ github.run_id }}"
