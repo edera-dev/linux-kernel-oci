@@ -20,7 +20,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
     - name: Harden the runner (Audit all outbound calls)
-      uses: step-security/harden-runner@fa2e9d605c4eeb9fcad4c99c224cee0c6c7f3594 # v2.16.0
+      uses: step-security/harden-runner@8d3c67de8e2fe68ef647c8db1e6a09f647780f40 # v2.19.0
       with:
         egress-policy: audit
 
@@ -33,7 +33,7 @@ jobs:
     - name: generate matrix
       run: 'PATH="${HOME}/go/bin:${PATH}" ./hack/build/generate-matrix.sh "${{ inputs.spec }}"'
     - name: upload matrix
-      uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7.0.0
+      uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
       with:
         name: matrix
         path: "matrix.json"
@@ -62,7 +62,7 @@ jobs:
       KERNEL_ARCHITECTURES: "${{ join(matrix.builds.architectures, ',') }}"
     steps:
       - name: Harden the runner (Audit all outbound calls)
-        uses: step-security/harden-runner@fa2e9d605c4eeb9fcad4c99c224cee0c6c7f3594 # v2.16.0
+        uses: step-security/harden-runner@8d3c67de8e2fe68ef647c8db1e6a09f647780f40 # v2.19.0
         with:
           egress-policy: audit
 
@@ -85,7 +85,7 @@ jobs:
             username: "${{github.actor}}"
             password: "${{secrets.GITHUB_TOKEN}}"
       - name: restore ccache
-        uses: actions/cache/restore@668228422ae6a00e4ad889ee87cd7109ec5666a7 # v5.0.2
+        uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.2
         with:
           path: ~/.cache/kernel-ccache
           # restore-keys is important here - it lets us restore the most recent cache key,
@@ -97,7 +97,7 @@ jobs:
       - name: generate docker script
         run: "./hack/build/generate-docker-script.sh"
       - name: upload docker script
-        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7.0.0
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: "build-${{ matrix.builds.version }}-${{ matrix.builds.flavor }}.sh"
           path: "docker.sh"
@@ -105,7 +105,7 @@ jobs:
       - name: run docker script
         run: sh -x docker.sh
       - name: save ccache
-        uses: actions/cache/save@668228422ae6a00e4ad889ee87cd7109ec5666a7 # v5.0.2
+        uses: actions/cache/save@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.2
         with:
           path: ~/.cache/kernel-ccache
           # The run_id here is just for write-key uniqueness, as GH doesn't allow overwriting
