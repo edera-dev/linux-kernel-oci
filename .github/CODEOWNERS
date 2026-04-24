@@ -1,0 +1,9 @@
+# Changes to these paths require review from one of the listed owners.
+
+/.github/          @kaniini @azenla @bleggett @tycho
+/hack/             @kaniini @azenla @bleggett @tycho
+/patches/          @kaniini @azenla @bleggett @tycho
+/patches-nvidia/   @kaniini @azenla @bleggett @tycho
+/configs/          @kaniini @azenla @bleggett @tycho
+/Dockerfile        @kaniini @azenla @bleggett @tycho
+/config.yaml       @kaniini @azenla @bleggett @tycho
