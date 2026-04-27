@@ -12,7 +12,7 @@ FROM --platform=$BUILDPLATFORM scratch AS nvidia-modules
 ARG NV_MODULES_TARBALL_URL=
 ADD ${NV_MODULES_TARBALL_URL} /nvidia-modules.tar.gz
 
-FROM --platform=$BUILDPLATFORM debian:bookworm@sha256:bc960ef50e6feed90686c593361df158517556ed1d2d98e5d1df3724024e0f49 AS buildenv
+FROM --platform=$BUILDPLATFORM debian:bookworm@sha256:8a8cd02c5912770b4980228a54d4aff9e4f986f1eb2525d2d371dec5232cefcc AS buildenv
 RUN export DEBIAN_FRONTEND=noninteractive && apt-get update && apt-get install -y \
       build-essential squashfs-tools python3-yaml \
       patch diffutils sed mawk findutils zstd \
@@ -47,7 +47,7 @@ COPY --from=ccachebuild config.gz /kernel/config.gz
 COPY --from=ccachebuild addons.squashfs /kernel/addons.squashfs
 COPY --from=ccachebuild metadata /kernel/metadata
 
-FROM alpine:3.23@sha256:25109184c71bdad752c8312a8623239686a9a2071e8825f20acb8f2198c3f659 AS sdkbuild-ccachebuild
+FROM alpine:3.23@sha256:5b10f432ef3da1b8d4c7eb6c487f2f5a8f096bc91145e68878dd4a5019afde11 AS sdkbuild-ccachebuild
 ARG KERNEL_FLAVOR=zone
 COPY --from=ccachebuild sdk.tar.gz /sdk.tar.gz
 COPY --from=ccachebuild metadata /metadata
