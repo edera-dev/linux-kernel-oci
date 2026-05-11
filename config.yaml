@@ -1,8 +1,15 @@
 imageNameFormat: "ghcr.io/edera-dev/[image]:[tag]"
+# Default set of architectures applied to any flavor that does not override it.
 architectures:
 - x86_64
 flavors:
 - name: zone
+  # zone is the only flavor we currently publish for aarch64. Other flavors fall
+  # back to the global `architectures` list above; add an `architectures:` entry
+  # here to opt them in.
+  architectures:
+  - x86_64
+  - aarch64
   constraints:
     lower: '6.1'
 - name: zone-amdgpu
@@ -103,9 +110,14 @@ images:
   name: "[flavor]-kernel-sdk"
   format: kernel.sdk
 runners:
+# Match order matters: first runner whose constraints match wins.
+- name: ubuntu-24.04-arm
+  arch: aarch64
 - name: edera-large
+  arch: x86_64
   flavors:
   - host
   - zone-amdgpu
   - zone-nvidiagpu
 - name: ubuntu-latest
+  arch: x86_64

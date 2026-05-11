@@ -36,11 +36,21 @@ def maybe(m: dict[str, any], k: str, default_value: any = None) -> any:
         return default_value
 
 def matches_constraints(
-    version: Version, flavor: str, constraints: dict[str, any], is_current_release=None
+    version: Version,
+    flavor: str,
+    constraints: dict[str, any],
+    is_current_release=None,
+    arch: Optional[str] = None,
 ) -> bool:
     if "any" in constraints:
         for constraint in constraints["any"]:
-            if matches_constraints(version, flavor, constraint, is_current_release=is_current_release):
+            if matches_constraints(
+                version,
+                flavor,
+                constraint,
+                is_current_release=is_current_release,
+                arch=arch,
+            ):
                 return True
         return False
 
@@ -53,6 +63,7 @@ def matches_constraints(
     upper = maybe(constraints, "upper")
     exact = maybe(constraints, "exact")
     current = maybe(constraints, "current")
+    arch_constraint = maybe(constraints, "arch")
 
     if lower is not None:
         lower = Version(lower)
@@ -94,6 +105,12 @@ def matches_constraints(
     if exact is not None and not version_string in exact:
         applies = False
 
+    if arch_constraint is not None and arch is not None:
+        if type(arch_constraint) is str:
+            arch_constraint = [arch_constraint]
+        if arch not in arch_constraint:
+            applies = False
+
     return applies
 
 
@@ -134,7 +151,7 @@ def parse_text_constraint(text: str) -> dict[str, any]:
             constraint[key] = parse_text_bool(value)
         elif key == "lower" or key == "upper":
             constraint[key] = value
-        elif key == "flavors" or key == "flavor" or key == "series" or key == "exact":
+        elif key == "flavors" or key == "flavor" or key == "series" or key == "exact" or key == "arch":
             if key == "flavor":
                 key = "flavors"
             constraint[key] = value.split(",")

@@ -40,16 +40,24 @@ jobs:
         compression-level: 0
     - name: capture matrix
       id: capture-matrix
-      run: >
-        echo "matrix=$(cat matrix.json)" >> "${GITHUB_OUTPUT}"
+      run: |
+        # Split matrix.json into two strategy-matrix-shaped outputs: one keyed
+        # on `builds` (per-arch build jobs) and one on `merges` (per
+        # (version, flavor) manifest-list assembly jobs). Each iteration of the
+        # build job sees matrix.builds.* and each merge sees matrix.merges.*.
+        BUILDS=$(jq -c '{builds: .builds}' matrix.json)
+        MERGES=$(jq -c '{merges: .merges}' matrix.json)
+        echo "builds=${BUILDS}" >> "${GITHUB_OUTPUT}"
+        echo "merges=${MERGES}" >> "${GITHUB_OUTPUT}"
     outputs:
-      matrix: "${{ steps.capture-matrix.outputs.matrix }}"
+      builds: "${{ steps.capture-matrix.outputs.builds }}"
+      merges: "${{ steps.capture-matrix.outputs.merges }}"
   build:
-    name: "build ${{ matrix.builds.version }} ${{ matrix.builds.flavor }}"
+    name: "build ${{ matrix.builds.version }} ${{ matrix.builds.flavor }} ${{ matrix.builds.arch }}"
     needs: matrix
     strategy:
       fail-fast: false
-      matrix: ${{ fromJSON(needs.matrix.outputs.matrix) }}
+      matrix: ${{ fromJSON(needs.matrix.outputs.builds) }}
     runs-on: "${{ matrix.builds.runner }}"
     env:
       KERNEL_PUBLISH: "${{ inputs.publish }}"
@@ -59,7 +67,7 @@ jobs:
       FIRMWARE_SIG_URL: "${{ matrix.builds.firmware_sig_url }}"
       KERNEL_FLAVOR: "${{ matrix.builds.flavor }}"
       KERNEL_TAGS: "${{ join(matrix.builds.tags, ',') }}"
-      KERNEL_ARCHITECTURES: "${{ join(matrix.builds.architectures, ',') }}"
+      KERNEL_ARCH: "${{ matrix.builds.arch }}"
     steps:
       - name: Harden the runner (Audit all outbound calls)
         uses: step-security/harden-runner@fa2e9d605c4eeb9fcad4c99c224cee0c6c7f3594 # v2.16.0
@@ -91,19 +99,29 @@ jobs:
           # restore-keys is important here - it lets us restore the most recent cache key,
           # *ignoring* the specific run ID, as a fuzzy match. So we can use previous build's
           # caches for this flavor/arch even if the runid is not the same
-          key: "ccache-${{ matrix.builds.flavor }}-${{ join(matrix.builds.architectures, '-') }}-${{ github.run_id }}"
+          key: "ccache-${{ matrix.builds.flavor }}-${{ matrix.builds.arch }}-${{ github.run_id }}"
           restore-keys: |
-            ccache-${{ matrix.builds.flavor }}-${{ join(matrix.builds.architectures, '-') }}-
+            ccache-${{ matrix.builds.flavor }}-${{ matrix.builds.arch }}-
       - name: generate docker script
         run: "./hack/build/generate-docker-script.sh"
       - name: upload docker script
         uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7.0.0
         with:
-          name: "build-${{ matrix.builds.version }}-${{ matrix.builds.flavor }}.sh"
+          name: "build-${{ matrix.builds.version }}-${{ matrix.builds.flavor }}-${{ matrix.builds.arch }}.sh"
           path: "docker.sh"
           compression-level: 0
       - name: run docker script
         run: sh -x docker.sh
+      - name: upload digests
+        # Only produced when publishing — push-by-digest path writes digests.json.
+        if: ${{ inputs.publish }}
+        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7.0.0
+        with:
+          name: "digests-${{ matrix.builds.version }}-${{ matrix.builds.flavor }}-${{ matrix.builds.arch }}"
+          path: "digests.json"
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 1
       - name: save ccache
         uses: actions/cache/save@668228422ae6a00e4ad889ee87cd7109ec5666a7 # v5.0.2
         with:
@@ -111,4 +129,57 @@ jobs:
           # The run_id here is just for write-key uniqueness, as GH doesn't allow overwriting
           # existing cache keys - the `restore` action will fuzzy-match and ignore the run_id
           # for subsequent runs.
-          key: "ccache-${{ matrix.builds.flavor }}-${{ join(matrix.builds.architectures, '-') }}-${{ github.run_id }}"
+          key: "ccache-${{ matrix.builds.flavor }}-${{ matrix.builds.arch }}-${{ github.run_id }}"
+  merge:
+    # Stitch the per-arch single-platform pushes from `build` into multi-arch
+    # manifest lists. Only runs when publishing; no-op when nothing was pushed.
+    name: "merge ${{ matrix.merges.version }} ${{ matrix.merges.flavor }}"
+    needs: [matrix, build]
+    if: ${{ inputs.publish && needs.matrix.outputs.merges != '' }}
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.matrix.outputs.merges) }}
+    runs-on: ubuntu-latest
+    env:
+      KERNEL_PUBLISH: "${{ inputs.publish }}"
+      KERNEL_VERSION: "${{ matrix.merges.version }}"
+      KERNEL_FLAVOR: "${{ matrix.merges.flavor }}"
+      KERNEL_PRODUCES: "${{ join(matrix.merges.produces, ',') }}"
+      DIGESTS_DIR: digests
+    steps:
+      - name: Harden the runner (Audit all outbound calls)
+        uses: step-security/harden-runner@fa2e9d605c4eeb9fcad4c99c224cee0c6c7f3594 # v2.16.0
+        with:
+          egress-policy: audit
+      - name: checkout repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v4
+      - name: install cosign
+        uses: sigstore/cosign-installer@cad07c2e89fa2edd6e2d7bab4c1aa38e53f76003 # v4.1.1
+      - name: docker setup buildx
+        uses: docker/setup-buildx-action@4d04d5d9486b7bd6fa91e7baf45bbb4f8b9deedd # v4.0.0
+      - name: docker login ghcr.io
+        uses: Wandalen/wretry.action@e68c23e6309f2871ca8ae4763e7629b9c258e1ea # v3.8.0
+        with:
+          action: docker/login-action@b45d80f862d83dbcd57f89517bcf500b2ab88fb2 # v4.0.0
+          with: |
+            registry: ghcr.io
+            username: "${{github.actor}}"
+            password: "${{secrets.GITHUB_TOKEN}}"
+      - name: download digest artifacts
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          # Each per-arch build uploads its digests under a uniquely-named
+          # artifact; pattern + default merge-multiple=false drops each artifact
+          # into its own subdirectory under digests/.
+          pattern: "digests-${{ matrix.merges.version }}-${{ matrix.merges.flavor }}-*"
+          path: digests
+      - name: generate merge script
+        run: python3 ./hack/build/generate-merge-script.py
+      - name: upload merge script
+        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7.0.0
+        with:
+          name: "merge-${{ matrix.merges.version }}-${{ matrix.merges.flavor }}.sh"
+          path: "merge.sh"
+          compression-level: 0
+      - name: run merge script
+        run: sh -x merge.sh
