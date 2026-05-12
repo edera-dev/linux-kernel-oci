@@ -2,7 +2,7 @@ import json
 import os
 import stat
 import sys
-from typing import Optional
+from typing import Any, Optional
 
 from matrix import CONFIG
 from packaging.version import Version, parse
@@ -470,7 +470,7 @@ def generate_build_from_env() -> list[str]:
 def generate_builds_from_matrix(matrix) -> list[str]:
     lines = []
     tag_suffix = get_branch_tag_suffix()
-    builds = matrix["builds"]  # type: list[dict[str, any]]
+    builds = matrix["builds"]  # type: list[dict[str, Any]]
     for build in builds:
         build_version = build["version"]
         build_flavor = build["flavor"]

@@ -4,6 +4,7 @@ import subprocess
 import urllib.request
 from collections import OrderedDict
 from functools import cache
+from typing import Any
 
 import yaml
 from packaging.version import Version, parse
@@ -30,7 +31,7 @@ def default_architectures() -> list[str]:
     return architectures
 
 
-def flavor_architectures(flavor_info: dict[str, any]) -> list[str]:
+def flavor_architectures(flavor_info: dict[str, Any]) -> list[str]:
     """Per-flavor architectures override; falls back to the global default."""
     if "architectures" in flavor_info:
         return flavor_info["architectures"]
@@ -38,7 +39,7 @@ def flavor_architectures(flavor_info: dict[str, any]) -> list[str]:
 
 
 @cache
-def get_current_kernel_releases() -> dict[str, any]:
+def get_current_kernel_releases() -> dict[str, Any]:
     with urllib.request.urlopen("https://www.kernel.org/releases.json") as response:
         releases = json.load(response)
         return releases
@@ -91,8 +92,8 @@ def get_all_firmware_releases() -> list[str]:
     return snapshots
 
 
-def merge_matrix(matrix_list: list[list[dict[str, any]]]) -> list[dict[str, any]]:
-    all_builds = OrderedDict()  # type: dict[str, dict[str, any]]
+def merge_matrix(matrix_list: list[list[dict[str, Any]]]) -> list[dict[str, Any]]:
+    all_builds = OrderedDict()  # type: dict[str, dict[str, Any]]
     for builds in matrix_list:
         for item in builds:
             key = "%s::%s::%s" % (item["version"], item["flavor"], item["arch"])
@@ -108,7 +109,7 @@ def merge_matrix(matrix_list: list[list[dict[str, any]]]) -> list[dict[str, any]
     return builds
 
 
-def extract_base_images(builds: list[dict[str, any]]):
+def extract_base_images(builds: list[dict[str, Any]]):
     images = []
     for build in builds:
         if "produces" not in build:
@@ -135,7 +136,7 @@ def find_existing_tags(images: list[str]) -> dict[str, list[str]]:
     return existing
 
 
-def validate_produce_conflicts(builds: list[dict[str, any]]):
+def validate_produce_conflicts(builds: list[dict[str, Any]]):
     # produces are intentionally shared across arches for the same (version, flavor);
     # each arch build pushes its single-platform image by digest, and the merge step
     # later tags the combined manifest list. Only flag when the *same* image:tag is
@@ -153,7 +154,7 @@ def validate_produce_conflicts(builds: list[dict[str, any]]):
             produce_owner[produce] = owner
 
 
-def filter_new_builds(builds: list[dict[str, any]]) -> list[dict[str, any]]:
+def filter_new_builds(builds: list[dict[str, Any]]) -> list[dict[str, Any]]:
     images = extract_base_images(builds)
     existing = find_existing_tags(images)
     should_builds = []
@@ -172,7 +173,7 @@ def filter_new_builds(builds: list[dict[str, any]]) -> list[dict[str, any]]:
     return should_builds
 
 
-def limit_gh_builds(builds: list[dict[str, any]]) -> list[dict[str, any]]:
+def limit_gh_builds(builds: list[dict[str, Any]]) -> list[dict[str, Any]]:
     builds.sort(key=lambda build: parse(build["version"]))
 
     if len(builds) > 250:
@@ -197,8 +198,8 @@ def is_release_current(version: str) -> bool:
 
 
 def filter_matrix(
-    builds: list[dict[str, any]], constraint: dict[str, any]
-) -> list[dict[str, any]]:
+    builds: list[dict[str, Any]], constraint: dict[str, Any]
+) -> list[dict[str, Any]]:
     output_builds = []
     for build in builds:
         version = build["version"]
@@ -217,7 +218,7 @@ def filter_matrix(
     return output_builds
 
 
-def filter_config_versions(builds: list[dict[str, any]]) -> list[dict[str, any]]:
+def filter_config_versions(builds: list[dict[str, Any]]) -> list[dict[str, Any]]:
     output_builds = []
     for build in builds:
         version = build["version"]
@@ -236,7 +237,7 @@ def filter_config_versions(builds: list[dict[str, any]]) -> list[dict[str, any]]
     return output_builds
 
 
-def generate_matrix(tags: dict[str, str]) -> list[dict[str, any]]:
+def generate_matrix(tags: dict[str, str]) -> list[dict[str, Any]]:
     unique_versions = list(set(tags.values()))
     unique_versions.sort(key=Version)
 
@@ -354,7 +355,7 @@ def generate_matrix(tags: dict[str, str]) -> list[dict[str, any]]:
     return version_builds
 
 
-def summarize_matrix(builds: list[dict[str, any]]):
+def summarize_matrix(builds: list[dict[str, Any]]):
     for build in builds:
         tags = []
         image_names = []
@@ -398,7 +399,7 @@ def build_release_tags(versions: list[str]) -> dict[str, str]:
     return tags
 
 
-def generate_stable_matrix() -> list[dict[str, any]]:
+def generate_stable_matrix() -> list[dict[str, Any]]:
     current_kernel_releases = get_current_kernel_releases()
     latest_stable = current_kernel_releases["latest_stable"]["version"]
     versions = [
@@ -412,7 +413,7 @@ def generate_stable_matrix() -> list[dict[str, any]]:
     return generate_matrix(tags)
 
 
-def generate_lts_matrix() -> list[dict[str, any]]:
+def generate_lts_matrix() -> list[dict[str, Any]]:
     current_kernel_releases = get_current_kernel_releases()
     versions = [
         r["version"]
@@ -422,7 +423,7 @@ def generate_lts_matrix() -> list[dict[str, any]]:
     return generate_matrix(build_release_tags(versions))
 
 
-def generate_backbuild_matrix() -> list[dict[str, any]]:
+def generate_backbuild_matrix() -> list[dict[str, Any]]:
     tags = {}
     major_minors = {}
 
@@ -463,7 +464,7 @@ def generate_backbuild_matrix() -> list[dict[str, any]]:
     return generate_matrix(tags)
 
 
-def pick_runner(build: dict[str, any]) -> str:
+def pick_runner(build: dict[str, Any]) -> str:
     version: str = build["version"]
     version_info: Version = parse(version)
     flavor: str = build["flavor"]
@@ -480,23 +481,23 @@ def pick_runner(build: dict[str, any]) -> str:
     raise Exception("No runner found for build %s" % build)
 
 
-def fill_runners(builds: list[dict[str, any]]):
+def fill_runners(builds: list[dict[str, Any]]):
     for build in builds:
         build["runner"] = pick_runner(build)
 
 
-def sort_matrix(builds: list[dict[str, any]]):
+def sort_matrix(builds: list[dict[str, Any]]):
     builds.sort(key=lambda build: Version(build["version"]))
 
 
-def generate_merges(builds: list[dict[str, any]]) -> list[dict[str, any]]:
+def generate_merges(builds: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """Group per-arch builds into one merge entry per (version, flavor).
 
     The merge job runs after all per-arch build jobs for that (version, flavor)
     complete; it stitches the single-platform pushes into a manifest list per
     produced image:tag.
     """
-    merges = OrderedDict()  # type: dict[str, dict[str, any]]
+    merges = OrderedDict()  # type: dict[str, dict[str, Any]]
     for build in builds:
         key = "%s::%s" % (build["version"], build["flavor"])
         if key not in merges:

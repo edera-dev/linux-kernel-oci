@@ -1,7 +1,7 @@
 import os
 import re
 import subprocess
-from typing import Optional
+from typing import Any, Optional
 
 from packaging.version import Version
 
@@ -29,7 +29,7 @@ def format_image_name(
     return result
 
 
-def maybe(m: dict[str, any], k: str, default_value: any = None) -> any:
+def maybe(m: dict[str, Any], k: str, default_value: Any = None) -> Any:
     if k in m:
         return m[k]
     else:
@@ -39,7 +39,7 @@ def maybe(m: dict[str, any], k: str, default_value: any = None) -> any:
 def matches_constraints(
     version: Version,
     flavor: str,
-    constraints: dict[str, any],
+    constraints: dict[str, Any],
     is_current_release=None,
     arch: Optional[str] = None,
 ) -> bool:
@@ -139,7 +139,7 @@ def parse_text_bool(text: str) -> bool:
     return text.lower() in ["1", "true", "yes"]
 
 
-def parse_text_constraint(text: str) -> dict[str, any]:
+def parse_text_constraint(text: str) -> dict[str, Any]:
     constraint = {}
     for item in text.split(";"):
         item = item.strip()
