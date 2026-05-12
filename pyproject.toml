@@ -3,6 +3,9 @@ target-version = ["py312"]
 include = '/hack/build/.+\.pyi?$'
 exclude = ''
 
+[tool.mypy]
+python_version = "3.12"
+
 [tool.isort]
 profile = "black"
 py_version = 312

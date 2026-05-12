@@ -10,6 +10,8 @@ packaging = "*"
 [dev-packages]
 black = "*"
 isort = "*"
+mypy = "*"
+types-PyYAML = "*"
 
 [requires]
 python_version = "3.12"
