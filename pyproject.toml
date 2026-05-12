@@ -1,0 +1,4 @@
+[tool.black]
+target-version = ["py312"]
+include = '/hack/build/.+\.pyi?$'
+exclude = ''
