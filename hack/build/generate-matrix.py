@@ -113,9 +113,11 @@ if branch_suffix:
         build["tags"] = ["%s-%s" % (t, branch_suffix) for t in build["tags"]]
         build["produces"] = ["%s-%s" % (p, branch_suffix) for p in build["produces"]]
 
-print("generated %s builds" % len(final_matrix))
+merges = matrix.generate_merges(final_matrix)
+
+print("generated %s builds, %s merges" % (len(final_matrix), len(merges)))
 matrix.summarize_matrix(final_matrix)
 
 with open("matrix.json", "w") as mf:
-    json.dump({"builds": final_matrix}, mf)
+    json.dump({"builds": final_matrix, "merges": merges}, mf)
     mf.write("\n")

@@ -23,13 +23,20 @@ image_name_format = CONFIG["imageNameFormat"]
 
 
 @cache
-def build_architectures():
+def default_architectures() -> list[str]:
     architecture_env = os.getenv("KERNEL_ARCHITECTURES", "")
     if len(architecture_env) > 0:
         return [arch.strip() for arch in architecture_env.split(",")]
 
     architectures = CONFIG["architectures"]  # type: list[str]
     return architectures
+
+
+def flavor_architectures(flavor_info: dict[str, any]) -> list[str]:
+    """Per-flavor architectures override; falls back to the global default."""
+    if "architectures" in flavor_info:
+        return flavor_info["architectures"]
+    return default_architectures()
 
 
 @cache
@@ -87,16 +94,13 @@ def merge_matrix(matrix_list: list[list[dict[str, any]]]) -> list[dict[str, any]
     all_builds = OrderedDict()  # type: dict[str, dict[str, any]]
     for builds in matrix_list:
         for item in builds:
-            key = "%s::%s" % (item["version"], item["flavor"])
+            key = "%s::%s::%s" % (item["version"], item["flavor"], item["arch"])
             if key not in all_builds:
                 all_builds[key] = item
             else:
                 for tag in item["tags"]:
                     if tag not in all_builds[key]["tags"]:
                         all_builds[key]["tags"].append(tag)
-                for arch in item["architectures"]:
-                    if arch not in all_builds[key]["architectures"]:
-                        all_builds[key]["architectures"].append(arch)
 
     builds = list(all_builds.values())
     builds.sort(key=lambda build: parse(build["version"]))
@@ -131,14 +135,21 @@ def find_existing_tags(images: list[str]) -> dict[str, list[str]]:
 
 
 def validate_produce_conflicts(builds: list[dict[str, any]]):
-    produce_check = {}
+    # produces are intentionally shared across arches for the same (version, flavor);
+    # each arch build pushes its single-platform image by digest, and the merge step
+    # later tags the combined manifest list. Only flag when the *same* image:tag is
+    # claimed by two different (version, flavor) combinations.
+    produce_owner = {}
 
     for build in builds:
+        owner = "%s::%s" % (build["version"], build["flavor"])
         for produce in build["produces"]:
-            if produce in produce_check:
-                raise Exception("ERROR: %s was produced more than once" % produce)
-            else:
-                produce_check[produce] = produce
+            if produce in produce_owner and produce_owner[produce] != owner:
+                raise Exception(
+                    "ERROR: %s is produced by both %s and %s"
+                    % (produce, produce_owner[produce], owner)
+                )
+            produce_owner[produce] = owner
 
 
 def filter_new_builds(builds: list[dict[str, any]]) -> list[dict[str, any]]:
@@ -194,7 +205,11 @@ def filter_matrix(
         flavor = build["flavor"]
         is_current_release = is_release_current(version_info.base_version)
         should_build = matches_constraints(
-            version_info, flavor, constraint, is_current_release=is_current_release
+            version_info,
+            flavor,
+            constraint,
+            is_current_release=is_current_release,
+            arch=build.get("arch"),
         )
         if should_build:
             output_builds.append(build)
@@ -269,6 +284,8 @@ def generate_matrix(tags: dict[str, str]) -> list[dict[str, any]]:
             ):
                 continue
 
+            architectures = flavor_architectures(flavor_info)
+
             if "local_tags" in flavor_info:
                 for local_tag in flavor_info["local_tags"]:
                     produces = []
@@ -284,18 +301,19 @@ def generate_matrix(tags: dict[str, str]) -> list[dict[str, any]]:
                         )
                         produces.append(kernel_output)
                         produces.append(kernel_sdk_output)
-                    version_builds.append(
-                        {
-                            "version": version+"+"+local_tag,
-                            "firmware_url": firmware_url,
-                            "firmware_sig_url": firmware_sig_url,
-                            "tags": local_version_tags,
-                            "source": src_url,
-                            "flavor": flavor,
-                            "architectures": build_architectures(),
-                            "produces": produces,
-                        }
-                    )
+                    for arch in architectures:
+                        version_builds.append(
+                            {
+                                "version": version+"+"+local_tag,
+                                "firmware_url": firmware_url,
+                                "firmware_sig_url": firmware_sig_url,
+                                "tags": local_version_tags,
+                                "source": src_url,
+                                "flavor": flavor,
+                                "arch": arch,
+                                "produces": produces,
+                            }
+                        )
             else:
                 produces = []
                 for tag in version_tags:
@@ -307,18 +325,19 @@ def generate_matrix(tags: dict[str, str]) -> list[dict[str, any]]:
                     )
                     produces.append(kernel_output)
                     produces.append(kernel_sdk_output)
-                version_builds.append(
-                    {
-                        "version": version,
-                        "firmware_url": firmware_url,
-                        "firmware_sig_url": firmware_sig_url,
-                        "tags": version_tags,
-                        "source": src_url,
-                        "flavor": flavor,
-                        "architectures": build_architectures(),
-                        "produces": produces,
-                    }
-                )
+                for arch in architectures:
+                    version_builds.append(
+                        {
+                            "version": version,
+                            "firmware_url": firmware_url,
+                            "firmware_sig_url": firmware_sig_url,
+                            "tags": version_tags,
+                            "source": src_url,
+                            "flavor": flavor,
+                            "arch": arch,
+                            "produces": produces,
+                        }
+                    )
     return version_builds
 
 
@@ -339,7 +358,7 @@ def summarize_matrix(builds: list[dict[str, any]]):
             % (
                 build["flavor"],
                 build["version"],
-                ", ".join(build["architectures"]),
+                build["arch"],
                 ", ".join(tags),
                 ", ".join(image_names),
                 build["runner"],
@@ -429,9 +448,14 @@ def pick_runner(build: dict[str, any]) -> str:
     version: str = build["version"]
     version_info: Version = parse(version)
     flavor: str = build["flavor"]
+    arch: str = build["arch"]
     for runner in CONFIG["runners"]:
         if matches_constraints(
-            version_info, flavor, runner, is_current_release=is_release_current(version_info.base_version)
+            version_info,
+            flavor,
+            runner,
+            is_current_release=is_release_current(version_info.base_version),
+            arch=arch,
         ):
             return runner["name"]
     raise Exception("No runner found for build %s" % build)
@@ -444,3 +468,27 @@ def fill_runners(builds: list[dict[str, any]]):
 
 def sort_matrix(builds: list[dict[str, any]]):
     builds.sort(key=lambda build: Version(build["version"]))
+
+
+def generate_merges(builds: list[dict[str, any]]) -> list[dict[str, any]]:
+    """Group per-arch builds into one merge entry per (version, flavor).
+
+    The merge job runs after all per-arch build jobs for that (version, flavor)
+    complete; it stitches the single-platform pushes into a manifest list per
+    produced image:tag.
+    """
+    merges = OrderedDict()  # type: dict[str, dict[str, any]]
+    for build in builds:
+        key = "%s::%s" % (build["version"], build["flavor"])
+        if key not in merges:
+            merges[key] = {
+                "version": build["version"],
+                "flavor": build["flavor"],
+                "tags": list(build["tags"]),
+                "produces": list(build["produces"]),
+                "archs": [build["arch"]],
+            }
+        else:
+            if build["arch"] not in merges[key]["archs"]:
+                merges[key]["archs"].append(build["arch"])
+    return list(merges.values())
