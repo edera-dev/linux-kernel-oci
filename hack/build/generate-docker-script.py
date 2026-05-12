@@ -436,11 +436,11 @@ def generate_build_from_env() -> list[str]:
     to build a multi-platform image with one buildx invocation (relies on QEMU
     + containerd-snapshotter locally). KERNEL_ARCH is also accepted as a
     convenience alias for a single arch."""
-    root_kernel_version = os.getenv("KERNEL_VERSION")
-    root_kernel_flavor = os.getenv("KERNEL_FLAVOR")
-    root_kernel_src_url = os.getenv("KERNEL_SRC_URL")
-    root_firmware_url = os.getenv("FIRMWARE_URL")
-    root_firmware_sig_url = os.getenv("FIRMWARE_SIG_URL")
+    root_kernel_version = os.environ["KERNEL_VERSION"]
+    root_kernel_flavor = os.environ["KERNEL_FLAVOR"]
+    root_kernel_src_url = os.environ["KERNEL_SRC_URL"]
+    root_firmware_url = os.environ["FIRMWARE_URL"]
+    root_firmware_sig_url = os.environ["FIRMWARE_SIG_URL"]
     root_kernel_tags = os.getenv("KERNEL_TAGS", "").split(",")
 
     archs_env = os.getenv("KERNEL_ARCHITECTURES", "")
