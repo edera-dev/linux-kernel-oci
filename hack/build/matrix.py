@@ -72,6 +72,7 @@ def get_all_kernel_releases() -> list[str]:
             releases.append(kernel_version)
     return releases
 
+
 @cache
 def get_all_firmware_releases() -> list[str]:
     snapshots = []
@@ -79,16 +80,18 @@ def get_all_firmware_releases() -> list[str]:
         "rsync://rsync.kernel.org/pub/linux/kernel/firmware/"
     ):
         if not (
-            maybe_release_snapshot.startswith("linux-firmware-") and maybe_release_snapshot.endswith(".xz")
+            maybe_release_snapshot.startswith("linux-firmware-")
+            and maybe_release_snapshot.endswith(".xz")
         ):
             continue
-        firmware_snapshot_version = maybe_release_snapshot.replace("linux-firmware-", "").replace(
-            ".tar.xz", ""
-        )
+        firmware_snapshot_version = maybe_release_snapshot.replace(
+            "linux-firmware-", ""
+        ).replace(".tar.xz", "")
         snapshots.append(firmware_snapshot_version)
     snapshots.sort()
     snapshots.reverse()
     return snapshots
+
 
 def merge_matrix(matrix_list: list[list[dict[str, any]]]) -> list[dict[str, any]]:
     all_builds = OrderedDict()  # type: dict[str, dict[str, any]]
@@ -291,20 +294,28 @@ def generate_matrix(tags: dict[str, str]) -> list[dict[str, any]]:
                     produces = []
                     local_version_tags = []
                     for tag in version_tags:
-                        local_append = tag+"-"+local_tag
+                        local_append = tag + "-" + local_tag
                         local_version_tags.append(local_append)
                         kernel_output = format_image_name(
-                            image_name_format, flavor, version_info, "[flavor]-kernel", local_append
+                            image_name_format,
+                            flavor,
+                            version_info,
+                            "[flavor]-kernel",
+                            local_append,
                         )
                         kernel_sdk_output = format_image_name(
-                            image_name_format, flavor, version_info, "[flavor]-kernel-sdk", local_append
+                            image_name_format,
+                            flavor,
+                            version_info,
+                            "[flavor]-kernel-sdk",
+                            local_append,
                         )
                         produces.append(kernel_output)
                         produces.append(kernel_sdk_output)
                     for arch in architectures:
                         version_builds.append(
                             {
-                                "version": version+"+"+local_tag,
+                                "version": version + "+" + local_tag,
                                 "firmware_url": firmware_url,
                                 "firmware_sig_url": firmware_sig_url,
                                 "tags": local_version_tags,
@@ -321,7 +332,11 @@ def generate_matrix(tags: dict[str, str]) -> list[dict[str, any]]:
                         image_name_format, flavor, version_info, "[flavor]-kernel", tag
                     )
                     kernel_sdk_output = format_image_name(
-                        image_name_format, flavor, version_info, "[flavor]-kernel-sdk", tag
+                        image_name_format,
+                        flavor,
+                        version_info,
+                        "[flavor]-kernel-sdk",
+                        tag,
                     )
                     produces.append(kernel_output)
                     produces.append(kernel_sdk_output)
@@ -372,7 +387,7 @@ def build_release_tags(versions: list[str]) -> dict[str, str]:
         parsed_ver = parse(raw_version)
         # Hardcode skip of pre-5.x.x kernels
         if parsed_ver.major < 5:
-            print(f'skipping {raw_version}, too old to support')
+            print(f"skipping {raw_version}, too old to support")
             continue
         major = str(parsed_ver.major)
         major_minor = "%s.%s" % (parsed_ver.major, parsed_ver.minor)
@@ -388,8 +403,11 @@ def build_release_tags(versions: list[str]) -> dict[str, str]:
 def generate_stable_matrix() -> list[dict[str, any]]:
     current_kernel_releases = get_current_kernel_releases()
     latest_stable = current_kernel_releases["latest_stable"]["version"]
-    versions = [r["version"] for r in current_kernel_releases["releases"]
-                if r["moniker"] in ["stable", "longterm"]]
+    versions = [
+        r["version"]
+        for r in current_kernel_releases["releases"]
+        if r["moniker"] in ["stable", "longterm"]
+    ]
     tags = build_release_tags(versions)
     tags["stable"] = latest_stable
     tags["latest"] = latest_stable
@@ -398,8 +416,11 @@ def generate_stable_matrix() -> list[dict[str, any]]:
 
 def generate_lts_matrix() -> list[dict[str, any]]:
     current_kernel_releases = get_current_kernel_releases()
-    versions = [r["version"] for r in current_kernel_releases["releases"]
-                if r["moniker"] == "longterm"]
+    versions = [
+        r["version"]
+        for r in current_kernel_releases["releases"]
+        if r["moniker"] == "longterm"
+    ]
     return generate_matrix(build_release_tags(versions))
 
 
