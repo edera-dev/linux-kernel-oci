@@ -6,12 +6,11 @@ cd "$(dirname "${REAL_SCRIPT}")/../.." || return
 unset REAL_SCRIPT
 
 activate_env() {
-	if [ ! -d "venv" ]; then
-		python3 -m venv venv
-		pip install --upgrade pip
+	if ! type pipenv >/dev/null 2>&1; then
+		pip3 install pipenv
 	fi
-	. venv/bin/activate
-	pip3 install -qq -r requirements.txt
+	pipenv install --dev
+	exec "$(pipenv activate)"
 }
 
 activate_env
