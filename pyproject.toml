@@ -2,3 +2,11 @@
 target-version = ["py312"]
 include = '/hack/build/.+\.pyi?$'
 exclude = ''
+
+[tool.isort]
+profile = "black"
+py_version = 312
+# Avoid matching `/hack/build/` on `.gitignore` and built-in rules
+skip_gitignore = false
+skip_glob = ''
+skip = ''
