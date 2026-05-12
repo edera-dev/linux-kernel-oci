@@ -120,11 +120,11 @@ def list_rsync_dir(url: str):
         ["rsync", "--list-only", "--out-format='%n'", url],
         stdout=subprocess.PIPE,
         stderr=subprocess.DEVNULL,
+        universal_newlines=True,
     )
     result.check_returncode()
     files = []
     for line in result.stdout.splitlines(keepends=False):
-        line = line.decode("utf-8")
         if len(line.strip()) == 0:
             continue
         if line.startswith("MOTD:"):
@@ -140,7 +140,7 @@ def parse_text_bool(text: str) -> bool:
 
 
 def parse_text_constraint(text: str) -> dict[str, Any]:
-    constraint = {}
+    constraint: dict[str, Any] = {}
     for item in text.split(";"):
         item = item.strip()
         parts = item.split("=", maxsplit=1)
@@ -170,8 +170,8 @@ def parse_text_constraint(text: str) -> dict[str, Any]:
 def smart_script_split(
     command: list[str], description: Optional[str] = None
 ) -> list[str]:
-    sections = []
-    current = []
+    sections: list[list[str]] = []
+    current: list[str] = []
     is_potentially_value = False
     for item in command:
         arm_potentially_value = False

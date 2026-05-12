@@ -13,7 +13,7 @@ from util import format_image_name, list_rsync_dir, matches_constraints
 try:
     from yaml import CLoader as Loader
 except ImportError:
-    from yaml import Loader
+    from yaml import Loader  # type: ignore
 
 with open("config.yaml", "r") as f:
     CONFIG = yaml.load(f, Loader)
@@ -141,10 +141,11 @@ def validate_produce_conflicts(builds: list[dict[str, Any]]):
     # each arch build pushes its single-platform image by digest, and the merge step
     # later tags the combined manifest list. Only flag when the *same* image:tag is
     # claimed by two different (version, flavor) combinations.
-    produce_owner = {}
+    produce_owner: dict[str, str] = {}
 
     for build in builds:
         owner = "%s::%s" % (build["version"], build["flavor"])
+        produce: str
         for produce in build["produces"]:
             if produce in produce_owner and produce_owner[produce] != owner:
                 raise Exception(
@@ -381,7 +382,7 @@ def summarize_matrix(builds: list[dict[str, Any]]):
 
 
 def build_release_tags(versions: list[str]) -> dict[str, str]:
-    tags = {}
+    tags: dict[str, str] = {}
     for raw_version in versions:
         parsed_ver = parse(raw_version)
         # Hardcode skip of pre-5.x.x kernels
@@ -424,7 +425,7 @@ def generate_lts_matrix() -> list[dict[str, Any]]:
 
 
 def generate_backbuild_matrix() -> list[dict[str, Any]]:
-    tags = {}
+    tags: dict[str, str] = {}
     major_minors = {}
 
     all_releases = get_all_kernel_releases()
