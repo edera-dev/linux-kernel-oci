@@ -1,15 +1,13 @@
 import json
 import os
-
-import yaml
 import subprocess
 import urllib.request
 from collections import OrderedDict
 from functools import cache
 
+import yaml
 from packaging.version import Version, parse
-
-from util import matches_constraints, list_rsync_dir, format_image_name
+from util import format_image_name, list_rsync_dir, matches_constraints
 
 try:
     from yaml import CLoader as Loader

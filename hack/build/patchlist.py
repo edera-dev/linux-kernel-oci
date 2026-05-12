@@ -1,8 +1,7 @@
 import sys
 
-from packaging.version import parse
-
 from matrix import CONFIG
+from packaging.version import parse
 from util import matches_constraints, maybe
 
 if len(sys.argv) != 3:

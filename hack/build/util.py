@@ -1,9 +1,9 @@
 import os
 import re
+import subprocess
 from typing import Optional
 
 from packaging.version import Version
-import subprocess
 
 
 def get_branch_tag_suffix() -> Optional[str]:

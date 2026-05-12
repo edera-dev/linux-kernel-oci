@@ -1,18 +1,17 @@
-import os
-import sys
 import json
+import os
 import stat
+import sys
 from typing import Optional
 
-from packaging.version import parse, Version
-
 from matrix import CONFIG
+from packaging.version import Version, parse
 from util import (
     format_image_name,
-    maybe,
-    smart_script_split,
-    parse_text_bool,
     get_branch_tag_suffix,
+    maybe,
+    parse_text_bool,
+    smart_script_split,
 )
 
 # Targets that are handled via docker run + host CCACHE packaging stages.

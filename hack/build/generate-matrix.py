@@ -2,8 +2,8 @@ import json
 import sys
 
 import matrix
-from util import parse_text_constraint, maybe, get_branch_tag_suffix
 from packaging.version import Version, parse
+from util import get_branch_tag_suffix, maybe, parse_text_constraint
 
 
 def construct_stable_matrix():
