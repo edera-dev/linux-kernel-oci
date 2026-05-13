@@ -9,6 +9,7 @@ packaging = "*"
 
 [dev-packages]
 black = "*"
+invoke = "*"
 isort = "*"
 mypy = "*"
 types-PyYAML = "*"
