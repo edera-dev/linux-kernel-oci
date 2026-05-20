@@ -1,0 +1,217 @@
+From 150666b04dd7ebdef6641d9a09f0d90bfbf801aa Mon Sep 17 00:00:00 2001
+From: Steven Noonan <steven@edera.dev>
+Date: Tue, 19 May 2026 19:17:39 -0700
+Subject: [PATCH 7/9] xen/xenbus: add xenbus_setup_ring_node for per-node ring
+ allocation
+
+Frontend drivers today route every ring allocation through
+xenbus_setup_ring, which calls alloc_pages_exact with no node
+preference.  The result is that every PV ring -- across all queues
+of all multi-queue devices on a guest -- ends up on whichever node
+the xenbus watch handler happens to run on, typically a single fixed
+value at boot.  Multi-queue devices on multi-vnode guests therefore
+defeat the dom0 backend's per-queue NUMA affinity work: all of dom0's
+backend kthreads cluster on one host node because all of the guest's
+rings live on one guest node, which maps to one host node.
+
+Add a node-aware variant.  xenbus_setup_ring_node(dev, gfp, node, ...)
+takes a Linux node id and draws the ring pages from that node's buddy
+list.  xenbus_setup_ring() is now a thin wrapper that passes
+NUMA_NO_NODE, preserving existing behaviour for every caller until
+they opt in.
+
+The same-ring locality property is preserved by construction.  A
+single buddy allocation comes from a single node's free list, so all
+pages of one ring remain on one node regardless of which node was
+requested.  The new variant only changes which node that is.
+
+alloc_pages_exact_nid is __meminit-restricted and not exported, so
+the body cannot just delegate to it.  Use alloc_pages_node() (which
+is exported and runtime-safe) to get an order-N block on the target
+node, then split_page() it so every subpage carries an independent
+refcount, and free any tail pages beyond ring_size back to the
+allocator.
+
+Also add xenbus_node_for_queue(index), a helper that rotates over the
+set of nodes with online CPUs.  Frontend callers feed it a per-queue
+or per-ring index to pick the node they pass to
+xenbus_setup_ring_node.  The natural shape is
+cpumask_local_spread(i, NUMA_NO_NODE), but with a NUMA_NO_NODE node
+argument that falls back to a linear walk of cpu_online_mask (see
+sched_numa_find_nth_cpu) and collapses every queue onto the first
+node's CPUs.  Going through num_node_state(N_CPU) and
+for_each_node_state(node, N_CPU) actually rotates.  Living in
+xenbus_client.c rather than open-coded in each driver lets future
+scsiback / pvcalls-back style frontends pick it up for free.
+
+Signed-off-by: Steven Noonan <steven@edera.dev>
+---
+ drivers/xen/xenbus/xenbus_client.c | 105 ++++++++++++++++++++++++++---
+ include/xen/xenbus.h               |   4 ++
+ 2 files changed, 99 insertions(+), 10 deletions(-)
+
+diff --git a/drivers/xen/xenbus/xenbus_client.c b/drivers/xen/xenbus/xenbus_client.c
+index f357c4a0372f..7419a8183903 100644
+--- a/drivers/xen/xenbus/xenbus_client.c
++++ b/drivers/xen/xenbus/xenbus_client.c
+@@ -31,6 +31,7 @@
+  */
+ 
+ #include <linux/mm.h>
++#include <linux/nodemask.h>
+ #include <linux/numa.h>
+ #include <linux/slab.h>
+ #include <linux/types.h>
+@@ -448,33 +449,103 @@ static void xenbus_switch_fatal(struct xenbus_device *dev, int depth, int err,
+ }
+ 
+ /*
+- * xenbus_setup_ring
++ * xenbus_setup_ring_node
+  * @dev: xenbus device
++ * @gfp: GFP flags for the allocation
++ * @node: preferred Linux node id for the ring pages, or NUMA_NO_NODE
+  * @vaddr: pointer to starting virtual address of the ring
+  * @nr_pages: number of pages to be granted
+  * @grefs: grant reference array to be filled in
+  *
+- * Allocate physically contiguous pages for a shared ring buffer and grant it
+- * to the peer of the given device. The ring buffer is initially filled with
+- * zeroes. The virtual address of the ring is stored at @vaddr and the
+- * grant references are stored in the @grefs array. In case of error @vaddr
+- * will be set to NULL and @grefs will be filled with INVALID_GRANT_REF.
++ * Same contract as xenbus_setup_ring(), but the ring pages are drawn
++ * from @node's buddy free list when possible (subject to fallback when
++ * @node has no available memory).  All pages of a single ring come
++ * from one buddy allocation so they remain on a single node by
++ * construction, which is the property frontends rely on to keep
++ * per-queue rings on per-queue nodes.
++ *
++ * The ring buffer is initially filled with zeroes.  The virtual address
++ * of the ring is stored at @vaddr and the grant references are stored
++ * in the @grefs array.  In case of error @vaddr will be set to NULL and
++ * @grefs will be filled with INVALID_GRANT_REF.
+  */
+-int xenbus_setup_ring(struct xenbus_device *dev, gfp_t gfp, void **vaddr,
+-		      unsigned int nr_pages, grant_ref_t *grefs)
++/*
++ * Pick a Linux node id from the set of nodes with online CPUs, cycling
++ * by @index.  Frontends use this to distribute per-queue rings across
++ * guest NUMA nodes so the dom0 backend's per-ring placement lands them
++ * on distinct host nodes.
++ *
++ * cpumask_local_spread(i, NUMA_NO_NODE) is the natural shape this code
++ * wants, but with a NUMA_NO_NODE node argument it falls back to a
++ * straight linear walk of cpu_online_mask (see sched_numa_find_nth_cpu)
++ * which collapses every queue onto the first node's CPUs.  This helper
++ * actually rotates over nodes.
++ */
++int xenbus_node_for_queue(unsigned int index)
++{
++	unsigned int idx = 0;
++	unsigned int n;
++	int node;
++
++	n = num_node_state(N_CPU);
++	if (n == 0)
++		return NUMA_NO_NODE;
++
++	index %= n;
++	for_each_node_state(node, N_CPU) {
++		if (idx == index)
++			return node;
++		idx++;
++	}
++	return NUMA_NO_NODE;
++}
++EXPORT_SYMBOL_GPL(xenbus_node_for_queue);
++
++int xenbus_setup_ring_node(struct xenbus_device *dev, gfp_t gfp, int node,
++			   void **vaddr, unsigned int nr_pages,
++			   grant_ref_t *grefs)
+ {
+ 	unsigned long ring_size = nr_pages * XEN_PAGE_SIZE;
++	unsigned int order;
++	unsigned long nr_alloc;
++	struct page *page;
+ 	grant_ref_t gref_head;
+ 	unsigned int i;
+ 	void *addr;
+ 	int ret;
+ 
+-	addr = *vaddr = alloc_pages_exact(ring_size, gfp | __GFP_ZERO);
+-	if (!*vaddr) {
++	*vaddr = NULL;
++
++	/*
++	 * Mirror the GFP filtering that alloc_pages_exact() does
++	 * internally: split_page() below requires a non-compound page
++	 * and HIGHMEM is incompatible with the direct virt mapping used
++	 * by the grant code.
++	 */
++	gfp &= ~(__GFP_COMP | __GFP_HIGHMEM);
++
++	order = get_order(ring_size);
++	page = alloc_pages_node(node, gfp | __GFP_ZERO, order);
++	if (!page) {
+ 		ret = -ENOMEM;
+ 		goto err;
+ 	}
+ 
++	/*
++	 * alloc_pages_node returns a single order-N block where only
++	 * the head is refcounted.  split_page makes every subpage
++	 * individually refcounted so free_pages_exact() can release the
++	 * ring page-by-page.  Return any tail pages beyond ring_size to
++	 * the allocator immediately.
++	 */
++	split_page(page, order);
++	nr_alloc = 1UL << order;
++	for (i = DIV_ROUND_UP(ring_size, PAGE_SIZE); i < nr_alloc; i++)
++		__free_page(page + i);
++
++	addr = page_address(page);
++	*vaddr = addr;
++
+ 	ret = gnttab_alloc_grant_references(nr_pages, &gref_head);
+ 	if (ret) {
+ 		xenbus_dev_fatal(dev, ret, "granting access to %u ring pages",
+@@ -508,6 +579,20 @@ int xenbus_setup_ring(struct xenbus_device *dev, gfp_t gfp, void **vaddr,
+ 
+ 	return ret;
+ }
++EXPORT_SYMBOL_GPL(xenbus_setup_ring_node);
++
++/*
++ * xenbus_setup_ring
++ *
++ * Equivalent to xenbus_setup_ring_node() with no node preference; the
++ * pages come from the current CPU's local node by default GFP policy.
++ */
++int xenbus_setup_ring(struct xenbus_device *dev, gfp_t gfp, void **vaddr,
++		      unsigned int nr_pages, grant_ref_t *grefs)
++{
++	return xenbus_setup_ring_node(dev, gfp, NUMA_NO_NODE, vaddr, nr_pages,
++				      grefs);
++}
+ EXPORT_SYMBOL_GPL(xenbus_setup_ring);
+ 
+ /*
+diff --git a/include/xen/xenbus.h b/include/xen/xenbus.h
+index 18b902bf79ef..8ce096797b86 100644
+--- a/include/xen/xenbus.h
++++ b/include/xen/xenbus.h
+@@ -216,6 +216,10 @@ int xenbus_watch_pathfmt(struct xenbus_device *dev, struct xenbus_watch *watch,
+ 			 const char *pathfmt, ...);
+ 
+ int xenbus_switch_state(struct xenbus_device *dev, enum xenbus_state new_state);
++int xenbus_node_for_queue(unsigned int index);
++int xenbus_setup_ring_node(struct xenbus_device *dev, gfp_t gfp, int node,
++			   void **vaddr, unsigned int nr_pages,
++			   grant_ref_t *grefs);
+ int xenbus_setup_ring(struct xenbus_device *dev, gfp_t gfp, void **vaddr,
+ 		      unsigned int nr_pages, grant_ref_t *grefs);
+ void xenbus_teardown_ring(void **vaddr, unsigned int nr_pages,
+-- 
+2.54.0
+

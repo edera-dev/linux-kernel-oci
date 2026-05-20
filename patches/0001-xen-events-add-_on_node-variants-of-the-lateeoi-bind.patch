@@ -1,0 +1,298 @@
+From bd2dbbb1f3a05a5d77d18548d41cdb25c0b81912 Mon Sep 17 00:00:00 2001
+From: Steven Noonan <steven@edera.dev>
+Date: Tue, 19 May 2026 23:00:20 -0700
+Subject: [PATCH 1/9] xen/events: add _on_node variants of the lateeoi bind
+ helpers
+
+xen_allocate_irq_dynamic() unconditionally calls
+irq_alloc_desc_from(0, -1), so every Xen evtchn IRQ descriptor is
+allocated with NUMA_NO_NODE.  This means /proc/irq/N/node always
+reads -1 even when the caller (netback, blkback, netfront, blkfront)
+already knows the right node for the IRQ.
+
+irqbalance treats node=-1 as "no NUMA preference" and distributes
+the IRQ across all CPUs for load balance, ignoring affinity_hint.
+With irqbalance running, the per-queue NUMA placement we install via
+irq_set_affinity_and_hint() gets overwritten almost immediately.
+
+Add _on_node variants of the four bind helpers Xen front/back ends
+use:
+
+  bind_evtchn_to_irq_lateeoi_on_node(evtchn, node)
+  bind_evtchn_to_irqhandler_lateeoi_on_node(..., node)
+  bind_interdomain_evtchn_to_irq_lateeoi_on_node(..., node)
+  bind_interdomain_evtchn_to_irqhandler_lateeoi_on_node(..., node)
+
+Each passes the caller's node through to the internal chip helpers
+and on to a new xen_allocate_irq_dynamic_node(node).  The existing
+public functions become thin wrappers passing NUMA_NO_NODE, so every
+caller that hasn't been updated keeps today's behaviour.
+
+After this change, /proc/irq/N/node reflects the node the caller
+asked for, and irqbalance respects affinity_hint as a NUMA-local
+subset rather than treating the IRQ as floating.
+
+Signed-off-by: Steven Noonan <steven@edera.dev>
+---
+ drivers/xen/events/events_base.c | 86 ++++++++++++++++++++++++++------
+ include/xen/events.h             | 15 ++++++
+ 2 files changed, 85 insertions(+), 16 deletions(-)
+
+diff --git a/drivers/xen/events/events_base.c b/drivers/xen/events/events_base.c
+index 9478fae014e5..6368ff561472 100644
+--- a/drivers/xen/events/events_base.c
++++ b/drivers/xen/events/events_base.c
+@@ -28,6 +28,7 @@
+ #include <linux/interrupt.h>
+ #include <linux/irq.h>
+ #include <linux/moduleparam.h>
++#include <linux/numa.h>
+ #include <linux/string.h>
+ #include <linux/memblock.h>
+ #include <linux/slab.h>
+@@ -729,9 +730,9 @@ static struct irq_info *xen_irq_init(unsigned int irq)
+ 	return info;
+ }
+ 
+-static struct irq_info *xen_allocate_irq_dynamic(void)
++static struct irq_info *xen_allocate_irq_dynamic_node(int node)
+ {
+-	int irq = irq_alloc_desc_from(0, -1);
++	int irq = irq_alloc_desc_from(0, node);
+ 	struct irq_info *info = NULL;
+ 
+ 	if (irq >= 0) {
+@@ -743,6 +744,11 @@ static struct irq_info *xen_allocate_irq_dynamic(void)
+ 	return info;
+ }
+ 
++static struct irq_info *xen_allocate_irq_dynamic(void)
++{
++	return xen_allocate_irq_dynamic_node(NUMA_NO_NODE);
++}
++
+ static struct irq_info *xen_allocate_irq_gsi(unsigned int gsi)
+ {
+ 	int irq;
+@@ -1184,7 +1190,8 @@ int xen_pirq_from_irq(unsigned irq)
+ EXPORT_SYMBOL_GPL(xen_pirq_from_irq);
+ 
+ static int bind_evtchn_to_irq_chip(evtchn_port_t evtchn, struct irq_chip *chip,
+-				   struct xenbus_device *dev, bool shared)
++				   struct xenbus_device *dev, bool shared,
++				   int node)
+ {
+ 	int ret = -ENOMEM;
+ 	struct irq_info *info;
+@@ -1197,7 +1204,7 @@ static int bind_evtchn_to_irq_chip(evtchn_port_t evtchn, struct irq_chip *chip,
+ 	info = evtchn_to_info(evtchn);
+ 
+ 	if (!info) {
+-		info = xen_allocate_irq_dynamic();
++		info = xen_allocate_irq_dynamic_node(node);
+ 		if (!info)
+ 			goto out;
+ 
+@@ -1232,16 +1239,25 @@ static int bind_evtchn_to_irq_chip(evtchn_port_t evtchn, struct irq_chip *chip,
+ 
+ int bind_evtchn_to_irq(evtchn_port_t evtchn)
+ {
+-	return bind_evtchn_to_irq_chip(evtchn, &xen_dynamic_chip, NULL, false);
++	return bind_evtchn_to_irq_chip(evtchn, &xen_dynamic_chip, NULL, false,
++				       NUMA_NO_NODE);
+ }
+ EXPORT_SYMBOL_GPL(bind_evtchn_to_irq);
+ 
+ int bind_evtchn_to_irq_lateeoi(evtchn_port_t evtchn)
+ {
+-	return bind_evtchn_to_irq_chip(evtchn, &xen_lateeoi_chip, NULL, false);
++	return bind_evtchn_to_irq_chip(evtchn, &xen_lateeoi_chip, NULL, false,
++				       NUMA_NO_NODE);
+ }
+ EXPORT_SYMBOL_GPL(bind_evtchn_to_irq_lateeoi);
+ 
++int bind_evtchn_to_irq_lateeoi_on_node(evtchn_port_t evtchn, int node)
++{
++	return bind_evtchn_to_irq_chip(evtchn, &xen_lateeoi_chip, NULL, false,
++				       node);
++}
++EXPORT_SYMBOL_GPL(bind_evtchn_to_irq_lateeoi_on_node);
++
+ static int bind_ipi_to_irq(unsigned int ipi, unsigned int cpu)
+ {
+ 	struct evtchn_bind_ipi bind_ipi;
+@@ -1291,7 +1307,7 @@ static int bind_ipi_to_irq(unsigned int ipi, unsigned int cpu)
+ static int bind_interdomain_evtchn_to_irq_chip(struct xenbus_device *dev,
+ 					       evtchn_port_t remote_port,
+ 					       struct irq_chip *chip,
+-					       bool shared)
++					       bool shared, int node)
+ {
+ 	struct evtchn_bind_interdomain bind_interdomain;
+ 	int err;
+@@ -1303,17 +1319,28 @@ static int bind_interdomain_evtchn_to_irq_chip(struct xenbus_device *dev,
+ 					  &bind_interdomain);
+ 
+ 	return err ? : bind_evtchn_to_irq_chip(bind_interdomain.local_port,
+-					       chip, dev, shared);
++					       chip, dev, shared, node);
+ }
+ 
+ int bind_interdomain_evtchn_to_irq_lateeoi(struct xenbus_device *dev,
+ 					   evtchn_port_t remote_port)
+ {
+ 	return bind_interdomain_evtchn_to_irq_chip(dev, remote_port,
+-						   &xen_lateeoi_chip, false);
++						   &xen_lateeoi_chip, false,
++						   NUMA_NO_NODE);
+ }
+ EXPORT_SYMBOL_GPL(bind_interdomain_evtchn_to_irq_lateeoi);
+ 
++int bind_interdomain_evtchn_to_irq_lateeoi_on_node(struct xenbus_device *dev,
++						   evtchn_port_t remote_port,
++						   int node)
++{
++	return bind_interdomain_evtchn_to_irq_chip(dev, remote_port,
++						   &xen_lateeoi_chip, false,
++						   node);
++}
++EXPORT_SYMBOL_GPL(bind_interdomain_evtchn_to_irq_lateeoi_on_node);
++
+ static int find_virq(unsigned int virq, unsigned int cpu, evtchn_port_t *evtchn,
+ 		     bool percpu)
+ {
+@@ -1432,12 +1459,12 @@ static int bind_evtchn_to_irqhandler_chip(evtchn_port_t evtchn,
+ 					  irq_handler_t handler,
+ 					  unsigned long irqflags,
+ 					  const char *devname, void *dev_id,
+-					  struct irq_chip *chip)
++					  struct irq_chip *chip, int node)
+ {
+ 	int irq, retval;
+ 
+ 	irq = bind_evtchn_to_irq_chip(evtchn, chip, NULL,
+-				      irqflags & IRQF_SHARED);
++				      irqflags & IRQF_SHARED, node);
+ 	if (irq < 0)
+ 		return irq;
+ 	retval = request_irq(irq, handler, irqflags, devname, dev_id);
+@@ -1456,7 +1483,8 @@ int bind_evtchn_to_irqhandler(evtchn_port_t evtchn,
+ {
+ 	return bind_evtchn_to_irqhandler_chip(evtchn, handler, irqflags,
+ 					      devname, dev_id,
+-					      &xen_dynamic_chip);
++					      &xen_dynamic_chip,
++					      NUMA_NO_NODE);
+ }
+ EXPORT_SYMBOL_GPL(bind_evtchn_to_irqhandler);
+ 
+@@ -1467,19 +1495,34 @@ int bind_evtchn_to_irqhandler_lateeoi(evtchn_port_t evtchn,
+ {
+ 	return bind_evtchn_to_irqhandler_chip(evtchn, handler, irqflags,
+ 					      devname, dev_id,
+-					      &xen_lateeoi_chip);
++					      &xen_lateeoi_chip,
++					      NUMA_NO_NODE);
+ }
+ EXPORT_SYMBOL_GPL(bind_evtchn_to_irqhandler_lateeoi);
+ 
++int bind_evtchn_to_irqhandler_lateeoi_on_node(evtchn_port_t evtchn,
++					      irq_handler_t handler,
++					      unsigned long irqflags,
++					      const char *devname,
++					      void *dev_id, int node)
++{
++	return bind_evtchn_to_irqhandler_chip(evtchn, handler, irqflags,
++					      devname, dev_id,
++					      &xen_lateeoi_chip, node);
++}
++EXPORT_SYMBOL_GPL(bind_evtchn_to_irqhandler_lateeoi_on_node);
++
+ static int bind_interdomain_evtchn_to_irqhandler_chip(
+ 		struct xenbus_device *dev, evtchn_port_t remote_port,
+ 		irq_handler_t handler, unsigned long irqflags,
+-		const char *devname, void *dev_id, struct irq_chip *chip)
++		const char *devname, void *dev_id, struct irq_chip *chip,
++		int node)
+ {
+ 	int irq, retval;
+ 
+ 	irq = bind_interdomain_evtchn_to_irq_chip(dev, remote_port, chip,
+-						  irqflags & IRQF_SHARED);
++						  irqflags & IRQF_SHARED,
++						  node);
+ 	if (irq < 0)
+ 		return irq;
+ 
+@@ -1501,10 +1544,21 @@ int bind_interdomain_evtchn_to_irqhandler_lateeoi(struct xenbus_device *dev,
+ {
+ 	return bind_interdomain_evtchn_to_irqhandler_chip(dev,
+ 				remote_port, handler, irqflags, devname,
+-				dev_id, &xen_lateeoi_chip);
++				dev_id, &xen_lateeoi_chip, NUMA_NO_NODE);
+ }
+ EXPORT_SYMBOL_GPL(bind_interdomain_evtchn_to_irqhandler_lateeoi);
+ 
++int bind_interdomain_evtchn_to_irqhandler_lateeoi_on_node(
++		struct xenbus_device *dev, evtchn_port_t remote_port,
++		irq_handler_t handler, unsigned long irqflags,
++		const char *devname, void *dev_id, int node)
++{
++	return bind_interdomain_evtchn_to_irqhandler_chip(dev,
++				remote_port, handler, irqflags, devname,
++				dev_id, &xen_lateeoi_chip, node);
++}
++EXPORT_SYMBOL_GPL(bind_interdomain_evtchn_to_irqhandler_lateeoi_on_node);
++
+ int bind_virq_to_irqhandler(unsigned int virq, unsigned int cpu,
+ 			    irq_handler_t handler,
+ 			    unsigned long irqflags, const char *devname, void *dev_id)
+diff --git a/include/xen/events.h b/include/xen/events.h
+index de5da58a0205..1abc068557b4 100644
+--- a/include/xen/events.h
++++ b/include/xen/events.h
+@@ -18,6 +18,7 @@ unsigned xen_evtchn_nr_channels(void);
+ 
+ int bind_evtchn_to_irq(evtchn_port_t evtchn);
+ int bind_evtchn_to_irq_lateeoi(evtchn_port_t evtchn);
++int bind_evtchn_to_irq_lateeoi_on_node(evtchn_port_t evtchn, int node);
+ int bind_evtchn_to_irqhandler(evtchn_port_t evtchn,
+ 			      irq_handler_t handler,
+ 			      unsigned long irqflags, const char *devname,
+@@ -26,6 +27,10 @@ int bind_evtchn_to_irqhandler_lateeoi(evtchn_port_t evtchn,
+ 			      irq_handler_t handler,
+ 			      unsigned long irqflags, const char *devname,
+ 			      void *dev_id);
++int bind_evtchn_to_irqhandler_lateeoi_on_node(evtchn_port_t evtchn,
++			      irq_handler_t handler,
++			      unsigned long irqflags, const char *devname,
++			      void *dev_id, int node);
+ int bind_virq_to_irq(unsigned int virq, unsigned int cpu, bool percpu);
+ int bind_virq_to_irqhandler(unsigned int virq, unsigned int cpu,
+ 			    irq_handler_t handler,
+@@ -39,12 +44,22 @@ int bind_ipi_to_irqhandler(enum ipi_vector ipi,
+ 			   void *dev_id);
+ int bind_interdomain_evtchn_to_irq_lateeoi(struct xenbus_device *dev,
+ 					   evtchn_port_t remote_port);
++int bind_interdomain_evtchn_to_irq_lateeoi_on_node(struct xenbus_device *dev,
++						   evtchn_port_t remote_port,
++						   int node);
+ int bind_interdomain_evtchn_to_irqhandler_lateeoi(struct xenbus_device *dev,
+ 						  evtchn_port_t remote_port,
+ 						  irq_handler_t handler,
+ 						  unsigned long irqflags,
+ 						  const char *devname,
+ 						  void *dev_id);
++int bind_interdomain_evtchn_to_irqhandler_lateeoi_on_node(
++					struct xenbus_device *dev,
++					evtchn_port_t remote_port,
++					irq_handler_t handler,
++					unsigned long irqflags,
++					const char *devname,
++					void *dev_id, int node);
+ 
+ /*
+  * Common unbind function for all event sources. Takes IRQ to unbind from.
+-- 
+2.54.0
+
