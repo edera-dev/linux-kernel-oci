@@ -4,11 +4,6 @@ on:
   schedule:
     - cron: "0 14 * * 1"
   workflow_dispatch:
-  # FIXME: smoke-test trigger
-  pull_request:
-    paths:
-      - .github/workflows/refresh-nvidia.yml
-      - hack/build/refresh-nvidia-versions.py
 permissions:
   contents: write
   pull-requests: write
