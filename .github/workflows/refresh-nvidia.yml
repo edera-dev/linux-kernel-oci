@@ -26,31 +26,28 @@ jobs:
       - name: scrape upstream and rewrite config.yaml
         run: python3 ./hack/build/refresh-nvidia-versions.py
       - name: open PR if config.yaml changed
-        env:
-          # AUTO_PR_TOKEN, if configured as a PAT in repo secrets, lets the auto-PR
-          # trigger downstream `pull_request` workflows (the kernel build test).
-          # Without it we fall back to GITHUB_TOKEN, which can create the PR but
-          # will not allow CI jobs to autotrigger on PR open - a person still needs
-          # to kick over/close-reopen the PR to trigger CI.
-          # TODO bml generate and define a standalone token
-          GH_TOKEN: ${{ secrets.AUTO_PR_TOKEN || secrets.GITHUB_TOKEN }}
-        run: |
-          set -euo pipefail
-          if git diff --quiet -- config.yaml; then
-            echo "no NVIDIA version changes — nothing to do"
-            exit 0
-          fi
-
-          branch="auto/refresh-nvidia-$(date -u +%Y%m%d)"
-          git config user.name  "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git checkout -b "$branch"
-          git add config.yaml
-          git commit -m "chore: bump NVIDIA driver versions from upstream"
-          git push --set-upstream origin "$branch"
-
-          gh pr create \
-            --base main \
-            --head "$branch" \
-            --title "chore: bump NVIDIA driver versions" \
-            --body "Automated refresh from https://www.nvidia.com/en-us/drivers/unix/. Review the diff in \`config.yaml\` and confirm the bumped image tags build cleanly before merging."
+        # Uses the GitHub API path under the hood so commits are auto-signed
+        # with the web-flow key (the repo enforces "Verified signatures", which
+        # blocks plain `git push` from GITHUB_TOKEN). The action is idempotent:
+        # repeated runs on the same branch update the existing PR.
+        #
+        # AUTO_PR_TOKEN, if configured as a PAT in repo secrets, lets the auto-PR
+        # trigger downstream `pull_request` workflows (the kernel build test).
+        # Without it we fall back to GITHUB_TOKEN, which can create the PR but
+        # will not allow CI jobs to autotrigger on PR open - a person still needs
+        # to kick over/close-reopen the PR to trigger CI.
+        # TODO bml generate and define a standalone token
+        uses: peter-evans/create-pull-request@5f6978faf089d4d20b00c7766989d076bb2fc7f1 # v8.1.1
+        with:
+          token: ${{ secrets.AUTO_PR_TOKEN || secrets.GITHUB_TOKEN }}
+          sign-commits: true
+          branch: auto/refresh-nvidia
+          base: main
+          add-paths: config.yaml
+          commit-message: "chore: bump NVIDIA driver versions from upstream"
+          title: "chore: bump NVIDIA driver versions"
+          body: |
+            Automated refresh from https://www.nvidia.com/en-us/drivers/unix/.
+            Review the diff in `config.yaml` and confirm the bumped image tags
+            build cleanly before merging.
+          delete-branch: true
