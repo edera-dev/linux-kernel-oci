@@ -1,0 +1,48 @@
+name: Update NVIDIA driver versions
+on:
+  # NVIDIA Unix driver releases are infrequent so a weekly check is plenty.
+  schedule:
+    - cron: "0 14 * * 1"
+  workflow_dispatch:
+permissions:
+  contents: write
+  pull-requests: write
+jobs:
+  refresh:
+    name: Open PR if NVIDIA versions changed
+    runs-on: ubuntu-latest
+    steps:
+      - name: Harden the runner (Audit all outbound calls)
+        uses: step-security/harden-runner@a5ad31d6a139d249332a2605b85202e8c0b78450 # v2.19.1
+        with:
+          egress-policy: audit
+      - name: checkout repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v4
+      - name: scrape upstream and rewrite config.yaml
+        run: python3 ./hack/build/refresh-nvidia-versions.py
+      - name: open PR if config.yaml changed
+        # Uses the GitHub API path under the hood so commits are auto-signed
+        # with the web-flow key (the repo enforces "Verified signatures", which
+        # blocks plain `git push` from GITHUB_TOKEN). The action is idempotent:
+        # repeated runs on the same branch update the existing PR.
+        #
+        # AUTO_PR_TOKEN, if configured as a PAT in repo secrets, lets the auto-PR
+        # trigger downstream `pull_request` workflows (the kernel build test).
+        # Without it we fall back to GITHUB_TOKEN, which can create the PR but
+        # will not allow CI jobs to autotrigger on PR open - a person still needs
+        # to kick over/close-reopen the PR to trigger CI.
+        # TODO bml generate and define a standalone token
+        uses: peter-evans/create-pull-request@5f6978faf089d4d20b00c7766989d076bb2fc7f1 # v8.1.1
+        with:
+          token: ${{ secrets.AUTO_PR_TOKEN || secrets.GITHUB_TOKEN }}
+          sign-commits: true
+          branch: auto/refresh-nvidia
+          base: main
+          add-paths: config.yaml
+          commit-message: "chore: bump NVIDIA driver versions from upstream"
+          title: "chore: bump NVIDIA driver versions"
+          body: |
+            Automated refresh from https://www.nvidia.com/en-us/drivers/unix/.
+            Review the diff in `config.yaml` and confirm the bumped image tags
+            build cleanly before merging.
+          delete-branch: true
