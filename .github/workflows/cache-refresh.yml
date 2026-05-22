@@ -28,10 +28,13 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          # List all ccache-* cache keys, strip the run_id suffix to deduplicate by flavor/arch.
+          # List main-scoped ccache-* cache keys, strip the run_id suffix to deduplicate
+          # by flavor/arch. We specifically skip non-main branches, becuse we only want to save/restore
+          # from main - in GH, PR branches can use `main` caches, but main cannot see PR branch caches,
+          # and saving duplicated PR branch caches counts against our 10GB github limit
           matrix=$(gh api "/repos/${{ github.repository }}/actions/caches" --paginate \
             --jq '[.actions_caches[]
-                  | select(.key | startswith("ccache-"))
+                  | select(.ref == "refs/heads/main" and (.key | startswith("ccache-")))
                   | {prefix: (.key | gsub("-[0-9]+$"; ""))}]
                   | unique_by(.prefix)
                   | {entry: .}')
