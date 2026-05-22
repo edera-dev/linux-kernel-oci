@@ -1,6 +1,6 @@
 # Changes to these paths require review from one of the listed owners.
 
-/.github/          @kaniini @azenla @bleggett @tycho
+/.github/          @kaniini @azenla @bleggett @tycho @alexandermerritt
 /hack/             @kaniini @azenla @bleggett @tycho @alexandermerritt
 /patches/          @kaniini @azenla @bleggett @tycho @alexandermerritt
 /patches-nvidia/   @kaniini @azenla @bleggett @tycho @alexandermerritt 
