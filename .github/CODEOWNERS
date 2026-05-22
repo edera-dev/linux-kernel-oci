@@ -3,7 +3,7 @@
 /.github/          @kaniini @azenla @bleggett @tycho
 /hack/             @kaniini @azenla @bleggett @tycho @alexandermerritt
 /patches/          @kaniini @azenla @bleggett @tycho @alexandermerritt
-/patches-nvidia/   @kaniini @azenla @bleggett @tycho
+/patches-nvidia/   @kaniini @azenla @bleggett @tycho @alexandermerritt 
 /configs/          @kaniini @azenla @bleggett @tycho @alexandermerritt
 /Dockerfile        @kaniini @azenla @bleggett @tycho @alexandermerritt
 /config.yaml       @kaniini @azenla @bleggett @tycho @alexandermerritt
