@@ -1,0 +1,348 @@
+From 0cc05d6a3795ccb1f832afde9920c74c12328368 Mon Sep 17 00:00:00 2001
+From: Steven Noonan <steven@edera.dev>
+Date: Tue, 19 May 2026 18:35:49 -0700
+Subject: [PATCH 2/9] xen/xenbus: expose host NUMA node of a mapped ring
+
+Xenbus backends in PVH dom0 today have no visibility into which host
+NUMA node the foreign frame backing a grant-mapped ring lives on.
+xen_alloc_unpopulated_pages() registers its pool with NUMA_NO_NODE,
+so page_to_nid() of any grant-mapped page reports NUMA_NO_NODE and
+backends have nothing to drive kthread or IRQ placement off of.  The
+result is that every backend kthread for every queue piles onto one
+host node regardless of the guest's vNUMA layout.
+
+Add xenbus_ring_host_node(dev, vaddr) returning the Linux node id of
+the host node hosting the first ring page, or NUMA_NO_NODE when the
+information is unavailable.  The value is resolved once at map time
+using the new XENMEM_get_mfn_pxms hypercall and cached on the
+xenbus_map_node, so the public helper is a cheap list lookup.
+
+Three NUMA identifier namespaces are involved in this code path: host
+PXM (firmware), Xen-internal nid (assigned in SRAT scan order), and
+dom0 Linux node id.  The hypercall returns host PXM, matching what
+dom0's own SRAT already uses; pxm_to_node() converts to a Linux node
+id, which is what backends will feed to cpumask_of_node() and
+kthread_create_on_node().  Keeping the Xen-side ABI in PXM-space lets
+callers translate with one standard lookup instead of maintaining
+their own Xen-nid -> Linux-node table.
+
+Older or non-Edera hypervisors lack the new hypercall.  The first
+call there returns -ENOSYS, which latches a global "unsupported"
+flag; every subsequent xenbus_ring_host_node() returns NUMA_NO_NODE
+without issuing further hypercalls.  Backend patches that key off the
+helper see NUMA_NO_NODE and silently fall back to today's
+NUMA-oblivious behaviour.  This makes the kernel-side change safe to
+ship without a lockstep hypervisor update.
+
+Gated by CONFIG_XEN_BACKEND_NUMA_AFFINITY, which depends on
+XEN_BACKEND, NUMA, ACPI_NUMA, and XEN_UNPOPULATED_ALLOC and defaults
+to y.  XEN_UNPOPULATED_ALLOC is a hard dependency rather than a soft
+one because the per-ring placement work the rest of this series
+performs is only meaningful when grant-map placeholders come from the
+per-node pool registered via memremap_pages(pgmap, node).  Without
+XEN_UNPOPULATED_ALLOC, placeholders come from the generic balloon
+allocator and page_to_nid() reflects only where dom0's free RAM
+happened to be, not the host node of the foreign frame.  Per-ring
+NUMA placement under that configuration would commit to wrong nodes
+confidently rather than silently no-op.  Disabling the option
+compiles the query out and the public helper becomes a stub returning
+NUMA_NO_NODE.
+
+PV dom0 is not a NUMA-affinity target: the PV map path explicitly
+sets host_node = NUMA_NO_NODE and the helper handles the
+pv.area->addr lookup path symmetrically with hvm.addr, returning
+NUMA_NO_NODE in both cases when no match is found.
+
+The foreign MFN is sourced from dev_bus_addr in the gnttab map
+result.  Xen sets that field unconditionally for host_map operations
+(see grant_table.c in the hypervisor), so it is reliable in PVH dom0
+without IOMMU isolation.  Sampling only the first ring page's MFN is
+sufficient for the common case where a ring is contiguous on one
+host node; multi-node huge-page grants are a future concern.
+
+Signed-off-by: Steven Noonan <steven@edera.dev>
+---
+ drivers/xen/Kconfig                |  25 +++++++
+ drivers/xen/xenbus/xenbus_client.c | 111 +++++++++++++++++++++++++++++
+ include/xen/interface/memory.h     |  26 +++++++
+ include/xen/xenbus.h               |  13 ++++
+ 4 files changed, 175 insertions(+)
+
+diff --git a/drivers/xen/Kconfig b/drivers/xen/Kconfig
+index f9a35ed266ec..147e6acb231b 100644
+--- a/drivers/xen/Kconfig
++++ b/drivers/xen/Kconfig
+@@ -96,6 +96,31 @@ config XEN_BACKEND
+ 	  Support for backend device drivers that provide I/O services
+ 	  to other virtual machines.
+ 
++config XEN_BACKEND_NUMA_AFFINITY
++	bool "NUMA affinity for Xen backend drivers"
++	depends on XEN_BACKEND && NUMA && ACPI_NUMA && XEN_UNPOPULATED_ALLOC
++	default y
++	help
++	  Allow Xen backend drivers (netback, blkback, gntdev consumers)
++	  to discover the host NUMA node that hosts a grant-mapped ring
++	  page, and to place their service threads and IRQs on that node.
++
++	  XEN_UNPOPULATED_ALLOC provides the per-node placeholder-page pool
++	  the relocation logic in xenbus_map_ring_valloc() draws from.
++	  Without it, placeholders come from the generic balloon allocator,
++	  whose page_to_nid() reflects only where dom0's free RAM happened
++	  to be -- not the host node of the foreign frame the placeholder
++	  will end up backing.  In that configuration the per-ring
++	  placement decisions would be confidently wrong rather than just
++	  absent, so the Kconfig hard-depends on XEN_UNPOPULATED_ALLOC
++	  rather than silently degrading.
++
++	  Requires hypervisor support for the XENMEM_get_mfn_pxms
++	  hypercall.  Without that support the feature is silently a
++	  no-op, equivalent to NUMA-oblivious behaviour.
++
++	  If unsure, say Y.
++
+ config XENFS
+ 	tristate "Xen filesystem"
+ 	select XEN_PRIVCMD
+diff --git a/drivers/xen/xenbus/xenbus_client.c b/drivers/xen/xenbus/xenbus_client.c
+index 2dc874fb5506..8e0695ba39a3 100644
+--- a/drivers/xen/xenbus/xenbus_client.c
++++ b/drivers/xen/xenbus/xenbus_client.c
+@@ -31,15 +31,18 @@
+  */
+ 
+ #include <linux/mm.h>
++#include <linux/numa.h>
+ #include <linux/slab.h>
+ #include <linux/types.h>
+ #include <linux/spinlock.h>
+ #include <linux/vmalloc.h>
+ #include <linux/export.h>
++#include <asm/xen/hypercall.h>
+ #include <asm/xen/hypervisor.h>
+ #include <xen/page.h>
+ #include <xen/interface/xen.h>
+ #include <xen/interface/event_channel.h>
++#include <xen/interface/memory.h>
+ #include <xen/balloon.h>
+ #include <xen/events.h>
+ #include <xen/grant_table.h>
+@@ -47,6 +50,10 @@
+ #include <xen/xen.h>
+ #include <xen/features.h>
+ 
++#ifdef CONFIG_XEN_BACKEND_NUMA_AFFINITY
++#include <acpi/acpi_numa.h>
++#endif
++
+ #include "xenbus.h"
+ 
+ #define XENBUS_PAGES(_grants)	(DIV_ROUND_UP(_grants, XEN_PFN_PER_PAGE))
+@@ -67,6 +74,7 @@ struct xenbus_map_node {
+ 	};
+ 	grant_handle_t handles[XENBUS_MAX_RING_GRANTS];
+ 	unsigned int   nr_handles;
++	int            host_node;	/* Linux node id of foreign frame, or NUMA_NO_NODE */
+ };
+ 
+ struct map_ring_valloc {
+@@ -85,6 +93,72 @@ struct map_ring_valloc {
+ static DEFINE_SPINLOCK(xenbus_valloc_lock);
+ static LIST_HEAD(xenbus_valloc_pages);
+ 
++#ifdef CONFIG_XEN_BACKEND_NUMA_AFFINITY
++/*
++ * Tri-state cache for XENMEM_get_mfn_pxms availability.  -ENOSYS from
++ * the first attempt latches "unsupported", short-circuiting future
++ * calls.  Any positive ACK (including the legitimate XEN_INVALID_NUMA_ID
++ * answer for an MFN Xen does not know about) latches "supported".
++ *
++ * Lock-free: at most one transition each direction, and "unsupported"
++ * is a stable terminal state once entered.  A racing reader might
++ * issue one redundant hypercall before observing the cached state,
++ * which is harmless.
++ */
++#define XEN_MFN_PXM_UNKNOWN     0
++#define XEN_MFN_PXM_SUPPORTED   1
++#define XEN_MFN_PXM_UNSUPPORTED 2
++
++static int xen_mfn_pxm_state = XEN_MFN_PXM_UNKNOWN;
++
++/*
++ * Resolve one foreign MFN to a Linux node id.  Returns NUMA_NO_NODE
++ * for any failure mode: hypercall unsupported, MFN unknown to Xen,
++ * PXM not registered with the dom0 ACPI namespace.
++ *
++ * Three NUMA identifier namespaces are involved here.  Xen returns
++ * host PXM (firmware-supplied).  pxm_to_node() translates to a Linux
++ * dom0 node id.  Callers then use the result against Linux helpers
++ * like cpumask_of_node() and kthread_create_on_node().
++ */
++static int xenbus_query_mfn_node(unsigned long mfn)
++{
++	struct xen_get_mfn_pxms req;
++	xen_pfn_t mfn_arg = mfn;
++	uint32_t pxm = XEN_INVALID_NUMA_ID;
++	int rc;
++
++	if (READ_ONCE(xen_mfn_pxm_state) == XEN_MFN_PXM_UNSUPPORTED)
++		return NUMA_NO_NODE;
++
++	memset(&req, 0, sizeof(req));
++	set_xen_guest_handle(req.mfns, &mfn_arg);
++	set_xen_guest_handle(req.pxms, &pxm);
++	req.nr_mfns = 1;
++
++	rc = HYPERVISOR_memory_op(XENMEM_get_mfn_pxms, &req);
++	if (rc < 0) {
++		if (rc == -ENOSYS) {
++			WRITE_ONCE(xen_mfn_pxm_state, XEN_MFN_PXM_UNSUPPORTED);
++			pr_info("xenbus: hypervisor lacks XENMEM_get_mfn_pxms, backend NUMA affinity disabled\n");
++		}
++		return NUMA_NO_NODE;
++	}
++
++	WRITE_ONCE(xen_mfn_pxm_state, XEN_MFN_PXM_SUPPORTED);
++
++	if (pxm == XEN_INVALID_NUMA_ID)
++		return NUMA_NO_NODE;
++
++	return pxm_to_node(pxm);
++}
++#else
++static int xenbus_query_mfn_node(unsigned long mfn)
++{
++	return NUMA_NO_NODE;
++}
++#endif /* CONFIG_XEN_BACKEND_NUMA_AFFINITY */
++
+ struct xenbus_ring_ops {
+ 	int (*map)(struct xenbus_device *dev, struct map_ring_valloc *info,
+ 		   grant_ref_t *gnt_refs, unsigned int nr_grefs,
+@@ -678,6 +752,8 @@ static int xenbus_map_ring_hvm(struct xenbus_device *dev,
+ 	bool leaked = false;
+ 	unsigned int nr_pages = XENBUS_PAGES(nr_grefs);
+ 
++	node->host_node = NUMA_NO_NODE;
++
+ 	err = xen_alloc_unpopulated_pages(nr_pages, node->hvm.pages);
+ 	if (err)
+ 		goto out_err;
+@@ -693,6 +769,17 @@ static int xenbus_map_ring_hvm(struct xenbus_device *dev,
+ 	if (err)
+ 		goto out_free_ballooned_pages;
+ 
++	/*
++	 * Xen unconditionally fills dev_bus_addr with the foreign frame's
++	 * machine address on a successful host_map (see grant_table.c in
++	 * the hypervisor).  Pick up the first ring page's MFN and resolve
++	 * it now while we still have the map info; the result is cached on
++	 * the xenbus_map_node so backends can look it up cheaply later.
++	 */
++	if (nr_grefs > 0)
++		node->host_node = xenbus_query_mfn_node(
++			PFN_DOWN(info->map[0].dev_bus_addr));
++
+ 	addr = vmap(node->hvm.pages, nr_pages, VM_MAP | VM_IOREMAP,
+ 		    PAGE_KERNEL);
+ 	if (!addr) {
+@@ -743,6 +830,27 @@ int xenbus_unmap_ring_vfree(struct xenbus_device *dev, void *vaddr)
+ }
+ EXPORT_SYMBOL_GPL(xenbus_unmap_ring_vfree);
+ 
++int xenbus_ring_host_node(struct xenbus_device *dev, void *vaddr)
++{
++	struct xenbus_map_node *node;
++	int node_id = NUMA_NO_NODE;
++
++	spin_lock(&xenbus_valloc_lock);
++	list_for_each_entry(node, &xenbus_valloc_pages, next) {
++		void *addr = xen_pv_domain() ? node->pv.area->addr
++					     : node->hvm.addr;
++
++		if (addr == vaddr) {
++			node_id = node->host_node;
++			break;
++		}
++	}
++	spin_unlock(&xenbus_valloc_lock);
++
++	return node_id;
++}
++EXPORT_SYMBOL_GPL(xenbus_ring_host_node);
++
+ #ifdef CONFIG_XEN_PV
+ static int map_ring_apply(pte_t *pte, unsigned long addr, void *data)
+ {
+@@ -763,6 +871,9 @@ static int xenbus_map_ring_pv(struct xenbus_device *dev,
+ 	bool leaked = false;
+ 	int err = -ENOMEM;
+ 
++	/* PV dom0 is not a NUMA-affinity target; leave the value unset. */
++	node->host_node = NUMA_NO_NODE;
++
+ 	area = get_vm_area(XEN_PAGE_SIZE * nr_grefs, VM_IOREMAP);
+ 	if (!area)
+ 		return -ENOMEM;
+diff --git a/include/xen/interface/memory.h b/include/xen/interface/memory.h
+index 1a371a825c55..1998a12a9465 100644
+--- a/include/xen/interface/memory.h
++++ b/include/xen/interface/memory.h
+@@ -325,4 +325,30 @@ struct xen_mem_acquire_resource {
+ };
+ DEFINE_GUEST_HANDLE_STRUCT(xen_mem_acquire_resource);
+ 
++/*
++ * XENMEM_get_mfn_pxms: resolve a batch of host MFNs to their firmware
++ * proximity-domain identifiers (host PXM on x86 ACPI).
++ *
++ * Returned values are in the host PXM namespace (the same value space
++ * dom0's own SRAT uses), not Xen's internal node id.  Callers convert
++ * to a Linux node id with pxm_to_node().  Slots Xen has no node info
++ * for receive XEN_INVALID_NUMA_ID rather than failing the whole batch.
++ *
++ * Restricted to the hardware domain.  On hypervisors that do not
++ * provide this op (older or non-Edera Xen, or builds without
++ * CONFIG_NUMA), the hypercall returns -ENOSYS; callers treat that as
++ * "feature unavailable" and fall back to NUMA-oblivious behaviour.
++ */
++#define XENMEM_get_mfn_pxms 40
++
++#define XEN_INVALID_NUMA_ID (~(uint32_t)0)
++
++struct xen_get_mfn_pxms {
++	GUEST_HANDLE(xen_pfn_t) mfns;
++	GUEST_HANDLE(uint32_t) pxms;
++	uint32_t nr_mfns;
++	uint32_t flags;
++};
++DEFINE_GUEST_HANDLE_STRUCT(xen_get_mfn_pxms);
++
+ #endif /* __XEN_PUBLIC_MEMORY_H__ */
+diff --git a/include/xen/xenbus.h b/include/xen/xenbus.h
+index 7dab04cf4a36..18b902bf79ef 100644
+--- a/include/xen/xenbus.h
++++ b/include/xen/xenbus.h
+@@ -225,6 +225,19 @@ int xenbus_map_ring_valloc(struct xenbus_device *dev, grant_ref_t *gnt_refs,
+ 
+ int xenbus_unmap_ring_vfree(struct xenbus_device *dev, void *vaddr);
+ 
++/*
++ * Return the host NUMA node (Linux node id) of the foreign frame
++ * backing the first page of a mapping previously established by
++ * xenbus_map_ring_valloc().  Returns NUMA_NO_NODE if the hypervisor
++ * cannot provide the information, the mapping is not found, or the
++ * kernel was built without CONFIG_XEN_BACKEND_NUMA_AFFINITY.
++ *
++ * Intended for backends placing their service threads and IRQs on
++ * the node hosting the ring.  The value is resolved at map time and
++ * cached on the mapping, so this call is a cheap lookup.
++ */
++int xenbus_ring_host_node(struct xenbus_device *dev, void *vaddr);
++
+ int xenbus_alloc_evtchn(struct xenbus_device *dev, evtchn_port_t *port);
+ int xenbus_free_evtchn(struct xenbus_device *dev, evtchn_port_t port);
+ 
+-- 
+2.54.0
+

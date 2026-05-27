@@ -93,6 +93,17 @@ patches:
   lower: '6.17'
 - patch: 0003-x86-amd_node-fix-null-pointer-dereference-if-amd_smn.patch
   lower: '6.17'
+- patches:
+  - 0001-xen-events-add-_on_node-variants-of-the-lateeoi-bind.patch
+  - 0002-xen-xenbus-expose-host-NUMA-node-of-a-mapped-ring.patch
+  - 0003-xen-netback-place-per-queue-kthreads-and-IRQs-near-t.patch
+  - 0004-xen-blkback-place-per-ring-kthread-and-IRQ-near-the-.patch
+  - 0005-xen-make-xen_alloc_unpopulated_pages-NUMA-aware.patch
+  - 0006-xen-xenbus-collapse-xenbus_ring_host_node-to-a-page_.patch
+  - 0007-xen-xenbus-add-xenbus_setup_ring_node-for-per-node-r.patch
+  - 0008-xen-netfront-place-per-queue-rings-on-per-queue-node.patch
+  - 0009-xen-blkfront-place-per-ring-buffers-on-per-hctx-node.patch
+  lower: '6.18'
 images:
 - target: kernelsrc
   name: kernel-src

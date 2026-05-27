@@ -1,0 +1,358 @@
+From aa8e71b14c040931222a36998a789e4ce3484c70 Mon Sep 17 00:00:00 2001
+From: Steven Noonan <steven@edera.dev>
+Date: Tue, 19 May 2026 18:56:34 -0700
+Subject: [PATCH 5/9] xen: make xen_alloc_unpopulated_pages NUMA-aware
+
+xen_alloc_unpopulated_pages today hands out ZONE_DEVICE placeholder
+pages from a single global free list, with the underlying section
+registered via memremap_pages(pgmap, NUMA_NO_NODE).  page_to_nid()
+of any such page reports NUMA_NO_NODE, so every consumer of
+foreign-mapped grant pages -- xenbus rings, gntdev mmaps, xlate_mmu,
+privcmd, xen-drm -- has no useful node information for kernel code
+that consults page_to_nid (slab placement decisions, autonuma,
+numastat, various softirq routing heuristics).
+
+Partition the free list by Linux node id and register each
+section-aligned IOMEM allocation against a specific node.  Pages
+drawn from page_list[N] then report page_to_nid() == N by
+construction.  Callers that know the host node of the foreign frame
+they intend to grant-map can request from the matching pool; the
+foreign frame's node and the placeholder page's nid then agree.
+
+Two exported entry points:
+
+  xen_alloc_unpopulated_pages_node(nr, pages, node) -- new, takes an
+    explicit node preference.  NUMA_NO_NODE and out-of-range values
+    are clamped to numa_node_id() at the boundary; internal code only
+    ever indexes into a valid slot.
+
+  xen_alloc_unpopulated_pages(nr, pages) -- existing API, now a
+    wrapper that passes numa_node_id().  Strictly an improvement over
+    NUMA_NO_NODE for non-xenbus callers (gntdev, xlate_mmu, privcmd,
+    drm) that have no node hint of their own: the caller's local node
+    is at least as good a guess as none.
+
+xen_free_unpopulated_pages routes each page back to the pool of the
+node it came from via page_to_nid().  No new arguments; existing
+callers do not change.
+
+A single mutex still covers all per-node lists.  Allocation and free
+are connect-time events on I/O backends and on map_grant_ref ioctls,
+not contention-sensitive paths.
+
+MAX_NUMNODES sizes the two arrays; on CONFIG_NUMA=n that is 1 and the
+behaviour is byte-for-byte equivalent to the previous single-list
+implementation.
+
+Wire xenbus_map_ring_hvm() through the new API.  Placeholders are
+first drawn from numa_node_id() because the foreign MFN is not known
+before the grant_map.  After grant_map succeeds and the first page's
+host node is known via XENMEM_get_mfn_pxms, the placeholders are
+relocated: unmap, free, re-allocate on the target node, re-map.  When
+the initial allocation already landed on the right node the relocate
+is skipped.
+
+Signed-off-by: Steven Noonan <steven@edera.dev>
+---
+ drivers/xen/unpopulated-alloc.c    | 103 +++++++++++++++++++++++------
+ drivers/xen/xenbus/xenbus_client.c |  60 +++++++++++++++++
+ include/xen/xen.h                  |   7 ++
+ 3 files changed, 149 insertions(+), 21 deletions(-)
+
+diff --git a/drivers/xen/unpopulated-alloc.c b/drivers/xen/unpopulated-alloc.c
+index 1dc0b495c8e5..ea9c76895459 100644
+--- a/drivers/xen/unpopulated-alloc.c
++++ b/drivers/xen/unpopulated-alloc.c
+@@ -4,6 +4,7 @@
+ #include <linux/kernel.h>
+ #include <linux/mm.h>
+ #include <linux/memremap.h>
++#include <linux/numa.h>
+ #include <linux/slab.h>
+ 
+ #include <asm/page.h>
+@@ -12,12 +13,31 @@
+ #include <xen/page.h>
+ #include <xen/xen.h>
+ 
++/*
++ * Free pages are kept on per-node lists indexed by Linux node id.  Each
++ * fill_list() call grabs a fresh section-aligned IOMEM region and
++ * registers it with memremap_pages() against a specific node, so all
++ * struct pages in that section report that node via page_to_nid().
++ * Backends that learn the host node of a foreign frame (via
++ * xenbus_ring_host_node) can request placeholder pages from the
++ * matching pool so page_to_nid agrees with the actual host placement.
++ *
++ * A single mutex covers all per-node lists.  Alloc/free are
++ * connect-time events on the I/O backends and not contention-sensitive.
++ */
+ static DEFINE_MUTEX(list_lock);
+-static struct page *page_list;
+-static unsigned int list_count;
++static struct page *page_list[MAX_NUMNODES];
++static unsigned int list_count[MAX_NUMNODES];
+ 
+ static struct resource *target_resource;
+ 
++static int xen_unpopulated_clamp_node(int node)
++{
++	if (node == NUMA_NO_NODE || node < 0 || node >= MAX_NUMNODES)
++		return numa_node_id();
++	return node;
++}
++
+ /* Pages to subtract from the memory count when setting balloon target. */
+ unsigned long xen_unpopulated_pages __initdata;
+ 
+@@ -34,7 +54,7 @@ int __weak __init arch_xen_unpopulated_init(struct resource **res)
+ 	return 0;
+ }
+ 
+-static int fill_list(unsigned int nr_pages)
++static int fill_list(unsigned int nr_pages, int node)
+ {
+ 	struct dev_pagemap *pgmap;
+ 	struct resource *res, *tmp_res = NULL;
+@@ -121,7 +141,15 @@ static int fill_list(unsigned int nr_pages)
+ 	}
+ #endif
+ 
+-	vaddr = memremap_pages(pgmap, NUMA_NO_NODE);
++	/*
++	 * Register the section against @node so page_to_nid() of any
++	 * page in this section reports that value.  Grant-map operations
++	 * later install foreign MFNs into these slots; as long as the
++	 * caller picks the section matching the foreign MFN's host node
++	 * (which is the contract callers of xen_alloc_unpopulated_pages_node
++	 * are expected to honour), page_to_nid is correct by construction.
++	 */
++	vaddr = memremap_pages(pgmap, node);
+ 	if (IS_ERR(vaddr)) {
+ 		pr_err("Cannot remap memory range\n");
+ 		ret = PTR_ERR(vaddr);
+@@ -131,9 +159,9 @@ static int fill_list(unsigned int nr_pages)
+ 	for (i = 0; i < alloc_pages; i++) {
+ 		struct page *pg = virt_to_page(vaddr + PAGE_SIZE * i);
+ 
+-		pg->zone_device_data = page_list;
+-		page_list = pg;
+-		list_count++;
++		pg->zone_device_data = page_list[node];
++		page_list[node] = pg;
++		list_count[node]++;
+ 	}
+ 
+ 	return 0;
+@@ -153,12 +181,21 @@ static int fill_list(unsigned int nr_pages)
+ }
+ 
+ /**
+- * xen_alloc_unpopulated_pages - alloc unpopulated pages
++ * xen_alloc_unpopulated_pages_node - alloc unpopulated pages on a node
+  * @nr_pages: Number of pages
+  * @pages: pages returned
+- * @return 0 on success, error otherwise
++ * @node: Preferred Linux node id, or NUMA_NO_NODE for current CPU's node
++ *
++ * The returned pages are drawn from a per-node pool registered with
++ * memremap_pages() against @node, so page_to_nid() reports @node for
++ * every returned page.  Callers that know the host node of a foreign
++ * frame should pass it here to keep page_to_nid in agreement with the
++ * actual host placement after a subsequent grant-map.
++ *
++ * Returns 0 on success, error otherwise.
+  */
+-int xen_alloc_unpopulated_pages(unsigned int nr_pages, struct page **pages)
++int xen_alloc_unpopulated_pages_node(unsigned int nr_pages, struct page **pages,
++				     int node)
+ {
+ 	unsigned int i;
+ 	int ret = 0;
+@@ -171,19 +208,21 @@ int xen_alloc_unpopulated_pages(unsigned int nr_pages, struct page **pages)
+ 	if (!target_resource)
+ 		return xen_alloc_ballooned_pages(nr_pages, pages);
+ 
++	node = xen_unpopulated_clamp_node(node);
++
+ 	mutex_lock(&list_lock);
+-	if (list_count < nr_pages) {
+-		ret = fill_list(nr_pages - list_count);
++	if (list_count[node] < nr_pages) {
++		ret = fill_list(nr_pages - list_count[node], node);
+ 		if (ret)
+ 			goto out;
+ 	}
+ 
+ 	for (i = 0; i < nr_pages; i++) {
+-		struct page *pg = page_list;
++		struct page *pg = page_list[node];
+ 
+ 		BUG_ON(!pg);
+-		page_list = pg->zone_device_data;
+-		list_count--;
++		page_list[node] = pg->zone_device_data;
++		list_count[node]--;
+ 		pages[i] = pg;
+ 
+ #ifdef CONFIG_XEN_HAVE_PVMMU
+@@ -193,9 +232,9 @@ int xen_alloc_unpopulated_pages(unsigned int nr_pages, struct page **pages)
+ 				unsigned int j;
+ 
+ 				for (j = 0; j <= i; j++) {
+-					pages[j]->zone_device_data = page_list;
+-					page_list = pages[j];
+-					list_count++;
++					pages[j]->zone_device_data = page_list[node];
++					page_list[node] = pages[j];
++					list_count[node]++;
+ 				}
+ 				goto out;
+ 			}
+@@ -207,12 +246,32 @@ int xen_alloc_unpopulated_pages(unsigned int nr_pages, struct page **pages)
+ 	mutex_unlock(&list_lock);
+ 	return ret;
+ }
++EXPORT_SYMBOL(xen_alloc_unpopulated_pages_node);
++
++/**
++ * xen_alloc_unpopulated_pages - alloc unpopulated pages
++ * @nr_pages: Number of pages
++ * @pages: pages returned
++ * @return 0 on success, error otherwise
++ *
++ * Equivalent to xen_alloc_unpopulated_pages_node() with the current
++ * CPU's node as the preference.
++ */
++int xen_alloc_unpopulated_pages(unsigned int nr_pages, struct page **pages)
++{
++	return xen_alloc_unpopulated_pages_node(nr_pages, pages, numa_node_id());
++}
+ EXPORT_SYMBOL(xen_alloc_unpopulated_pages);
+ 
+ /**
+  * xen_free_unpopulated_pages - return unpopulated pages
+  * @nr_pages: Number of pages
+  * @pages: pages to return
++ *
++ * Each page returns to the pool of the node it was originally allocated
++ * from, identified via page_to_nid().  Sections registered to a
++ * specific node yield pages whose nid reflects that node, so freed
++ * pages naturally land back in the matching list.
+  */
+ void xen_free_unpopulated_pages(unsigned int nr_pages, struct page **pages)
+ {
+@@ -225,9 +284,11 @@ void xen_free_unpopulated_pages(unsigned int nr_pages, struct page **pages)
+ 
+ 	mutex_lock(&list_lock);
+ 	for (i = 0; i < nr_pages; i++) {
+-		pages[i]->zone_device_data = page_list;
+-		page_list = pages[i];
+-		list_count++;
++		int node = xen_unpopulated_clamp_node(page_to_nid(pages[i]));
++
++		pages[i]->zone_device_data = page_list[node];
++		page_list[node] = pages[i];
++		list_count[node]++;
+ 	}
+ 	mutex_unlock(&list_lock);
+ }
+diff --git a/drivers/xen/xenbus/xenbus_client.c b/drivers/xen/xenbus/xenbus_client.c
+index 8e0695ba39a3..7f94b135727a 100644
+--- a/drivers/xen/xenbus/xenbus_client.c
++++ b/drivers/xen/xenbus/xenbus_client.c
+@@ -780,6 +780,66 @@ static int xenbus_map_ring_hvm(struct xenbus_device *dev,
+ 		node->host_node = xenbus_query_mfn_node(
+ 			PFN_DOWN(info->map[0].dev_bus_addr));
+ 
++	/*
++	 * Placeholder pages came from numa_node_id()'s pool, which only
++	 * matches the foreign frame's node by coincidence.  If they
++	 * disagree, drop the mapping, return the placeholders, and redo
++	 * the map with placeholders drawn from the correct pool.  After
++	 * this, page_to_nid() of every ring page equals the host node of
++	 * its foreign MFN by construction, which keeps grant-mapped pages
++	 * truthful to every NUMA-aware code path that consults page_to_nid.
++	 *
++	 * The cost is one extra grant unmap + map pair per backend
++	 * connect (a rare event) and is paid only when the placeholder
++	 * pool's node disagrees with the foreign frame.  PV mappings and
++	 * cases where Xen cannot supply node info skip the dance entirely
++	 * (host_node stays NUMA_NO_NODE).
++	 */
++	if (node->host_node != NUMA_NO_NODE &&
++	    page_to_nid(node->hvm.pages[0]) != node->host_node) {
++		int relocate_err;
++
++		relocate_err = xenbus_unmap_ring(dev, node->handles, nr_grefs,
++						 info->addrs);
++		if (relocate_err != GNTST_okay) {
++			/*
++			 * Partial unmap: at least one grant may still be
++			 * live against a placeholder we can no longer
++			 * reach safely.  Mark the pages leaked and fail
++			 * the whole map.
++			 */
++			leaked = true;
++			err = -EIO;
++			goto out_free_ballooned_pages;
++		}
++
++		xen_free_unpopulated_pages(nr_pages, node->hvm.pages);
++
++		err = xen_alloc_unpopulated_pages_node(nr_pages,
++						       node->hvm.pages,
++						       node->host_node);
++		if (err) {
++			/*
++			 * Pages already gone; clear the array so the
++			 * cleanup path does not try to free them again.
++			 */
++			memset(node->hvm.pages, 0,
++			       nr_pages * sizeof(*node->hvm.pages));
++			node->nr_handles = 0;
++			goto out_err;
++		}
++
++		info->idx = 0;
++		gnttab_foreach_grant(node->hvm.pages, nr_grefs,
++				     xenbus_map_ring_setup_grant_hvm,
++				     info);
++
++		err = __xenbus_map_ring(dev, gnt_ref, nr_grefs, node->handles,
++					info, GNTMAP_host_map, &leaked);
++		if (err)
++			goto out_free_ballooned_pages;
++	}
++
+ 	addr = vmap(node->hvm.pages, nr_pages, VM_MAP | VM_IOREMAP,
+ 		    PAGE_KERNEL);
+ 	if (!addr) {
+diff --git a/include/xen/xen.h b/include/xen/xen.h
+index f280c5dcf923..f38cb138d837 100644
+--- a/include/xen/xen.h
++++ b/include/xen/xen.h
+@@ -70,6 +70,8 @@ extern u64 xen_saved_max_mem_size;
+ 
+ #ifdef CONFIG_XEN_UNPOPULATED_ALLOC
+ extern unsigned long xen_unpopulated_pages;
++int xen_alloc_unpopulated_pages_node(unsigned int nr_pages, struct page **pages,
++				     int node);
+ int xen_alloc_unpopulated_pages(unsigned int nr_pages, struct page **pages);
+ void xen_free_unpopulated_pages(unsigned int nr_pages, struct page **pages);
+ #include <linux/ioport.h>
+@@ -77,6 +79,11 @@ int arch_xen_unpopulated_init(struct resource **res);
+ #else
+ #define xen_unpopulated_pages 0UL
+ #include <xen/balloon.h>
++static inline int xen_alloc_unpopulated_pages_node(unsigned int nr_pages,
++		struct page **pages, int node)
++{
++	return xen_alloc_ballooned_pages(nr_pages, pages);
++}
+ static inline int xen_alloc_unpopulated_pages(unsigned int nr_pages,
+ 		struct page **pages)
+ {
+-- 
+2.54.0
+
