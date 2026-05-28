@@ -123,6 +123,11 @@ jobs:
           compression-level: 0
           retention-days: 1
       - name: save ccache
+        # Only save from main. GH's per-repo 10GB cache pool is shared across all refs,
+        # so PR-scoped saves evict main-scoped entries via LRU - and main is the only ref
+        # whose entries the next build can actually restore. PRs still benefit because
+        # they will fallthrough to/inherit parent branch caches
+        if: github.ref == 'refs/heads/main'
         uses: actions/cache/save@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.2
         with:
           path: ~/.cache/kernel-ccache
