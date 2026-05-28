@@ -1,0 +1,158 @@
+From 9f2eced2a6cb89bf0f8fcfc4889389880b595e39 Mon Sep 17 00:00:00 2001
+From: Steven Noonan <steven@edera.dev>
+Date: Tue, 19 May 2026 19:25:21 -0700
+Subject: [PATCH 9/9] xen-blkfront: place per-ring buffers on per-hctx nodes
+
+Today every blkfront ring (one per hctx in multi-queue mode) is
+allocated from xenbus_setup_ring() with no node preference, so all
+of a multi-queue blkfront's rings end up on whichever node the
+xenbus watch handler runs on.  Combined with vNUMA->host-node
+mapping, this funnels every dom0 backend xenblkd kthread onto a
+single host node and defeats multi-queue parallelism.
+
+Pick a per-ring node with xenbus_node_for_queue(ring_idx) and pass it
+to xenbus_setup_ring_node().  Different rings now land on different
+guest nodes on multi-vnode guests; same-ring locality is preserved
+by the underlying buddy allocation.
+
+The ring's index is recovered from its byte offset within
+info->rinfo because struct blkfront_ring_info has a flex array
+trailer and sizeof() is not the stride; the same arithmetic appears
+in get_rinfo() and for_each_rinfo().
+
+Bind the ring's evtchn IRQ on the ring's node using
+bind_evtchn_to_irqhandler_lateeoi_on_node().  The desc is then
+allocated with the right node attribute and irqbalance treats the
+IRQ as NUMA-local.
+
+Apply irq_set_affinity_and_hint() to the per-ring IRQ using the same
+node.  The IRQ fires on a CPU in the ring's node; blk-mq routes the
+completion onward to the original submitter via the request_irq
+machinery, so the wake-up edge stays on the right node before that
+handoff.  Sets both actual affinity and hint; operator writes to
+/proc/irq/N/smp_affinity continue to win.
+
+No XPS-equivalent steering is needed on the block side.  blk-mq's
+existing hctx-to-CPU map already routes submissions: a process
+running on CPU C submits via the hctx blk-mq mapped to C, and our
+ring node for that hctx is derived from the same node-rotation
+helper.  The submitter is on the same node as the ring by
+construction.
+
+In blkif_free_ring(), clear the hint with
+irq_update_affinity_hint(rinfo->irq, NULL) before
+unbind_from_irqhandler().  free_irq() warns if the hint is still set
+at teardown (kernel/irq/manage.c:1865); reconnects would otherwise
+WARN.
+
+Single-vnode guests are unaffected: every ring's node resolves to
+node 0 and behaviour matches the previous default.
+
+Signed-off-by: Steven Noonan <steven@edera.dev>
+---
+ drivers/block/xen-blkfront.c | 53 ++++++++++++++++++++++++++++++++----
+ 1 file changed, 48 insertions(+), 5 deletions(-)
+
+diff --git a/drivers/block/xen-blkfront.c b/drivers/block/xen-blkfront.c
+index 04fc6b552c04..8414dc737157 100644
+--- a/drivers/block/xen-blkfront.c
++++ b/drivers/block/xen-blkfront.c
+@@ -35,12 +35,14 @@
+  * IN THE SOFTWARE.
+  */
+ 
++#include <linux/cpumask.h>
+ #include <linux/interrupt.h>
+ #include <linux/blkdev.h>
+ #include <linux/blk-mq.h>
+ #include <linux/hdreg.h>
+ #include <linux/cdrom.h>
+ #include <linux/module.h>
++#include <linux/numa.h>
+ #include <linux/slab.h>
+ #include <linux/major.h>
+ #include <linux/mutex.h>
+@@ -1293,8 +1295,14 @@ static void blkif_free_ring(struct blkfront_ring_info *rinfo)
+ 	xenbus_teardown_ring((void **)&rinfo->ring.sring, info->nr_ring_pages,
+ 			     rinfo->ring_ref);
+ 
+-	if (rinfo->irq)
++	if (rinfo->irq) {
++		/*
++		 * free_irq() warns if affinity_hint is still set.  Drop the
++		 * hint installed at setup time before tearing the IRQ down.
++		 */
++		irq_update_affinity_hint(rinfo->irq, NULL);
+ 		unbind_from_irqhandler(rinfo->irq, rinfo);
++	}
+ 	rinfo->evtchn = rinfo->irq = 0;
+ }
+ 
+@@ -1684,9 +1692,29 @@ static int setup_blkring(struct xenbus_device *dev,
+ 	int err;
+ 	struct blkfront_info *info = rinfo->dev_info;
+ 	unsigned long ring_size = info->nr_ring_pages * XEN_PAGE_SIZE;
++	unsigned int ring_idx;
++	int node;
++
++	/*
++	 * Recover the ring index from its slot in info->rinfo.  The same
++	 * arithmetic is used by get_rinfo() and for_each_rinfo() (the
++	 * struct has a flex array so sizeof() is not the stride).
++	 */
++	ring_idx = ((unsigned long)rinfo - (unsigned long)info->rinfo) /
++		   info->rinfo_size;
++
++	/*
++	 * Distribute rings across guest NUMA nodes by rotating over
++	 * nodes-with-CPUs.  blk-mq's default hctx-to-CPU map is also
++	 * NUMA-balanced (blk_mq_map_queues uses NUMA-aware distribution
++	 * when topology is present), so a submitter on a node-N CPU
++	 * lands on the hctx whose ring is on node N.  No XPS-equivalent
++	 * steering needed on the block side -- blk-mq already does it.
++	 */
++	node = xenbus_node_for_queue(ring_idx);
+ 
+-	err = xenbus_setup_ring(dev, GFP_NOIO, (void **)&sring,
+-				info->nr_ring_pages, rinfo->ring_ref);
++	err = xenbus_setup_ring_node(dev, GFP_NOIO, node, (void **)&sring,
++				     info->nr_ring_pages, rinfo->ring_ref);
+ 	if (err)
+ 		goto fail;
+ 
+@@ -1696,8 +1724,9 @@ static int setup_blkring(struct xenbus_device *dev,
+ 	if (err)
+ 		goto fail;
+ 
+-	err = bind_evtchn_to_irqhandler_lateeoi(rinfo->evtchn, blkif_interrupt,
+-						0, "blkif", rinfo);
++	err = bind_evtchn_to_irqhandler_lateeoi_on_node(rinfo->evtchn,
++							blkif_interrupt, 0,
++							"blkif", rinfo, node);
+ 	if (err <= 0) {
+ 		xenbus_dev_fatal(dev, err,
+ 				 "bind_evtchn_to_irqhandler failed");
+@@ -1705,6 +1734,20 @@ static int setup_blkring(struct xenbus_device *dev,
+ 	}
+ 	rinfo->irq = err;
+ 
++	/*
++	 * Route the ring's evtchn IRQ toward the same node the ring
++	 * lives on.  blk-mq completes requests on the submitting CPU
++	 * via the request_irq path; firing the IRQ on the ring's node
++	 * keeps the wake-up on the right node before blk-mq routes the
++	 * completion onward.  Sets both actual affinity and hint.
++	 */
++	if (node != NUMA_NO_NODE) {
++		const struct cpumask *mask = cpumask_of_node(node);
++
++		if (!cpumask_empty(mask))
++			irq_set_affinity_and_hint(rinfo->irq, mask);
++	}
++
+ 	return 0;
+ fail:
+ 	blkif_free(info, 0);
+-- 
+2.54.0
+

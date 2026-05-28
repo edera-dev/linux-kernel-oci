@@ -1,0 +1,158 @@
+From 14a4b2b5f12fa8359b84e48ec01586285d1f71e9 Mon Sep 17 00:00:00 2001
+From: Steven Noonan <steven@edera.dev>
+Date: Tue, 19 May 2026 19:09:31 -0700
+Subject: [PATCH 6/9] xen/xenbus: collapse xenbus_ring_host_node to a
+ page_to_nid wrapper
+
+Now that xen_alloc_unpopulated_pages places ring placeholders on the
+foreign frame's host node and xenbus_map_ring_hvm relocates the
+placeholders post-map when they land in the wrong pool, page_to_nid
+of any vmap'd ring page in PVH dom0 already reports the host node of
+its foreign MFN.  xenbus_ring_host_node can therefore drop the
+list-walk + cached integer + hypercall plumbing and become a thin
+wrapper around vmalloc_to_page() + page_to_nid().
+
+The XENMEM_get_mfn_pxms hypercall is still issued at map time inside
+xenbus_map_ring_hvm to learn the foreign frame's host node before
+deciding whether to relocate.  The decision now uses a local variable
+rather than caching the value on struct xenbus_map_node, so the
+host_node field is removed entirely.
+
+PV dom0 keeps the early NUMA_NO_NODE return: PV mappings install
+foreign MFNs directly in the PTEs and have no struct page in dom0's
+mem_map for the foreign frame, so vmalloc_to_page on a PV ring vaddr
+returns the placeholder for the wrong frame (or NULL).  PV dom0 is
+not a NUMA-affinity target on Edera in any case.
+
+Backend call sites do not change: netback and blkback continue to
+call xenbus_ring_host_node exactly as before.  The work moves from
+"walk a list keyed on vaddr, return a cached integer set at map time"
+to "look up the struct page for vaddr, return its nid".  Cheaper at
+runtime; no longer needs xenbus_valloc_lock; same return value.
+
+Signed-off-by: Steven Noonan <steven@edera.dev>
+---
+ drivers/xen/xenbus/xenbus_client.c | 55 ++++++++++++++----------------
+ 1 file changed, 25 insertions(+), 30 deletions(-)
+
+diff --git a/drivers/xen/xenbus/xenbus_client.c b/drivers/xen/xenbus/xenbus_client.c
+index 7f94b135727a..f357c4a0372f 100644
+--- a/drivers/xen/xenbus/xenbus_client.c
++++ b/drivers/xen/xenbus/xenbus_client.c
+@@ -74,7 +74,6 @@ struct xenbus_map_node {
+ 	};
+ 	grant_handle_t handles[XENBUS_MAX_RING_GRANTS];
+ 	unsigned int   nr_handles;
+-	int            host_node;	/* Linux node id of foreign frame, or NUMA_NO_NODE */
+ };
+ 
+ struct map_ring_valloc {
+@@ -748,12 +747,11 @@ static int xenbus_map_ring_hvm(struct xenbus_device *dev,
+ {
+ 	struct xenbus_map_node *node = info->node;
+ 	int err;
++	int host_node = NUMA_NO_NODE;
+ 	void *addr;
+ 	bool leaked = false;
+ 	unsigned int nr_pages = XENBUS_PAGES(nr_grefs);
+ 
+-	node->host_node = NUMA_NO_NODE;
+-
+ 	err = xen_alloc_unpopulated_pages(nr_pages, node->hvm.pages);
+ 	if (err)
+ 		goto out_err;
+@@ -770,14 +768,13 @@ static int xenbus_map_ring_hvm(struct xenbus_device *dev,
+ 		goto out_free_ballooned_pages;
+ 
+ 	/*
+-	 * Xen unconditionally fills dev_bus_addr with the foreign frame's
+-	 * machine address on a successful host_map (see grant_table.c in
+-	 * the hypervisor).  Pick up the first ring page's MFN and resolve
+-	 * it now while we still have the map info; the result is cached on
+-	 * the xenbus_map_node so backends can look it up cheaply later.
++	 * Xen fills dev_bus_addr with the foreign frame's machine
++	 * address on a successful host_map (see grant_table.c in the
++	 * hypervisor).  Resolve the host node now so we know whether the
++	 * placeholders need to be relocated below.
+ 	 */
+ 	if (nr_grefs > 0)
+-		node->host_node = xenbus_query_mfn_node(
++		host_node = xenbus_query_mfn_node(
+ 			PFN_DOWN(info->map[0].dev_bus_addr));
+ 
+ 	/*
+@@ -792,11 +789,10 @@ static int xenbus_map_ring_hvm(struct xenbus_device *dev,
+ 	 * The cost is one extra grant unmap + map pair per backend
+ 	 * connect (a rare event) and is paid only when the placeholder
+ 	 * pool's node disagrees with the foreign frame.  PV mappings and
+-	 * cases where Xen cannot supply node info skip the dance entirely
+-	 * (host_node stays NUMA_NO_NODE).
++	 * cases where Xen cannot supply node info skip the dance entirely.
+ 	 */
+-	if (node->host_node != NUMA_NO_NODE &&
+-	    page_to_nid(node->hvm.pages[0]) != node->host_node) {
++	if (host_node != NUMA_NO_NODE &&
++	    page_to_nid(node->hvm.pages[0]) != host_node) {
+ 		int relocate_err;
+ 
+ 		relocate_err = xenbus_unmap_ring(dev, node->handles, nr_grefs,
+@@ -817,7 +813,7 @@ static int xenbus_map_ring_hvm(struct xenbus_device *dev,
+ 
+ 		err = xen_alloc_unpopulated_pages_node(nr_pages,
+ 						       node->hvm.pages,
+-						       node->host_node);
++						       host_node);
+ 		if (err) {
+ 			/*
+ 			 * Pages already gone; clear the array so the
+@@ -892,22 +888,24 @@ EXPORT_SYMBOL_GPL(xenbus_unmap_ring_vfree);
+ 
+ int xenbus_ring_host_node(struct xenbus_device *dev, void *vaddr)
+ {
+-	struct xenbus_map_node *node;
+-	int node_id = NUMA_NO_NODE;
++	struct page *page;
+ 
+-	spin_lock(&xenbus_valloc_lock);
+-	list_for_each_entry(node, &xenbus_valloc_pages, next) {
+-		void *addr = xen_pv_domain() ? node->pv.area->addr
+-					     : node->hvm.addr;
++	/*
++	 * PV mappings install foreign MFNs directly in the PTEs and have
++	 * no struct page in dom0's mem_map for the foreign frame.  PVH
++	 * dom0 keeps a placeholder struct page (allocated from the
++	 * matching per-node pool of xen_alloc_unpopulated_pages_node)
++	 * whose page_to_nid() reports the host node of the foreign frame
++	 * by construction.
++	 */
++	if (xen_pv_domain())
++		return NUMA_NO_NODE;
+ 
+-		if (addr == vaddr) {
+-			node_id = node->host_node;
+-			break;
+-		}
+-	}
+-	spin_unlock(&xenbus_valloc_lock);
++	page = vmalloc_to_page(vaddr);
++	if (!page)
++		return NUMA_NO_NODE;
+ 
+-	return node_id;
++	return page_to_nid(page);
+ }
+ EXPORT_SYMBOL_GPL(xenbus_ring_host_node);
+ 
+@@ -931,9 +929,6 @@ static int xenbus_map_ring_pv(struct xenbus_device *dev,
+ 	bool leaked = false;
+ 	int err = -ENOMEM;
+ 
+-	/* PV dom0 is not a NUMA-affinity target; leave the value unset. */
+-	node->host_node = NUMA_NO_NODE;
+-
+ 	area = get_vm_area(XEN_PAGE_SIZE * nr_grefs, VM_IOREMAP);
+ 	if (!area)
+ 		return -ENOMEM;
+-- 
+2.54.0
+
