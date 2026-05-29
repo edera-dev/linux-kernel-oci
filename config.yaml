@@ -104,6 +104,10 @@ patches:
   - 0008-xen-netfront-place-per-queue-rings-on-per-queue-node.patch
   - 0009-xen-blkfront-place-per-ring-buffers-on-per-hctx-node.patch
   lower: '6.18'
+- patches:
+  - 0001-xen-xlate_mmu-relocate-remap_pfn-utils.patch
+  - 0002-xen-xlate_mmu-batch-gfn-mappings.patch
+  lower: '6.10'
 images:
 - target: kernelsrc
   name: kernel-src
