@@ -1,0 +1,70 @@
+From 5bc298c60601161ec0f012d38e4cc021347b9831 Mon Sep 17 00:00:00 2001
+Message-ID: <5bc298c60601161ec0f012d38e4cc021347b9831.1779978695.git.alexander@edera.dev>
+From: "Alexander M. Merritt" <alexander@edera.dev>
+Date: Wed, 27 May 2026 13:21:23 -0500
+Subject: [PATCH 1/2] xen: xlate_mmu: relocate remap_pfn utils
+
+Signed-off-by: Alexander M. Merritt <alexander@edera.dev>
+---
+ drivers/xen/xlate_mmu.c | 38 +++++++++++++++++++-------------------
+ 1 file changed, 19 insertions(+), 19 deletions(-)
+
+diff --git a/drivers/xen/xlate_mmu.c b/drivers/xen/xlate_mmu.c
+index f17c4c03db30..6a15396b08aa 100644
+--- a/drivers/xen/xlate_mmu.c
++++ b/drivers/xen/xlate_mmu.c
+@@ -61,6 +61,25 @@ static void xen_for_each_gfn(struct page **pages, unsigned nr_gfn,
+ 	}
+ }
+ 
++struct remap_pfn {
++	struct mm_struct *mm;
++	struct page **pages;
++	pgprot_t prot;
++	unsigned long i;
++};
++
++static int remap_pfn_fn(pte_t *ptep, unsigned long addr, void *data)
++{
++	struct remap_pfn *r = data;
++	struct page *page = r->pages[r->i];
++	pte_t pte = pte_mkspecial(pfn_pte(page_to_pfn(page), r->prot));
++
++	set_pte_at(r->mm, addr, ptep, pte);
++	r->i++;
++
++	return 0;
++}
++
+ struct remap_data {
+ 	xen_pfn_t *fgfn; /* foreign domain's gfn */
+ 	int nr_fgfn; /* Number of foreign gfn left to map */
+@@ -262,25 +281,6 @@ int __init xen_xlate_map_ballooned_pages(xen_pfn_t **gfns, void **virt,
+ 	return 0;
+ }
+ 
+-struct remap_pfn {
+-	struct mm_struct *mm;
+-	struct page **pages;
+-	pgprot_t prot;
+-	unsigned long i;
+-};
+-
+-static int remap_pfn_fn(pte_t *ptep, unsigned long addr, void *data)
+-{
+-	struct remap_pfn *r = data;
+-	struct page *page = r->pages[r->i];
+-	pte_t pte = pte_mkspecial(pfn_pte(page_to_pfn(page), r->prot));
+-
+-	set_pte_at(r->mm, addr, ptep, pte);
+-	r->i++;
+-
+-	return 0;
+-}
+-
+ /* Used by the privcmd module, but has to be built-in on ARM */
+ int xen_remap_vma_range(struct vm_area_struct *vma, unsigned long addr, unsigned long len)
+ {
+-- 
+2.48.1
+
