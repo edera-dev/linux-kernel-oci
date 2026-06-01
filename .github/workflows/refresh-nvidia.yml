@@ -20,21 +20,20 @@ jobs:
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v4
       - name: scrape upstream and rewrite config.yaml
         run: python3 ./hack/build/refresh-nvidia-versions.py
-      - name: open PR if config.yaml changed
+      - name: generate cultivator token
+        uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
+        id: generate-token
+        with:
+          app-id: "${{ secrets.EDERA_CULTIVATION_APP_ID }}"
+          private-key: "${{ secrets.EDERA_CULTIVATION_APP_PRIVATE_KEY }}"
         # Uses the GitHub API path under the hood so commits are auto-signed
         # with the web-flow key (the repo enforces "Verified signatures", which
         # blocks plain `git push` from GITHUB_TOKEN). The action is idempotent:
         # repeated runs on the same branch update the existing PR.
-        #
-        # AUTO_PR_TOKEN, if configured as a PAT in repo secrets, lets the auto-PR
-        # trigger downstream `pull_request` workflows (the kernel build test).
-        # Without it we fall back to GITHUB_TOKEN, which can create the PR but
-        # will not allow CI jobs to autotrigger on PR open - a person still needs
-        # to kick over/close-reopen the PR to trigger CI.
-        # TODO bml generate and define a standalone token
+      - name: open PR if config.yaml changed
         uses: peter-evans/create-pull-request@5f6978faf089d4d20b00c7766989d076bb2fc7f1 # v8.1.1
         with:
-          token: ${{ secrets.AUTO_PR_TOKEN || secrets.GITHUB_TOKEN }}
+          token: ${{ steps.generate-token.outputs.token }}
           sign-commits: true
           branch: auto/refresh-nvidia
           base: main
