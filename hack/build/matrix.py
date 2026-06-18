@@ -487,6 +487,10 @@ def generate_merges(builds: list[dict[str, any]]) -> list[dict[str, any]]:
                 "tags": list(build["tags"]),
                 "produces": list(build["produces"]),
                 "archs": [build["arch"]],
+                # Carried for SBOM generation in the merge job; identical across
+                # archs for a given (version, flavor).
+                "source": build["source"],
+                "firmware_url": build["firmware_url"],
             }
         else:
             if build["arch"] not in merges[key]["archs"]:

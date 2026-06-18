@@ -150,6 +150,8 @@ jobs:
       KERNEL_VERSION: "${{ matrix.merges.version }}"
       KERNEL_FLAVOR: "${{ matrix.merges.flavor }}"
       KERNEL_PRODUCES: "${{ join(matrix.merges.produces, ',') }}"
+      KERNEL_SRC_URL: "${{ matrix.merges.source }}"
+      FIRMWARE_URL: "${{ matrix.merges.firmware_url }}"
       DIGESTS_DIR: digests
     steps:
       - name: Harden the runner (Audit all outbound calls)
@@ -188,3 +190,25 @@ jobs:
           compression-level: 0
       - name: run merge script
         run: sh -x merge.sh
+      - name: install python deps for SBOM
+        run: pip3 install -r requirements.txt
+      - name: generate and attest CycloneDX SBOM
+        env:
+          COSIGN_EXPERIMENTAL: "true"
+        run: |
+          set -euo pipefail
+          python3 hack/build/generate-sbom.py
+          jq -e '.bomFormat == "CycloneDX" and ((.components // []) | length > 0)' \
+            sbom.cdx.json >/dev/null \
+            || { echo "::error::kernel SBOM is empty or invalid"; exit 1; }
+          # Attest the SBOM to each published manifest (kernel + SDK)
+          attested=""
+          IFS=',' read -ra refs <<< "${KERNEL_PRODUCES}"
+          for ref in "${refs[@]}"; do
+            [ -n "${ref}" ] || continue
+            image="${ref%:*}"
+            case " ${attested} " in *" ${image} "*) continue ;; esac
+            attested="${attested} ${image}"
+            echo "attesting SBOM to ${ref}"
+            cosign attest --yes --type cyclonedx --predicate sbom.cdx.json "${ref}"
+          done
