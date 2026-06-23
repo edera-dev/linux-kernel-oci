@@ -25,7 +25,7 @@ jobs:
         egress-policy: audit
 
     - name: checkout repository
-      uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v4
+      uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v4
       with:
         submodules: recursive
     - name: install dependencies
@@ -75,7 +75,7 @@ jobs:
           egress-policy: audit
 
       - name: checkout repository
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v4
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v4
         with:
           submodules: recursive
       - name: install cosign
@@ -93,7 +93,7 @@ jobs:
             username: "${{github.actor}}"
             password: "${{secrets.GITHUB_TOKEN}}"
       - name: restore ccache
-        uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.2
+        uses: actions/cache/restore@2c8a9bd7457de244a408f35966fab2fb45fda9c8 # v5.0.2
         with:
           path: ~/.cache/kernel-ccache
           # restore-keys is important here - it lets us restore the most recent cache key,
@@ -128,7 +128,7 @@ jobs:
         # whose entries the next build can actually restore. PRs still benefit because
         # they will fallthrough to/inherit parent branch caches
         if: github.ref == 'refs/heads/main'
-        uses: actions/cache/save@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.2
+        uses: actions/cache/save@2c8a9bd7457de244a408f35966fab2fb45fda9c8 # v5.0.2
         with:
           path: ~/.cache/kernel-ccache
           # The run_id here is just for write-key uniqueness, as GH doesn't allow overwriting
@@ -159,7 +159,7 @@ jobs:
         with:
           egress-policy: audit
       - name: checkout repository
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v4
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v4
       - name: set up Python
         uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
         with:
