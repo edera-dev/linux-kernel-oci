@@ -160,6 +160,12 @@ jobs:
           egress-policy: audit
       - name: checkout repository
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v4
+      - name: set up Python
+        uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
+        with:
+          python-version: '3.13'
+      - name: install python deps
+        run: pip3 install -r requirements.txt
       - name: install cosign
         uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
       - name: docker setup buildx
@@ -190,8 +196,6 @@ jobs:
           compression-level: 0
       - name: run merge script
         run: sh -x merge.sh
-      - name: install python deps for SBOM
-        run: pip3 install -r requirements.txt
       - name: generate and attest CycloneDX SBOM
         env:
           COSIGN_EXPERIMENTAL: "true"
