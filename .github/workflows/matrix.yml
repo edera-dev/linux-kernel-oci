@@ -14,6 +14,9 @@ on:
         required: true
 concurrency:
   group: "kernel-builder"
+permissions:
+  contents: read
+
 jobs:
   matrix:
     name: matrix
