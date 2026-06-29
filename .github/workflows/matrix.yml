@@ -93,7 +93,7 @@ jobs:
             username: "${{github.actor}}"
             password: "${{secrets.GITHUB_TOKEN}}"
       - name: restore ccache
-        uses: actions/cache/restore@2c8a9bd7457de244a408f35966fab2fb45fda9c8 # v5.0.2
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v5.0.2
         with:
           path: ~/.cache/kernel-ccache
           # restore-keys is important here - it lets us restore the most recent cache key,
@@ -128,7 +128,7 @@ jobs:
         # whose entries the next build can actually restore. PRs still benefit because
         # they will fallthrough to/inherit parent branch caches
         if: github.ref == 'refs/heads/main'
-        uses: actions/cache/save@2c8a9bd7457de244a408f35966fab2fb45fda9c8 # v5.0.2
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v5.0.2
         with:
           path: ~/.cache/kernel-ccache
           # The run_id here is just for write-key uniqueness, as GH doesn't allow overwriting
