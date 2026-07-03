@@ -54,7 +54,7 @@ jobs:
           egress-policy: audit
       - name: restore ccache
         id: restore
-        uses: actions/cache/restore@2c8a9bd7457de244a408f35966fab2fb45fda9c8 # v5.0.2
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v5.0.2
         with:
           path: ~/.cache/kernel-ccache
           key: "${{ matrix.entry.prefix }}-${{ github.run_id }}"
@@ -62,7 +62,7 @@ jobs:
             ${{ matrix.entry.prefix }}-
       - name: save ccache
         if: steps.restore.outputs.cache-matched-key != ''
-        uses: actions/cache/save@2c8a9bd7457de244a408f35966fab2fb45fda9c8 # v5.0.2
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v5.0.2
         with:
           path: ~/.cache/kernel-ccache
           key: "${{ matrix.entry.prefix }}-${{ github.run_id }}"
