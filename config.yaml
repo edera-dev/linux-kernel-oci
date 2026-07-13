@@ -25,7 +25,7 @@ flavors:
   # Note also that we have scripts to bump these version numbers that
   # depend on the below comment anchors being present, for the time being
   local_tags:
-  - 'nvidia-610.43.02'    # Nvidia: "Latest New Feature Branch Version"
+  - 'nvidia-610.43.03'    # Nvidia: "Latest New Feature Branch Version"
   - 'nvidia-595.45.04'    # Nvidia: "Latest Beta Version"
   - 'nvidia-595.84'   # Nvidia: "Latest Production Branch Version"
   constraints:
