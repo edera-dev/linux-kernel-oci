@@ -1,5 +1,8 @@
 import os
+import random
 import re
+import sys
+import time
 from typing import Optional
 
 from packaging.version import Version
@@ -114,24 +117,48 @@ def matches_constraints(
     return applies
 
 
-def list_rsync_dir(url: str):
-    result = subprocess.run(
-        ["rsync", "--list-only", "--out-format='%n'", url],
-        stdout=subprocess.PIPE,
-        stderr=subprocess.DEVNULL,
-    )
+def list_remote_git_tags(url: str, attempts: int = 6) -> list[str]:
+    # ls-remote fetches only the tag advertisement (protocol v2 filters it
+    # server-side), so this avoids both a clone and rsync.kernel.org's
+    # aggressive concurrent-connection cap. Retries cover transient network
+    # failures, with stderr surfaced so the failure mode shows up in CI logs.
+    for attempt in range(attempts):
+        try:
+            result = subprocess.run(
+                ["git", "ls-remote", "--tags", "--refs", url],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                # git has no network timeout of its own, so without this a
+                # hung connection would stall matrix generation until the CI
+                # job limit instead of falling through to the retry loop.
+                timeout=120,
+            )
+        except subprocess.TimeoutExpired:
+            sys.stderr.write(
+                "listing tags of %s timed out (attempt %d/%d)\n"
+                % (url, attempt + 1, attempts)
+            )
+            if attempt + 1 < attempts:
+                time.sleep(min(120, 10 * 2**attempt) + random.uniform(0, 5))
+                continue
+            raise
+        if result.returncode == 0:
+            break
+        sys.stderr.write(
+            "listing tags of %s failed (attempt %d/%d):\n%s\n"
+            % (url, attempt + 1, attempts, result.stderr.decode("utf-8", "replace"))
+        )
+        if attempt + 1 < attempts:
+            time.sleep(min(120, 10 * 2**attempt) + random.uniform(0, 5))
     result.check_returncode()
-    files = []
+    tags = []
     for line in result.stdout.splitlines(keepends=False):
-        line = line.decode("utf-8")
-        if len(line.strip()) == 0:
+        # "<oid>\trefs/tags/<tag>"
+        parts = line.decode("utf-8").strip().split("\t")
+        if len(parts) != 2 or not parts[1].startswith("refs/tags/"):
             continue
-        if line.startswith("MOTD:"):
-            continue
-        file_name = str(line.split(" ")[-1])
-        if file_name != ".":
-            files.append(file_name)
-    return files
+        tags.append(parts[1][len("refs/tags/"):])
+    return tags
 
 
 def parse_text_bool(text: str) -> bool:

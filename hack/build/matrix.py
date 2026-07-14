@@ -1,5 +1,6 @@
 import json
 import os
+import re
 
 import yaml
 import subprocess
@@ -9,7 +10,7 @@ from functools import cache
 
 from packaging.version import Version, parse
 
-from util import matches_constraints, list_rsync_dir, format_image_name
+from util import matches_constraints, list_remote_git_tags, format_image_name
 
 try:
     from yaml import CLoader as Loader
@@ -48,44 +49,33 @@ def get_current_kernel_releases() -> dict[str, any]:
 
 @cache
 def get_all_kernel_releases() -> list[str]:
+    # Release tags (vX.Y[.Z]) map 1:1 to the published linux-X.Y[.Z].tar.xz
+    # artifacts; "-" excludes -rc and other pre-release tags. Tags only reach
+    # back to v2.6.11, but nothing anywhere near that old is buildable here.
     releases = []
-    for maybe_release_major in list_rsync_dir(
-        "rsync://rsync.kernel.org/pub/linux/kernel/"
+    for tag in list_remote_git_tags(
+        "https://git.kernel.org/pub/scm/linux/kernel/git/stable/linux.git"
     ):
-        if not (
-            maybe_release_major.startswith("v") and maybe_release_major.endswith("x")
-        ):
+        if not tag.startswith("v"):
             continue
-        for maybe_release_file in list_rsync_dir(
-            "rsync://rsync.kernel.org/pub/linux/kernel/%s/" % maybe_release_major
-        ):
-            if not (
-                maybe_release_file.startswith("linux-")
-                and maybe_release_file.endswith(".tar.xz")
-            ):
-                continue
-            kernel_version = maybe_release_file.replace("linux-", "").replace(
-                ".tar.xz", ""
-            )
-            if "-" in kernel_version:
-                continue
-            releases.append(kernel_version)
+        kernel_version = tag[1:]
+        if "-" in kernel_version:
+            continue
+        releases.append(kernel_version)
     return releases
 
 @cache
 def get_all_firmware_releases() -> list[str]:
+    # Snapshot tags are pure YYYYMMDD and map 1:1 to the published
+    # linux-firmware-YYYYMMDD.tar.xz artifacts, so lexicographic sort is
+    # chronological.
     snapshots = []
-    for maybe_release_snapshot in list_rsync_dir(
-        "rsync://rsync.kernel.org/pub/linux/kernel/firmware/"
+    for tag in list_remote_git_tags(
+        "https://git.kernel.org/pub/scm/linux/kernel/git/firmware/linux-firmware.git"
     ):
-        if not (
-            maybe_release_snapshot.startswith("linux-firmware-") and maybe_release_snapshot.endswith(".xz")
-        ):
+        if not re.fullmatch(r"[0-9]{8}", tag):
             continue
-        firmware_snapshot_version = maybe_release_snapshot.replace("linux-firmware-", "").replace(
-            ".tar.xz", ""
-        )
-        snapshots.append(firmware_snapshot_version)
+        snapshots.append(tag)
     snapshots.sort()
     snapshots.reverse()
     return snapshots
