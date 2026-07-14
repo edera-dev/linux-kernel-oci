@@ -1,0 +1,124 @@
+name: Build Environment Image
+on:
+  # Rebuild on a schedule so toolchain updates land as deliberate, dated image
+  # releases (which dependabot then proposes as digest bumps in the kernel
+  # Dockerfile) instead of drifting silently into every kernel build. The
+  # cadence balances cache stability (each new image is a cold sccache build)
+  # against sitting too long on Debian toolchain fixes.
+  schedule:
+    - cron: "0 0 1,15 * *"
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+    paths:
+      - "Dockerfile.buildenv"
+      - ".github/workflows/buildenv.yml"
+permissions:
+  contents: read
+  packages: write
+  id-token: write
+concurrency:
+  group: "buildenv-publish"
+env:
+  IMAGE: ghcr.io/edera-dev/kernel-buildenv
+jobs:
+  build:
+    name: "build ${{ matrix.arch }}"
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: amd64
+            platform: linux/amd64
+            runner: ubuntu-latest
+          - arch: arm64
+            platform: linux/arm64
+            runner: ubuntu-24.04-arm
+    runs-on: "${{ matrix.runner }}"
+    steps:
+      - name: Harden the runner (Audit all outbound calls)
+        uses: step-security/harden-runner@9af89fc71515a100421586dfdb3dc9c984fbf411 # v2.19.4
+        with:
+          egress-policy: audit
+      - name: checkout repository
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v4
+      - name: docker setup buildx
+        uses: docker/setup-buildx-action@d7f5e7f509e45cec5c76c4d5afdd7de93d0b3df5 # v4.1.0
+      - name: docker login ghcr.io
+        uses: Wandalen/wretry.action@e68c23e6309f2871ca8ae4763e7629b9c258e1ea # v3.8.0
+        with:
+          action: docker/login-action@b45d80f862d83dbcd57f89517bcf500b2ab88fb2 # v4.0.0
+          with: |
+            registry: ghcr.io
+            username: "${{github.actor}}"
+            password: "${{secrets.GITHUB_TOKEN}}"
+      - name: build and push by digest
+        run: |
+          docker buildx build \
+            -f Dockerfile.buildenv \
+            --platform "${{ matrix.platform }}" \
+            --metadata-file metadata.json \
+            --output "type=image,name=${IMAGE},push-by-digest=true,name-canonical=true,push=true" \
+            .
+          jq -r '."containerimage.digest"' metadata.json > "digest-${{ matrix.arch }}"
+      - name: extract package manifest
+        run: |
+          docker run --rm "${IMAGE}@$(cat digest-${{ matrix.arch }})" \
+            cat /usr/share/buildenv/packages.tsv > "packages-${{ matrix.arch }}.tsv"
+      - name: upload digest
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: "buildenv-digest-${{ matrix.arch }}"
+          path: "digest-${{ matrix.arch }}"
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 1
+      - name: upload package manifest
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: "buildenv-packages-${{ matrix.arch }}"
+          path: "packages-${{ matrix.arch }}.tsv"
+          if-no-files-found: error
+          compression-level: 0
+  merge:
+    name: merge and publish
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Harden the runner (Audit all outbound calls)
+        uses: step-security/harden-runner@9af89fc71515a100421586dfdb3dc9c984fbf411 # v2.19.4
+        with:
+          egress-policy: audit
+      - name: install cosign
+        uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
+      - name: docker setup buildx
+        uses: docker/setup-buildx-action@d7f5e7f509e45cec5c76c4d5afdd7de93d0b3df5 # v4.1.0
+      - name: docker login ghcr.io
+        uses: Wandalen/wretry.action@e68c23e6309f2871ca8ae4763e7629b9c258e1ea # v3.8.0
+        with:
+          action: docker/login-action@b45d80f862d83dbcd57f89517bcf500b2ab88fb2 # v4.0.0
+          with: |
+            registry: ghcr.io
+            username: "${{github.actor}}"
+            password: "${{secrets.GITHUB_TOKEN}}"
+      - name: download digests
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          pattern: "buildenv-digest-*"
+          merge-multiple: true
+      - name: assemble and tag manifest list
+        run: |
+          TAG="$(date -u +%Y%m%d)"
+          docker buildx imagetools create \
+            -t "${IMAGE}:${TAG}" \
+            -t "${IMAGE}:latest" \
+            "${IMAGE}@$(cat digest-amd64)" \
+            "${IMAGE}@$(cat digest-arm64)"
+          DIGEST="$(docker buildx imagetools inspect "${IMAGE}:${TAG}" --format '{{.Manifest.Digest}}')"
+          cosign sign --yes "${IMAGE}@${DIGEST}"
+          {
+            echo "published \`${IMAGE}:${TAG}\`"
+            echo ""
+            echo "pin as: \`${IMAGE}:${TAG}@${DIGEST}\`"
+          } >> "${GITHUB_STEP_SUMMARY}"

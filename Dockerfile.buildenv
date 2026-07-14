@@ -1,0 +1,61 @@
+# Kernel build environment image, published as ghcr.io/edera-dev/kernel-buildenv.
+#
+# This exists so the toolchain is a deliberate, reviewed input to kernel builds
+# rather than whatever the Debian archive serves on build day: sccache keys
+# cache entries on the compiler binary's content hash, so an unplanned gcc
+# update silently turns a build into a 100% cache miss. The image is rebuilt on
+# a schedule (see .github/workflows/buildenv.yml); the kernel Dockerfile pins
+# it by digest and dependabot proposes bumps as reviewable PRs.
+FROM debian:bookworm@sha256:ed4fcc40bb1162b6d2d32e7bec15044d13963779abbe63f67f1cd62b06220519
+
+RUN export DEBIAN_FRONTEND=noninteractive && apt-get update && apt-get install -y \
+      build-essential squashfs-tools python3-yaml \
+      patch diffutils sed mawk findutils zstd \
+      python3 python3-packaging curl rsync cpio gpg grep \
+      flex bison pahole libssl-dev libelf-dev bc kmod && \
+      rm -rf /var/lib/apt/lists/*
+ARG TARGETARCH
+RUN if [ "${TARGETARCH}" = "amd64" ]; then \
+      apt-get update && apt-get install -y linux-headers-amd64 g++-aarch64-linux-gnu gcc-aarch64-linux-gnu && rm -rf /var/lib/apt/lists/*; fi
+RUN if [ "${TARGETARCH}" = "arm64" ]; then \
+      apt-get update && apt-get install -y linux-headers-arm64 g++-x86-64-linux-gnu gcc-x86-64-linux-gnu && rm -rf /var/lib/apt/lists/*; fi
+
+ARG SCCACHE_VERSION=0.16.0
+ARG SCCACHE_SHA256_AMD64=aec995a83ad3dff3d14b6314e08858b7b73d35ca85a5bcf3d3a9ec07dee35588
+ARG SCCACHE_SHA256_ARM64=f73a5c39f96bb6ebb89cc7915cf182260d4cbf30765322c5e793d0fe8bd80784
+# The wrappers must reference the real compiler by absolute path: /usr/lib/sccache
+# is first in PATH, so a bare compiler name would resolve back to the wrapper
+# itself and recurse.
+RUN case "${TARGETARCH}" in \
+      amd64) SCCACHE_ARCH=x86_64 SCCACHE_SHA256="${SCCACHE_SHA256_AMD64}" ;; \
+      arm64) SCCACHE_ARCH=aarch64 SCCACHE_SHA256="${SCCACHE_SHA256_ARM64}" ;; \
+      *) echo "unsupported TARGETARCH ${TARGETARCH}" >&2; exit 1 ;; \
+    esac && \
+    SCCACHE_DIST="sccache-v${SCCACHE_VERSION}-${SCCACHE_ARCH}-unknown-linux-musl" && \
+    curl -Lf -o /tmp/sccache.tar.gz "https://github.com/mozilla/sccache/releases/download/v${SCCACHE_VERSION}/${SCCACHE_DIST}.tar.gz" && \
+    echo "${SCCACHE_SHA256}  /tmp/sccache.tar.gz" | sha256sum -c - && \
+    tar -xz -C /tmp -f /tmp/sccache.tar.gz && \
+    install -m 0755 "/tmp/${SCCACHE_DIST}/sccache" /usr/local/bin/sccache && \
+    rm -rf /tmp/sccache.tar.gz "/tmp/${SCCACHE_DIST}" && \
+    mkdir -p /usr/lib/sccache && \
+    for compiler in cc c++ gcc g++ \
+      x86_64-linux-gnu-gcc x86_64-linux-gnu-g++ \
+      aarch64-linux-gnu-gcc aarch64-linux-gnu-g++; do \
+      [ -x "/usr/bin/${compiler}" ] || continue; \
+      printf '#!/bin/sh\nexec /usr/local/bin/sccache /usr/bin/%s "$@"\n' "${compiler}" >"/usr/lib/sccache/${compiler}"; \
+      chmod 0755 "/usr/lib/sccache/${compiler}"; \
+    done
+ENV PATH="/usr/lib/sccache:${PATH}"
+
+RUN useradd -ms /bin/sh build
+
+# Self-describing package manifest: lets any two image digests be diffed
+# without external records (docker run <image> cat /usr/share/buildenv/packages.tsv).
+# The buildenv-diff workflow uses this to summarize dependabot digest bumps.
+RUN mkdir -p /usr/share/buildenv && \
+    { dpkg-query -W -f '${Package}\t${Version}\t${Architecture}\n' | sort; \
+      printf 'sccache\t%s\tgithub-release\n' "${SCCACHE_VERSION}"; } \
+      >/usr/share/buildenv/packages.tsv
+
+LABEL org.opencontainers.image.source="https://github.com/edera-dev/linux-kernel-oci"
+LABEL org.opencontainers.image.description="Edera kernel build environment (toolchain + sccache)"
