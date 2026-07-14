@@ -12,20 +12,12 @@ FROM --platform=$BUILDPLATFORM scratch AS nvidia-modules
 ARG NV_MODULES_TARBALL_URL=
 ADD ${NV_MODULES_TARBALL_URL} /nvidia-modules.tar.gz
 
-FROM --platform=$BUILDPLATFORM debian:bookworm@sha256:ed4fcc40bb1162b6d2d32e7bec15044d13963779abbe63f67f1cd62b06220519 AS buildenv
-RUN export DEBIAN_FRONTEND=noninteractive && apt-get update && apt-get install -y \
-      build-essential squashfs-tools python3-yaml \
-      patch diffutils sed mawk findutils zstd \
-      python3 python3-packaging curl rsync cpio gpg grep \
-      flex bison pahole libssl-dev libelf-dev bc kmod ccache && \
-      rm -rf /var/lib/apt/lists/*
-ARG BUILDPLATFORM
-RUN if [ "${BUILDPLATFORM}" = "linux/amd64" ]; then \
-      apt-get update && apt-get install -y linux-headers-amd64 g++-aarch64-linux-gnu gcc-aarch64-linux-gnu && rm -rf /var/lib/apt/lists/*; fi
-RUN if [ "${BUILDPLATFORM}" = "linux/arm64" ] || [ "${BUILDPLATFORM}" = "linux/aarch64" ]; then \
-      apt-get update && apt-get install -y linux-headers-arm64 g++-x86-64-linux-gnu gcc-x86-64-linux-gnu && rm -rf /var/lib/apt/lists/*; fi
-ENV PATH="/usr/lib/ccache:${PATH}"
-RUN useradd -ms /bin/sh build
+# The toolchain (compilers, kbuild deps, sccache + wrappers) comes from the
+# published build environment image so it only changes via deliberate,
+# reviewed digest bumps - see Dockerfile.buildenv and buildenv.yml. Dependabot
+# keeps the pin current, with buildenv-diff.yml summarizing the package
+# changes in each bump PR.
+FROM --platform=$BUILDPLATFORM ghcr.io/edera-dev/kernel-buildenv:latest@sha256:c0bf191fcec390ef0b97522bcd35e6b776b8ec112676187e3208c933c28c8baa AS buildenv
 COPY --chown=build:build . /build
 USER build
 WORKDIR /build
@@ -41,16 +33,16 @@ COPY --from=firmware --chown=build:build /firmware.tar.sign /build/override-firm
 FROM build-staged AS build-staged-nvidiagpu
 COPY --from=nvidia-modules --chown=build:build /nvidia-modules.tar.gz /build/override-nvidia-modules.tar.gz
 
-FROM scratch AS kernel-ccachebuild
-COPY --from=ccachebuild kernel /kernel/image
-COPY --from=ccachebuild config.gz /kernel/config.gz
-COPY --from=ccachebuild addons.squashfs /kernel/addons.squashfs
-COPY --from=ccachebuild metadata /kernel/metadata
+FROM scratch AS kernel-prebuilt
+COPY --from=prebuilt kernel /kernel/image
+COPY --from=prebuilt config.gz /kernel/config.gz
+COPY --from=prebuilt addons.squashfs /kernel/addons.squashfs
+COPY --from=prebuilt metadata /kernel/metadata
 
-FROM alpine:3.23@sha256:5b10f432ef3da1b8d4c7eb6c487f2f5a8f096bc91145e68878dd4a5019afde11 AS sdkbuild-ccachebuild
+FROM alpine:3.23@sha256:5b10f432ef3da1b8d4c7eb6c487f2f5a8f096bc91145e68878dd4a5019afde11 AS sdkbuild-prebuilt
 ARG KERNEL_FLAVOR=zone
-COPY --from=ccachebuild sdk.tar.gz /sdk.tar.gz
-COPY --from=ccachebuild metadata /metadata
+COPY --from=prebuilt sdk.tar.gz /sdk.tar.gz
+COPY --from=prebuilt metadata /metadata
 RUN KERNEL_UNAME_R=$(grep '^KERNEL_UNAME_R=' /metadata | cut -d= -f2) && \
     mkdir -p /usr/src/kernel-sdk-${KERNEL_UNAME_R}-${KERNEL_FLAVOR} && \
     tar -zx -C /usr/src/kernel-sdk-${KERNEL_UNAME_R}-${KERNEL_FLAVOR} -f /sdk.tar.gz && \
@@ -58,5 +50,5 @@ RUN KERNEL_UNAME_R=$(grep '^KERNEL_UNAME_R=' /metadata | cut -d= -f2) && \
     ln -sf /usr/src/kernel-sdk-${KERNEL_UNAME_R}-${KERNEL_FLAVOR} /lib/modules/${KERNEL_UNAME_R}/build && \
     rm -rf /sdk.tar.gz /metadata
 
-FROM scratch AS sdk-ccachebuild
-COPY --from=sdkbuild-ccachebuild /usr/src /usr/src
+FROM scratch AS sdk-prebuilt
+COPY --from=sdkbuild-prebuilt /usr/src /usr/src

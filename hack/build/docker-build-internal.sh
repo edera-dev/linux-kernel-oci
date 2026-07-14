@@ -10,3 +10,8 @@ if [ -z "${KERNEL_VERSION}" ] || [ -z "${KERNEL_FLAVOR}" ]; then
 fi
 
 ./hack/build/build.sh
+
+# Surface cache effectiveness (hits vs misses, backend errors) in build logs.
+# || true: this may respawn an idle-timed-out server, and a transient backend
+# error there must not fail an otherwise-successful build (set -e above).
+sccache --show-stats || true

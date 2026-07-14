@@ -24,6 +24,7 @@ permissions:
 jobs:
   build:
     uses: ./.github/workflows/matrix.yml
+    secrets: inherit
     with:
       spec: ${{ inputs.spec || 'lts' }}
       publish: ${{ inputs.publish == '' || inputs.publish }}

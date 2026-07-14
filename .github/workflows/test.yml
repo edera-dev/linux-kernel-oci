@@ -13,6 +13,7 @@ concurrency:
 jobs:
   test:
     uses: ./.github/workflows/matrix.yml
+    secrets: inherit
     with:
       spec: "only-latest-lts:flavor=host,zone,zone-nvidiagpu"
       publish: false

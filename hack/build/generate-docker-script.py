@@ -9,10 +9,11 @@ from packaging.version import parse, Version
 from matrix import CONFIG
 from util import format_image_name, maybe, smart_script_split, parse_text_bool, get_branch_tag_suffix
 
-# Targets that are handled via docker run + host CCACHE packaging stages.
-CCACHE_TARGET_MAP = {
-    "kernel": "kernel-ccachebuild",
-    "sdk": "sdk-ccachebuild",
+# Targets packaged from artifacts compiled out-of-band (the docker run compile
+# phase) and imported into the image build through the `prebuilt` context.
+PREBUILT_TARGET_MAP = {
+    "kernel": "kernel-prebuilt",
+    "sdk": "sdk-prebuilt",
 }
 
 # Targets skipped during the packaging phase (handled separately or not needed).
@@ -110,7 +111,7 @@ def docker_compile(
     firmware_url: str,
     firmware_sig_url: str,
 ) -> list[str]:
-    """Generate docker run commands to compile the kernel with ccache."""
+    """Generate docker run commands to compile the kernel with sccache."""
     lines = []
     has_firmware = flavor == "zone-amdgpu"
     has_nvidia = flavor == "zone-nvidiagpu"
@@ -124,7 +125,7 @@ def docker_compile(
     staged_iidfile = "image-id-%s-%s-%s" % (version, flavor, stage_target)
 
     lines += ["", "rm -rf target && mkdir -p target && chmod a+rwX target"]
-    lines += ['mkdir -p "${HOME}/.cache/kernel-ccache" && chmod -R a+rwX "${HOME}/.cache/kernel-ccache"']
+    lines += ['mkdir -p "${HOME}/.cache/kernel-sccache" && chmod -R a+rwX "${HOME}/.cache/kernel-sccache"']
 
     for arch in archs:
         platform = arch_to_platform(arch)
@@ -136,9 +137,19 @@ def docker_compile(
             "-e", quoted("KERNEL_VERSION=%s" % version),
             "-e", quoted("KERNEL_FLAVOR=%s" % flavor),
             "-e", quoted("KERNEL_SRC_URL=/build/override-kernel-src.tar.xz"),
-            "-e", quoted("CCACHE_DIR=/home/build/.cache/ccache"),
-            "-e", quoted("CCACHE_COMPRESS=1"),
-            "-v", quoted("${HOME}/.cache/kernel-ccache:/home/build/.cache/ccache"),
+            # The Azure sccache env is passed through by name only (no values),
+            # so the generated script stays free of secrets; docker omits any
+            # that are unset on the host. Without Azure config sccache falls
+            # back to the bind-mounted local disk cache below. This name list
+            # must match what the "configure sccache" step in
+            # .github/workflows/matrix.yml exports; a name missing here
+            # silently never reaches the build container.
+            "-e", quoted("SCCACHE_AZURE_CONNECTION_STRING"),
+            "-e", quoted("SCCACHE_AZURE_BLOB_CONTAINER"),
+            "-e", quoted("SCCACHE_AZURE_KEY_PREFIX"),
+            "-e", quoted("SCCACHE_AZURE_RW_MODE"),
+            "-e", quoted("SCCACHE_DIR=/home/build/.cache/sccache"),
+            "-v", quoted("${HOME}/.cache/kernel-sccache:/home/build/.cache/sccache"),
             "-v", quoted("${PWD}/target:/build/target"),
         ]
         if has_firmware:
@@ -181,7 +192,7 @@ def docker_build(
     lines = []
 
     version = dockerify_version(version)
-    actual_target = CCACHE_TARGET_MAP.get(target, target)
+    actual_target = PREBUILT_TARGET_MAP.get(target, target)
 
     # tag_version is the version string used for OCI tags; version is the
     # actual kernel version passed as a build arg and recorded in annotations.
@@ -219,7 +230,7 @@ def docker_build(
         image_build_command += ["--platform", quoted(platform)]
 
     if actual_target != target:
-        image_build_command += ["--build-context", quoted("ccachebuild=target")]
+        image_build_command += ["--build-context", quoted("prebuilt=target")]
 
     if mark_format is not None:
         image_build_command += [
@@ -353,7 +364,8 @@ def generate_builds(
         firmware_sig_url=firmware_sig_url,
     )
 
-    # Phase 2: Compile kernel via docker run with ccache bind-mounted from host.
+    # Phase 2: Compile kernel via docker run; sccache provides the compile
+    # cache (Azure Blob in CI, bind-mounted local disk otherwise).
     lines += docker_compile(
         version=kernel_version,
         flavor=kernel_flavor,
@@ -362,7 +374,7 @@ def generate_builds(
         firmware_sig_url=firmware_sig_url,
     )
 
-    # Phase 3: Package kernel and SDK images from the ccache-built artifacts.
+    # Phase 3: Package kernel and SDK images from the compiled artifacts.
     for image_config in image_configs:
         target = image_config["target"]
         if target in SKIP_PACKAGING_TARGETS:

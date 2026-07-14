@@ -92,16 +92,39 @@ jobs:
             registry: ghcr.io
             username: "${{github.actor}}"
             password: "${{secrets.GITHUB_TOKEN}}"
-      - name: restore ccache
-        uses: actions/cache/restore@2c8a9bd7457de244a408f35966fab2fb45fda9c8 # v5.0.2
-        with:
-          path: ~/.cache/kernel-ccache
-          # restore-keys is important here - it lets us restore the most recent cache key,
-          # *ignoring* the specific run ID, as a fuzzy match. So we can use previous build's
-          # caches for this flavor/arch even if the runid is not the same
-          key: "ccache-${{ matrix.builds.flavor }}-${{ matrix.builds.arch }}-${{ github.run_id }}"
-          restore-keys: |
-            ccache-${{ matrix.builds.flavor }}-${{ matrix.builds.arch }}-
+      - name: configure sccache
+        env:
+          SCCACHE_CONN_RW: ${{ secrets.SCCACHE_AZURE_CONNECTION_STRING }}
+          SCCACHE_CONN_RO: ${{ secrets.SCCACHE_AZURE_CONNECTION_STRING_RO }}
+        run: |
+          # Only explicitly trusted, maintainer-gated triggers get the
+          # read-write token. Everything else - pull requests today, and any
+          # trigger added later (e.g. merge_group) - fails closed to the
+          # read-only token, so code that hasn't been reviewed and merged can
+          # never poison cache objects later consumed by release builds. Fork
+          # PRs have no secrets at all and fall back to a runner-local disk
+          # cache.
+          case "${{ github.event_name }}" in
+            push|schedule|workflow_dispatch)
+              SCCACHE_CONN="${SCCACHE_CONN_RW}"
+              SCCACHE_MODE="READ_WRITE"
+              ;;
+            *)
+              SCCACHE_CONN="${SCCACHE_CONN_RO}"
+              SCCACHE_MODE="READ_ONLY"
+              ;;
+          esac
+          if [ -n "${SCCACHE_CONN}" ]; then
+            # These names must match the -e passthrough list in
+            # hack/build/generate-docker-script.py (docker_compile); a name
+            # missing there silently never reaches the build container.
+            {
+              echo "SCCACHE_AZURE_CONNECTION_STRING=${SCCACHE_CONN}"
+              echo "SCCACHE_AZURE_RW_MODE=${SCCACHE_MODE}"
+              echo "SCCACHE_AZURE_BLOB_CONTAINER=sccache"
+              echo "SCCACHE_AZURE_KEY_PREFIX=kernel"
+            } >> "${GITHUB_ENV}"
+          fi
       - name: generate docker script
         run: "./hack/build/generate-docker-script.sh"
       - name: upload docker script
@@ -122,19 +145,6 @@ jobs:
           if-no-files-found: error
           compression-level: 0
           retention-days: 1
-      - name: save ccache
-        # Only save from main. GH's per-repo 10GB cache pool is shared across all refs,
-        # so PR-scoped saves evict main-scoped entries via LRU - and main is the only ref
-        # whose entries the next build can actually restore. PRs still benefit because
-        # they will fallthrough to/inherit parent branch caches
-        if: github.ref == 'refs/heads/main'
-        uses: actions/cache/save@2c8a9bd7457de244a408f35966fab2fb45fda9c8 # v5.0.2
-        with:
-          path: ~/.cache/kernel-ccache
-          # The run_id here is just for write-key uniqueness, as GH doesn't allow overwriting
-          # existing cache keys - the `restore` action will fuzzy-match and ignore the run_id
-          # for subsequent runs.
-          key: "ccache-${{ matrix.builds.flavor }}-${{ matrix.builds.arch }}-${{ github.run_id }}"
   merge:
     # Stitch the per-arch single-platform pushes from `build` into multi-arch
     # manifest lists. Only runs when publishing; no-op when nothing was pushed.
