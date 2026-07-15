@@ -75,38 +75,15 @@ jobs:
           egress-policy: audit
 
       - name: report disk space (before)
-        run: df -hT -x tmpfs -x devtmpfs -x squashfs -x efivarfs -x overlay
+        uses: edera-dev/actions/report-disk-space@f92635e9fe8739c2b8a78fa87e9c8567bfa81b9c # v0.0.15
       - name: reclaim runner disk space
-        # The runner image preinstalls tooling irrelevant to kernel builds
-        # (language runtimes, SDKs, browsers, cloud CLIs - tens of GB) on
-        # the root disk, which still holds the docker/containerd image
-        # store even with the build trees routed to a scratch disk. Absent
-        # paths are no-ops, so this tolerates image changes across runner
-        # classes. This step must run before any tool-installing action:
-        # it removes /opt/hostedtoolcache wholesale, and e.g.
-        # cosign-installer places cosign there (installers re-create what
-        # they need when they run afterwards).
-        run: |
-          sudo rm -rf \
-            /usr/local/lib/android \
-            /usr/share/dotnet \
-            /usr/lib/jvm \
-            /usr/share/swift \
-            /usr/local/.ghcup \
-            /usr/local/julia* \
-            /usr/local/share/chromium \
-            /usr/local/share/powershell \
-            /opt/microsoft \
-            /opt/google \
-            /opt/az \
-            /opt/hostedtoolcache \
-            /usr/lib/google-cloud-sdk \
-            /home/runner/.rustup \
-            /home/runner/.cargo
-          docker system prune -af >/dev/null 2>&1 || true
-          docker builder prune -af >/dev/null 2>&1 || true
-      - name: report disk space (after cleanup)
-        run: df -hT -x tmpfs -x devtmpfs -x squashfs -x efivarfs -x overlay
+        # Kernel builds never touch Rust or the hosted toolcache, so both
+        # opt-in removals are on. Must stay before cosign-installer, which
+        # installs into the toolcache this deletes.
+        uses: edera-dev/actions/reclaim-disk-space@f92635e9fe8739c2b8a78fa87e9c8567bfa81b9c # v0.0.15
+        with:
+          remove-toolcache: 'true'
+          remove-rust: 'true'
       - name: checkout repository
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v4
         with:
@@ -152,38 +129,17 @@ jobs:
             username: "${{github.actor}}"
             password: "${{secrets.GITHUB_TOKEN}}"
       - name: configure sccache
-        env:
-          SCCACHE_CONN_RW: ${{ secrets.SCCACHE_AZURE_CONNECTION_STRING }}
-          SCCACHE_CONN_RO: ${{ secrets.SCCACHE_AZURE_CONNECTION_STRING_RO }}
-        run: |
-          # Only explicitly trusted, maintainer-gated triggers get the
-          # read-write token. Everything else - pull requests today, and any
-          # trigger added later (e.g. merge_group) - fails closed to the
-          # read-only token, so code that hasn't been reviewed and merged can
-          # never poison cache objects later consumed by release builds. Fork
-          # PRs have no secrets at all and fall back to a runner-local disk
-          # cache.
-          case "${{ github.event_name }}" in
-            push|schedule|workflow_dispatch)
-              SCCACHE_CONN="${SCCACHE_CONN_RW}"
-              SCCACHE_MODE="READ_WRITE"
-              ;;
-            *)
-              SCCACHE_CONN="${SCCACHE_CONN_RO}"
-              SCCACHE_MODE="READ_ONLY"
-              ;;
-          esac
-          if [ -n "${SCCACHE_CONN}" ]; then
-            # These names must match the -e passthrough list in
-            # hack/build/generate-docker-script.py (docker_compile); a name
-            # missing there silently never reaches the build container.
-            {
-              echo "SCCACHE_AZURE_CONNECTION_STRING=${SCCACHE_CONN}"
-              echo "SCCACHE_AZURE_RW_MODE=${SCCACHE_MODE}"
-              echo "SCCACHE_AZURE_BLOB_CONTAINER=sccache"
-              echo "SCCACHE_AZURE_KEY_PREFIX=kernel"
-            } >> "${GITHUB_ENV}"
-          fi
+        # Exports SCCACHE_AZURE_{RW_MODE,BLOB_CONTAINER,KEY_PREFIX} via
+        # GITHUB_ENV; the connection string is bound below on the one step
+        # that runs the build. All four names must match the -e passthrough
+        # list in hack/build/generate-docker-script.py (docker_compile); a
+        # name missing there silently never reaches the build container.
+        id: sccache
+        uses: edera-dev/actions/configure-azure-sccache@f92635e9fe8739c2b8a78fa87e9c8567bfa81b9c # v0.0.15
+        with:
+          connection-string-rw: ${{ secrets.SCCACHE_AZURE_CONNECTION_STRING }}
+          connection-string-ro: ${{ secrets.SCCACHE_AZURE_CONNECTION_STRING_RO }}
+          key-prefix: kernel
       - name: generate docker script
         run: "./hack/build/generate-docker-script.sh"
       - name: upload docker script
@@ -193,11 +149,13 @@ jobs:
           path: "docker.sh"
           compression-level: 0
       - name: run docker script
+        env:
+          SCCACHE_AZURE_CONNECTION_STRING: ${{ steps.sccache.outputs.connection-string }}
         run: sh -x docker.sh
       - name: report disk space (after)
         # always() so ENOSPC failures still show where the disk went.
         if: always()
-        run: df -hT -x tmpfs -x devtmpfs -x squashfs -x efivarfs -x overlay
+        uses: edera-dev/actions/report-disk-space@f92635e9fe8739c2b8a78fa87e9c8567bfa81b9c # v0.0.15
       - name: upload digests
         # Only produced when publishing — push-by-digest path writes digests.json.
         if: ${{ inputs.publish }}
