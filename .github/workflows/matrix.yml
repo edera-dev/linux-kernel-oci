@@ -74,6 +74,8 @@ jobs:
         with:
           egress-policy: audit
 
+      - name: report disk space (before)
+        run: df -hT -x tmpfs -x devtmpfs -x squashfs -x efivarfs -x overlay
       - name: checkout repository
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v4
         with:
@@ -135,6 +137,10 @@ jobs:
           compression-level: 0
       - name: run docker script
         run: sh -x docker.sh
+      - name: report disk space (after)
+        # always() so ENOSPC failures still show where the disk went.
+        if: always()
+        run: df -hT -x tmpfs -x devtmpfs -x squashfs -x efivarfs -x overlay
       - name: upload digests
         # Only produced when publishing — push-by-digest path writes digests.json.
         if: ${{ inputs.publish }}
