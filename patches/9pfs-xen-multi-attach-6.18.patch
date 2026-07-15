@@ -1,0 +1,368 @@
+From a5a16b585cb5925fdd6c2f13db2c0b8896a29697 Mon Sep 17 00:00:00 2001
+From: Alex Zenla <alex@edera.dev>
+Date: Tue, 14 Jul 2026 23:27:39 -0700
+Subject: [PATCH] 9p/xen: share one frontend across mounts and advertise it
+ (6.18)
+
+Backport of the multi-attach change to the pre-fs_context 9p mount API
+used by 6.18.x. Let the 9p core share one refcounted p9_client across all
+mounts of an endpoint (opt-in via p9_trans_module.share_client, set for
+xen), so several mounts share a frontend, each attaching with its own
+aname to get an independent tree and superblock.
+
+The endpoint is selected by a tag= mount option (parsed from the options
+string in the old API) so the mount source can differ per mount (distinct
+/proc/mounts device names), and the capability is advertised to userspace
+as edera_multi_attach_v1 in /sys/fs/9p/features.
+
+Signed-off-by: Alex Zenla <alex@edera.dev>
+---
+ fs/9p/v9fs.c               |  20 ++++++
+ include/net/9p/client.h    |  10 +++
+ include/net/9p/transport.h |   8 +++
+ net/9p/client.c            | 125 +++++++++++++++++++++++++++++++++++++
+ net/9p/trans_xen.c         |  40 +++++++++++-
+ 5 files changed, 200 insertions(+), 3 deletions(-)
+
+diff --git a/fs/9p/v9fs.c b/fs/9p/v9fs.c
+index bde3ffb0e319..daaca8117f53 100644
+--- a/fs/9p/v9fs.c
++++ b/fs/9p/v9fs.c
+@@ -578,10 +578,30 @@ static ssize_t caches_show(struct kobject *kobj,
+ static struct kobj_attribute v9fs_attr_cache = __ATTR_RO(caches);
+ #endif /* CONFIG_9P_FSCACHE */
+ 
++/*
++ * Capability tokens for userspace to probe, one per line.
++ *
++ * "edera_multi_attach_v1": a transport that sets p9_trans_module.share_client
++ * (e.g. Xen 9pfs) can back several mounts of a single endpoint, each attaching
++ * with its own aname. Userspace can test for this token before mounting subtrees
++ * of one frontend as independent superblocks (distinct st_dev) instead of
++ * bind-mounting from a single mount. The token is vendor-namespaced and
++ * versioned so it never aliases an unrelated upstream feature name, and a future
++ * behavior change can advertise "_v2" instead.
++ */
++static ssize_t features_show(struct kobject *kobj,
++			     struct kobj_attribute *attr, char *buf)
++{
++	return sysfs_emit(buf, "edera_multi_attach_v1\n");
++}
++
++static struct kobj_attribute v9fs_attr_features = __ATTR_RO(features);
++
+ static struct attribute *v9fs_attrs[] = {
+ #ifdef CONFIG_9P_FSCACHE
+ 	&v9fs_attr_cache.attr,
+ #endif
++	&v9fs_attr_features.attr,
+ 	NULL,
+ };
+ 
+diff --git a/include/net/9p/client.h b/include/net/9p/client.h
+index 4f785098c67a..763cad1359a0 100644
+--- a/include/net/9p/client.h
++++ b/include/net/9p/client.h
+@@ -123,6 +123,16 @@ struct p9_client {
+ 	struct idr fids;
+ 	struct idr reqs;
+ 
++	/* Client sharing, for transports with p9_trans_module.share_client set:
++	 * all mounts of one endpoint reference a single client. @refcount counts
++	 * those mounts; @shared_list links the client into the shared-client
++	 * registry, keyed by @shared_key (a copy of the endpoint tag/source).
++	 * @shared_key is NULL for ordinary, unshared clients.
++	 */
++	refcount_t refcount;
++	struct list_head shared_list;
++	char *shared_key;
++
+ 	char name[__NEW_UTS_LEN + 1];
+ };
+ 
+diff --git a/include/net/9p/transport.h b/include/net/9p/transport.h
+index 766ec07c9599..0bc000853b58 100644
+--- a/include/net/9p/transport.h
++++ b/include/net/9p/transport.h
+@@ -24,6 +24,13 @@
+  *                   we're less flexible when choosing the response message
+  *                   size in this case
+  * @def: set if this transport should be considered the default
++ * @share_client: set if one transport endpoint (e.g. a Xen 9pfs frontend,
++ *                keyed by its tag) can back more than one mount. Such an
++ *                endpoint cannot multiplex several p9_clients, so when this is
++ *                set the 9p core hands every mount of the same endpoint a
++ *                single, refcounted p9_client instead of one per mount. Each
++ *                mount still issues its own Tattach (with its own aname), so it
++ *                gets an independent tree and superblock over the shared client.
+  * @create: member function to create a new connection on this transport
+  * @close: member function to discard a connection on this transport
+  * @request: member function to issue a request to the transport
+@@ -44,6 +51,7 @@ struct p9_trans_module {
+ 	int maxsize;		/* max message size of transport */
+ 	bool pooled_rbuffers;
+ 	int def;		/* this transport should be default */
++	bool share_client;	/* one endpoint may back many mounts */
+ 	struct module *owner;
+ 	int (*create)(struct p9_client *client,
+ 		      const char *devname, char *args);
+diff --git a/net/9p/client.c b/net/9p/client.c
+index 9c9d249dabae..84b1b0fb8e8a 100644
+--- a/net/9p/client.c
++++ b/net/9p/client.c
+@@ -132,6 +132,59 @@ static int get_protocol_version(char *s)
+  * Return 0 upon success, -ERRNO upon failure
+  */
+ 
++/*
++ * Shared-client registry.
++ *
++ * Some transports (currently only Xen 9pfs) expose a single endpoint that
++ * cannot multiplex more than one p9_client: a second mount of the same
++ * endpoint would clobber the first's client pointer. For such transports
++ * (p9_trans_module.share_client) all mounts of one endpoint share a single
++ * refcounted p9_client and tell themselves apart by attaching (Tattach) with
++ * their own aname, which gives each an independent tree and superblock.
++ *
++ * Clients are keyed by endpoint id: the explicit "tag=" mount option when the
++ * mount supplied one, otherwise the mount device name.
++ */
++static LIST_HEAD(p9_shared_clients);
++static DEFINE_MUTEX(p9_shared_clients_lock);
++
++/* Value of the "tag=" mount option in @options, copied into @buf, or NULL when
++ * absent. Matched only at an option boundary.
++ */
++static const char *p9_options_tag(const char *options, char *buf, size_t buflen)
++{
++	const char *p = options;
++
++	while (p && *p) {
++		if (!strncmp(p, "tag=", 4)) {
++			size_t n = strcspn(p + 4, ",");
++
++			if (n == 0 || n >= buflen)
++				return NULL;
++			memcpy(buf, p + 4, n);
++			buf[n] = '\0';
++			return buf;
++		}
++		p = strchr(p, ',');
++		if (p)
++			p++;
++	}
++	return NULL;
++}
++
++/* Caller must hold p9_shared_clients_lock. */
++static struct p9_client *p9_client_find_shared(struct p9_trans_module *trans,
++					       const char *key)
++{
++	struct p9_client *clnt;
++
++	list_for_each_entry(clnt, &p9_shared_clients, shared_list) {
++		if (clnt->trans_mod == trans && !strcmp(clnt->shared_key, key))
++			return clnt;
++	}
++	return NULL;
++}
++
+ static int parse_opts(char *opts, struct p9_client *clnt)
+ {
+ 	char *options, *tmp_options;
+@@ -981,6 +1034,7 @@ struct p9_client *p9_client_create(const char *dev_name, char *options)
+ 	struct p9_client *clnt;
+ 	char *client_id;
+ 	char *cache_name;
++	bool shared_locked = false;
+ 
+ 	clnt = kmalloc(sizeof(*clnt), GFP_KERNEL);
+ 	if (!clnt)
+@@ -996,6 +1050,9 @@ struct p9_client *p9_client_create(const char *dev_name, char *options)
+ 	spin_lock_init(&clnt->lock);
+ 	idr_init(&clnt->fids);
+ 	idr_init(&clnt->reqs);
++	refcount_set(&clnt->refcount, 1);
++	INIT_LIST_HEAD(&clnt->shared_list);
++	clnt->shared_key = NULL;
+ 
+ 	err = parse_opts(options, clnt);
+ 	if (err < 0)
+@@ -1014,6 +1071,47 @@ struct p9_client *p9_client_create(const char *dev_name, char *options)
+ 	p9_debug(P9_DEBUG_MUX, "clnt %p trans %p msize %d protocol %d\n",
+ 		 clnt, clnt->trans_mod, clnt->msize, clnt->proto_version);
+ 
++	if (clnt->trans_mod->share_client) {
++		char tagbuf[64];
++		const char *key = p9_options_tag(options, tagbuf, sizeof(tagbuf));
++		struct p9_client *shared;
++
++		if (!key)
++			key = dev_name;
++		if (!key) {
++			err = -EINVAL;
++			goto put_trans;
++		}
++		mutex_lock(&p9_shared_clients_lock);
++		shared = p9_client_find_shared(clnt->trans_mod, key);
++		if (shared) {
++			/* Endpoint already has a client; reuse it. Discard the
++			 * client we speculatively allocated above.
++			 */
++			refcount_inc(&shared->refcount);
++			mutex_unlock(&p9_shared_clients_lock);
++			v9fs_put_trans(clnt->trans_mod);
++			idr_destroy(&clnt->reqs);
++			idr_destroy(&clnt->fids);
++			kfree(clnt);
++			return shared;
++		}
++		/* First mount of this endpoint. Hold the registry lock across
++		 * setup (trans->create + version negotiation) so a concurrent
++		 * mount of the same endpoint waits and then finds a fully
++		 * initialised client, rather than racing trans->create which
++		 * binds the endpoint to a single client. share_client
++		 * transports have a local backend, so the stall is bounded.
++		 */
++		clnt->shared_key = kstrdup(key, GFP_KERNEL);
++		if (!clnt->shared_key) {
++			mutex_unlock(&p9_shared_clients_lock);
++			err = -ENOMEM;
++			goto put_trans;
++		}
++		shared_locked = true;
++	}
++
+ 	err = clnt->trans_mod->create(clnt, dev_name, options);
+ 	if (err)
+ 		goto put_trans;
+@@ -1054,6 +1152,10 @@ struct p9_client *p9_client_create(const char *dev_name, char *options)
+ 					   NULL);
+ 
+ 	kfree(cache_name);
++	if (shared_locked) {
++		list_add(&clnt->shared_list, &p9_shared_clients);
++		mutex_unlock(&p9_shared_clients_lock);
++	}
+ 	return clnt;
+ 
+ close_trans:
+@@ -1061,6 +1163,10 @@ struct p9_client *p9_client_create(const char *dev_name, char *options)
+ put_trans:
+ 	v9fs_put_trans(clnt->trans_mod);
+ free_client:
++	if (shared_locked) {
++		kfree(clnt->shared_key);
++		mutex_unlock(&p9_shared_clients_lock);
++	}
+ 	kfree(clnt);
+ 	return ERR_PTR(err);
+ }
+@@ -1073,6 +1179,18 @@ void p9_client_destroy(struct p9_client *clnt)
+ 
+ 	p9_debug(P9_DEBUG_MUX, "clnt %p\n", clnt);
+ 
++	/* Shared client: only the last mount tears it down. */
++	if (clnt->shared_key) {
++		mutex_lock(&p9_shared_clients_lock);
++		if (!refcount_dec_and_test(&clnt->refcount)) {
++			mutex_unlock(&p9_shared_clients_lock);
++			return;
++		}
++		list_del(&clnt->shared_list);
++		mutex_unlock(&p9_shared_clients_lock);
++		kfree(clnt->shared_key);
++	}
++
+ 	if (clnt->trans_mod)
+ 		clnt->trans_mod->close(clnt);
+ 
+@@ -1093,6 +1211,11 @@ EXPORT_SYMBOL(p9_client_destroy);
+ void p9_client_disconnect(struct p9_client *clnt)
+ {
+ 	p9_debug(P9_DEBUG_9P, "clnt %p\n", clnt);
++	/* On a shared client, only the last mount may tear the link down;
++	 * disconnecting while a sibling mount is still live would break it.
++	 */
++	if (clnt->shared_key && refcount_read(&clnt->refcount) > 1)
++		return;
+ 	clnt->status = Disconnected;
+ }
+ EXPORT_SYMBOL(p9_client_disconnect);
+@@ -1100,6 +1223,8 @@ EXPORT_SYMBOL(p9_client_disconnect);
+ void p9_client_begin_disconnect(struct p9_client *clnt)
+ {
+ 	p9_debug(P9_DEBUG_9P, "clnt %p\n", clnt);
++	if (clnt->shared_key && refcount_read(&clnt->refcount) > 1)
++		return;
+ 	clnt->status = BeginDisconnect;
+ }
+ EXPORT_SYMBOL(p9_client_begin_disconnect);
+diff --git a/net/9p/trans_xen.c b/net/9p/trans_xen.c
+index 068d57515dd5..9960a7e8246e 100644
+--- a/net/9p/trans_xen.c
++++ b/net/9p/trans_xen.c
+@@ -66,16 +66,49 @@ static int p9_xen_cancel(struct p9_client *client, struct p9_req_t *req)
+ 	return 1;
+ }
+ 
++/* Value of the "tag=" mount option in @args, copied into @buf, or NULL when
++ * absent. Matched only at an option boundary. The device is selected by tag,
++ * so several mounts of one frontend can carry distinct source strings.
++ */
++static const char *p9_xen_opt_tag(const char *args, char *buf, size_t buflen)
++{
++	const char *p = args;
++
++	while (p && *p) {
++		if (!strncmp(p, "tag=", 4)) {
++			size_t n = strcspn(p + 4, ",");
++
++			if (n == 0 || n >= buflen)
++				return NULL;
++			memcpy(buf, p + 4, n);
++			buf[n] = '\0';
++			return buf;
++		}
++		p = strchr(p, ',');
++		if (p)
++			p++;
++	}
++	return NULL;
++}
++
+ static int p9_xen_create(struct p9_client *client, const char *addr, char *args)
+ {
+ 	struct xen_9pfs_front_priv *priv;
+-
+-	if (addr == NULL)
++	char tagbuf[64];
++	const char *tag;
++
++	/* Prefer an explicit tag= option so the mount source can differ per
++	 * mount (distinct /proc/mounts device names); fall back to the source.
++	 */
++	tag = p9_xen_opt_tag(args, tagbuf, sizeof(tagbuf));
++	if (!tag)
++		tag = addr;
++	if (tag == NULL)
+ 		return -EINVAL;
+ 
+ 	read_lock(&xen_9pfs_lock);
+ 	list_for_each_entry(priv, &xen_9pfs_devs, list) {
+-		if (!strcmp(priv->tag, addr)) {
++		if (!strcmp(priv->tag, tag)) {
+ 			priv->client = client;
+ 			read_unlock(&xen_9pfs_lock);
+ 			return 0;
+@@ -258,6 +291,7 @@ static struct p9_trans_module p9_xen_trans = {
+ 	.maxsize = 1 << (XEN_9PFS_RING_ORDER + XEN_PAGE_SHIFT - 2),
+ 	.pooled_rbuffers = false,
+ 	.def = 1,
++	.share_client = true,
+ 	.create = p9_xen_create,
+ 	.close = p9_xen_close,
+ 	.request = p9_xen_request,
+-- 
+2.55.0
+
