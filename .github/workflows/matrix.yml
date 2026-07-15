@@ -82,6 +82,32 @@ jobs:
           submodules: recursive
       - name: install cosign
         uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
+      - name: prepare scratch dir
+        # Some runner generations carry a secondary temp disk at /mnt; its
+        # size varies by VM SKU and is not reliably documented, so route the
+        # build trees there only when it is a distinct filesystem with more
+        # free space than the root disk. The device check comes first:
+        # comparing two df readings of the same filesystem can differ by a
+        # few KiB of measurement jitter and must not trigger the redirect.
+        # sudo because /mnt is root-owned while docker.sh and the
+        # in-container build user both run unprivileged.
+        run: |
+          ROOT_DEV="$(stat -c %d /)"
+          MNT_DEV="$(stat -c %d /mnt 2>/dev/null || echo "${ROOT_DEV}")"
+          if [ "${MNT_DEV}" = "${ROOT_DEV}" ]; then
+            echo "/mnt is not a distinct filesystem; keeping build trees on /"
+            exit 0
+          fi
+          ROOT_AVAIL="$(df --output=avail -k / | tail -1 | tr -d ' ')"
+          MNT_AVAIL="$(df --output=avail -k /mnt | tail -1 | tr -d ' ')"
+          if [ "${MNT_AVAIL}" -gt "${ROOT_AVAIL}" ]; then
+            sudo mkdir -p /mnt/kernel-scratch
+            sudo chmod a+rwX /mnt/kernel-scratch
+            echo "KERNEL_SCRATCH_DIR=/mnt/kernel-scratch" >> "${GITHUB_ENV}"
+            echo "using /mnt scratch (${MNT_AVAIL}K avail vs ${ROOT_AVAIL}K on /)"
+          else
+            echo "keeping build trees on / (${ROOT_AVAIL}K avail vs ${MNT_AVAIL}K on /mnt)"
+          fi
       - name: docker setup linux-kernel-oci
         run: sudo python3 ./hack/build/docker-setup.py
       - name: docker setup buildx

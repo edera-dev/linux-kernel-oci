@@ -127,6 +127,22 @@ def docker_compile(
     lines += ["", "rm -rf target && mkdir -p target && chmod a+rwX target"]
     lines += ['mkdir -p "${HOME}/.cache/kernel-sccache" && chmod -R a+rwX "${HOME}/.cache/kernel-sccache"']
 
+    # The extracted kernel source and object trees are the dominant disk
+    # consumers of a build. By default they live in the container's writable
+    # layer (host root disk); setting KERNEL_SCRATCH_DIR redirects them onto a
+    # host directory via bind mounts. CI sets it only when the runner has a
+    # secondary disk with measurably more free space than / (see the "prepare
+    # scratch dir" step in matrix.yml); local builds leave it unset.
+    scratch_dir = os.getenv("KERNEL_SCRATCH_DIR")
+    if scratch_dir:
+        # chmod only the subdirectories this script creates and owns: in CI
+        # the scratch dir itself is root-owned (created by a sudo'd workflow
+        # step), so a chmod on it would fail for the unprivileged build user.
+        lines += [
+            'mkdir -p "%s/src" "%s/obj" && chmod a+rwX "%s/src" "%s/obj"'
+            % (scratch_dir, scratch_dir, scratch_dir, scratch_dir)
+        ]
+
     for arch in archs:
         platform = arch_to_platform(arch)
         compile_command = [
@@ -152,6 +168,11 @@ def docker_compile(
             "-v", quoted("${HOME}/.cache/kernel-sccache:/home/build/.cache/sccache"),
             "-v", quoted("${PWD}/target:/build/target"),
         ]
+        if scratch_dir:
+            compile_command += [
+                "-v", quoted("%s/src:/build/src" % scratch_dir),
+                "-v", quoted("%s/obj:/build/obj" % scratch_dir),
+            ]
         if has_firmware:
             compile_command += [
                 "-e", quoted("FIRMWARE_URL=/build/override-firmware.tar.xz"),
