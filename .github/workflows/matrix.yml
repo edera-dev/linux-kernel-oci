@@ -76,6 +76,37 @@ jobs:
 
       - name: report disk space (before)
         run: df -hT -x tmpfs -x devtmpfs -x squashfs -x efivarfs -x overlay
+      - name: reclaim runner disk space
+        # The runner image preinstalls tooling irrelevant to kernel builds
+        # (language runtimes, SDKs, browsers, cloud CLIs - tens of GB) on
+        # the root disk, which still holds the docker/containerd image
+        # store even with the build trees routed to a scratch disk. Absent
+        # paths are no-ops, so this tolerates image changes across runner
+        # classes. This step must run before any tool-installing action:
+        # it removes /opt/hostedtoolcache wholesale, and e.g.
+        # cosign-installer places cosign there (installers re-create what
+        # they need when they run afterwards).
+        run: |
+          sudo rm -rf \
+            /usr/local/lib/android \
+            /usr/share/dotnet \
+            /usr/lib/jvm \
+            /usr/share/swift \
+            /usr/local/.ghcup \
+            /usr/local/julia* \
+            /usr/local/share/chromium \
+            /usr/local/share/powershell \
+            /opt/microsoft \
+            /opt/google \
+            /opt/az \
+            /opt/hostedtoolcache \
+            /usr/lib/google-cloud-sdk \
+            /home/runner/.rustup \
+            /home/runner/.cargo
+          docker system prune -af >/dev/null 2>&1 || true
+          docker builder prune -af >/dev/null 2>&1 || true
+      - name: report disk space (after cleanup)
+        run: df -hT -x tmpfs -x devtmpfs -x squashfs -x efivarfs -x overlay
       - name: checkout repository
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v4
         with:
