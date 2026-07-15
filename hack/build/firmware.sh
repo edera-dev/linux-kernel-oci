@@ -37,16 +37,21 @@ fi
 # Note that this assumes the archive is a .tar file, and has already been validated elsewhere.
 if [ -n "${FIRMWARE_URL}" ]; then
 	echo "untarring firmware at $FIRMWARE_URL"
-	tar -xf "${FIRMWARE_URL}" -C "${FIRMWARE_OUTPUT_PATH}" --strip-components=1
-	# For amdgpu zone kernel, we only want the amdgpu firmwares, so remove the rest to keep the addons small
 	if [ "${KERNEL_FLAVOR}" = "zone-amdgpu" ]; then
+		# Only the amdgpu/ subtree ends up in the addons; extracting just
+		# those members instead of the whole tree (and deleting the rest
+		# afterwards) keeps peak disk usage down - the full extraction has
+		# taken out builders with ENOSPC.
+		tar -xf "${FIRMWARE_URL}" -C "${FIRMWARE_OUTPUT_PATH}" --strip-components=1 \
+			--wildcards 'linux-firmware-*/amdgpu/*'
 		OLDDIR=$PWD
 		cd "${FIRMWARE_OUTPUT_PATH}"
-		find . -maxdepth 1 ! -name 'amdgpu' ! -name "." -exec rm -rf {} +
 		# Compress firmwares on-disk
 		# As of 6.x kernels the kconfig explicitly says you must use crc32 or none, not the default crc64.
 		xz -C crc32 amdgpu/*
 		cd "${OLDDIR}"
+	else
+		tar -xf "${FIRMWARE_URL}" -C "${FIRMWARE_OUTPUT_PATH}" --strip-components=1
 	fi
 fi
 
