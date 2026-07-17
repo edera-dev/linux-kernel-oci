@@ -26,16 +26,16 @@ NV_WORKDIR="$(mktemp -d)/nvidia-modules/${NV_VERSION}"
 mkdir -p "$NV_WORKDIR"
 
 if [ -n "${NVIDIA_MODULES_PATH}" ] && [ -f "${NVIDIA_MODULES_PATH}" ]; then
-    ARCHIVE="${NVIDIA_MODULES_PATH}"
+	ARCHIVE="${NVIDIA_MODULES_PATH}"
 else
-    RELEASE_JSON=$(curl -s --retry 5 --retry-delay 2 --retry-max-time 30 --retry-all-errors "https://api.github.com/repos/${NV_KMOD_REPO_OWNER}/${NV_KMOD_REPO_NAME}/releases/tags/${NV_VERSION}")
-    TARBALL_URL=$(echo "$RELEASE_JSON" | grep -o '"tarball_url": *"[^"]*"' | sed 's/"tarball_url": *"\(.*\)"/\1/')
-    if [ -z "$TARBALL_URL" ]; then
-        echo "Failed to fetch release information for version $NV_VERSION"
-        exit 1
-    fi
-    ARCHIVE="$NV_WORKDIR/driver-src.tar.gz"
-    curl -L -o "$ARCHIVE" "$TARBALL_URL"
+	RELEASE_JSON=$(curl -s --retry 5 --retry-delay 2 --retry-max-time 30 --retry-all-errors "https://api.github.com/repos/${NV_KMOD_REPO_OWNER}/${NV_KMOD_REPO_NAME}/releases/tags/${NV_VERSION}")
+	TARBALL_URL=$(echo "$RELEASE_JSON" | grep -o '"tarball_url": *"[^"]*"' | sed 's/"tarball_url": *"\(.*\)"/\1/')
+	if [ -z "$TARBALL_URL" ]; then
+		echo "Failed to fetch release information for version $NV_VERSION"
+		exit 1
+	fi
+	ARCHIVE="$NV_WORKDIR/driver-src.tar.gz"
+	curl -L -o "$ARCHIVE" "$TARBALL_URL"
 fi
 
 echo "Building NVIDIA driver version: $NV_VERSION"
@@ -46,7 +46,7 @@ OLDPWD=$(pwd)
 cd "$(find "$NV_WORKDIR" -mindepth 1 -maxdepth 1 -type d | head -1)"
 
 # Apply nvidia hackpatches if we have them
-for patch in "${OLDPWD}"/patches-nvidia/*.patch; do patch -p1 < "$patch"; done
+for patch in "${OLDPWD}"/patches-nvidia/*.patch; do patch -p1 <"$patch"; done
 
 if [ "${TARGET_ARCH_STANDARD}" = "aarch64" ]; then
 	CROSS_ENV="env CC=aarch64-linux-gnu-gcc LD=aarch64-linux-gnu-ld AR=aarch64-linux-gnu-ar CXX=aarch64-linux-gnu-g++ OBJCOPY=aarch64-linux-gnu-objcopy"
@@ -54,7 +54,7 @@ else
 	CROSS_ENV=""
 fi
 
-${CROSS_ENV} make -C . TARGET_ARCH="${TARGET_ARCH_STANDARD}" SYSSRC="${KERNEL_SRC}" SYSOUT="${KERNEL_OBJ}" -j"${KERNEL_BUILD_JOBS}" "${CROSS_COMPILE_MAKE}"  modules
+${CROSS_ENV} make -C . TARGET_ARCH="${TARGET_ARCH_STANDARD}" SYSSRC="${KERNEL_SRC}" SYSOUT="${KERNEL_OBJ}" -j"${KERNEL_BUILD_JOBS}" "${CROSS_COMPILE_MAKE}" modules
 
 echo "Nvidia $NV_VERSION build done"
 

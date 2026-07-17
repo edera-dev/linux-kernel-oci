@@ -28,11 +28,13 @@ if [ -n "${FIRMWARE_SIG_URL}" ]; then
 	unxz "$FIRMWARE_URL"
 	# We've uncompressed it, update the env var so later stuff points at the right file
 	FIRMWARE_URL="${FIRMWARE_URL%.xz}"
-	gpg --verify "$FIRMWARE_SIG_URL" || { echo "ERROR: signature ${FIRMWARE_SIG_URL} cannot validate ${FIRMWARE_URL}"; exit 1; }
+	gpg --verify "$FIRMWARE_SIG_URL" || {
+		echo "ERROR: signature ${FIRMWARE_SIG_URL} cannot validate ${FIRMWARE_URL}"
+		exit 1
+	}
 else
 	echo "No firmware signature defined, no validation will be performed"
 fi
-
 
 # Note that this assumes the archive is a .tar file, and has already been validated elsewhere.
 if [ -n "${FIRMWARE_URL}" ]; then
@@ -102,11 +104,11 @@ if [ "${KERNEL_FLAVOR}" = "zone-nvidiagpu" ] && [ "${TARGET_ARCH_STANDARD}" = "x
 	create_links() {
 		local base_path="$1"
 		# create soname links
-		find "$base_path" -type f -name '*.so*' ! -path '*xorg/*' -print0 | while read -d $'\0' _lib; do
+		find "$base_path" -type f -name '*.so*' ! -path '*xorg/*' -print0 | while read -r -d $'\0' _lib; do
 			_soname=$(dirname "${_lib}")/$(readelf -d "${_lib}" | grep -Po 'SONAME.*: \[\K[^]]*' || true)
-			_base=$(echo ${_soname} | sed -r 's/(.*)\.so.*/\1.so/')
-			[[ -e "${_soname}" ]] || ln -s $(basename "${_lib}") "${_soname}"
-			[[ -e "${_base}" ]] || ln -s $(basename "${_soname}") "${_base}"
+			_base=$(echo "${_soname}" | sed -r 's/(.*)\.so.*/\1.so/')
+			[[ -e "${_soname}" ]] || ln -s "$(basename "${_lib}")" "${_soname}"
+			[[ -e "${_base}" ]] || ln -s "$(basename "${_soname}")" "${_base}"
 		done
 	}
 
@@ -125,8 +127,8 @@ if [ "${KERNEL_FLAVOR}" = "zone-nvidiagpu" ] && [ "${TARGET_ARCH_STANDARD}" = "x
 			-mindepth 1 \
 			-path "./${triplet}/*" -prune -o \
 			-path "./${triplet}" -prune -o \
-			-type d -print0 \
-		| while IFS= read -r -d '' rel_dir; do
+			-type d -print0 |
+			while IFS= read -r -d '' rel_dir; do
 				# Strip leading "./"
 				rel_dir="${rel_dir#./}"
 				mkdir -p "${dst}/${rel_dir}"
@@ -156,8 +158,8 @@ if [ "${KERNEL_FLAVOR}" = "zone-nvidiagpu" ] && [ "${TARGET_ARCH_STANDARD}" = "x
 		find . \
 			-path "./${triplet}/*" -prune -o \
 			\( -type f -o -type l \) \
-			-print0 \
-		| while IFS= read -r -d '' rel_item; do
+			-print0 |
+			while IFS= read -r -d '' rel_item; do
 				rel_item="${rel_item#./}"
 				# Filter: only files and symlinks that resolve to files
 				if ! should_mirror "$rel_item"; then
@@ -190,15 +192,15 @@ if [ "${KERNEL_FLAVOR}" = "zone-nvidiagpu" ] && [ "${TARGET_ARCH_STANDARD}" = "x
 
 	# Wayland/GBM
 	mkdir -p "$WORKLOAD_OVERLAY_PATH/usr/lib/gbm"
-	ln -s ../libnvidia-allocator.so.$NV_VERSION "$WORKLOAD_OVERLAY_PATH/usr/lib/gbm/nvidia-drm_gbm.so"
+	ln -s "../libnvidia-allocator.so.${NV_VERSION}" "$WORKLOAD_OVERLAY_PATH/usr/lib/gbm/nvidia-drm_gbm.so"
 
 	# DRI driver
 	install -Dm755 "$NV_EXTRACT_PATH/out/"nvidia_drv.so "$WORKLOAD_OVERLAY_PATH/usr/lib/xorg/modules/drivers/nvidia_drv.so"
 
 	# GLX extensions
-	install -Dm755 "$NV_EXTRACT_PATH/out/"libglxserver_nvidia.so.$NV_VERSION "$WORKLOAD_OVERLAY_PATH/usr/lib/nvidia/xorg/libglxserver_nvidia.so.$NV_VERSION"
-	ln -s libglxserver_nvidia.so.$NV_VERSION "$WORKLOAD_OVERLAY_PATH/usr/lib/nvidia/xorg/libglxserver_nvidia.so.1"
-	ln -s libglxserver_nvidia.so.$NV_VERSION "$WORKLOAD_OVERLAY_PATH/usr/lib/nvidia/xorg/libglxserver_nvidia.so"
+	install -Dm755 "$NV_EXTRACT_PATH/out/libglxserver_nvidia.so.${NV_VERSION}" "$WORKLOAD_OVERLAY_PATH/usr/lib/nvidia/xorg/libglxserver_nvidia.so.${NV_VERSION}"
+	ln -s "libglxserver_nvidia.so.${NV_VERSION}" "$WORKLOAD_OVERLAY_PATH/usr/lib/nvidia/xorg/libglxserver_nvidia.so.1"
+	ln -s "libglxserver_nvidia.so.${NV_VERSION}" "$WORKLOAD_OVERLAY_PATH/usr/lib/nvidia/xorg/libglxserver_nvidia.so"
 
 	# Remove already-installed libs, so we don't accidentally include them in
 	# filters below
@@ -243,6 +245,7 @@ if [ "${KERNEL_FLAVOR}" = "zone-nvidiagpu" ] && [ "${TARGET_ARCH_STANDARD}" = "x
 
 	mkdir -p "$NVIDIA_BOOTSTRAP_OVERLAY_PATH"
 
+	# shellcheck disable=SC2043 # one entry today; loop mirrors the sibling install blocks
 	for BINARY in "$NV_EXTRACT_PATH/out/"nvidia-smi; do
 		BN="$(basename "$BINARY")"
 		install -Dm755 "$BINARY" "$NVIDIA_BOOTSTRAP_OVERLAY_PATH/usr/bin/$BN"
@@ -260,19 +263,19 @@ if [ "${KERNEL_FLAVOR}" = "zone-nvidiagpu" ] && [ "${TARGET_ARCH_STANDARD}" = "x
 	multiarch_symlink_mirror "$NVIDIA_BOOTSTRAP_OVERLAY_PATH" x86_64-linux-gnu
 
 	mkdir -p "$ADDONS_OUTPUT_PATH/hooks"
-	cat > "$ADDONS_OUTPUT_PATH/hooks/nvidia-persist.toml" <<-EOF
-[[hooks.setup]]
-overlay = "nvidia-bootstrap"
-modules = ["nvidia", "nvidia_drm", "nvidia_uvm"]
-execute = ["/usr/bin/nvidia-smi", "-pm", "1"]
-ignore-failure = true
+	cat >"$ADDONS_OUTPUT_PATH/hooks/nvidia-persist.toml" <<-EOF
+		[[hooks.setup]]
+		overlay = "nvidia-bootstrap"
+		modules = ["nvidia", "nvidia_drm", "nvidia_uvm"]
+		execute = ["/usr/bin/nvidia-smi", "-pm", "1"]
+		ignore-failure = true
 
-[[hooks.hotplug]]
-overlay = "nvidia-bootstrap"
-modules = ["nvidia", "nvidia_drm", "nvidia_uvm"]
-execute = ["/usr/bin/nvidia-smi", "-pm", "1"]
-ignore-failure = true
-EOF
+		[[hooks.hotplug]]
+		overlay = "nvidia-bootstrap"
+		modules = ["nvidia", "nvidia_drm", "nvidia_uvm"]
+		execute = ["/usr/bin/nvidia-smi", "-pm", "1"]
+		ignore-failure = true
+	EOF
 
 	cd "$OLDDIR"
 fi

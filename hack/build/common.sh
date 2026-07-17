@@ -98,15 +98,15 @@ KERNEL_ARCH_STANDARD=$TARGET_ARCH_STANDARD
 
 # HACK: kconfig paths use different arch keywords, so we have to get cute and munge
 case "${TARGET_ARCH_STANDARD}" in
-	x86_64)
-		KERNEL_ARCH_STANDARD="x86"
-		;;
-	aarch64)
-		KERNEL_ARCH_STANDARD="arm64"
-		;;
-	*)
-		KERNEL_ARCH_STANDARD="${TARGET_ARCH_STANDARD}"
-		;;
+x86_64)
+	KERNEL_ARCH_STANDARD="x86"
+	;;
+aarch64)
+	KERNEL_ARCH_STANDARD="arm64"
+	;;
+*)
+	KERNEL_ARCH_STANDARD="${TARGET_ARCH_STANDARD}"
+	;;
 esac
 
 KCONFIG_FRAGMENT_DEST="${KERNEL_SRC}/arch/${KERNEL_ARCH_STANDARD}/configs/"
@@ -114,7 +114,7 @@ KCONFIG_FRAGMENT_DEST="${KERNEL_SRC}/arch/${KERNEL_ARCH_STANDARD}/configs/"
 # Copy out our custom kconfig - if we are building for a <flavor>-<variant>, merge the variant fragment with the flavor baseconfig
 # by copying the fragment into the kernel src tree and letting the kernel's `make` merge them
 case "${KERNEL_FLAVOR}" in
-  *-*)
+*-*)
 	# Looks like we are dealing with <flavor>-<variant>.config, versus <flavor>.config, so we have 2 fragments
 	FLAVOR=$(echo "${KERNEL_FLAVOR}" | cut -d'-' -f1)
 	VARIANT=$(echo "${KERNEL_FLAVOR}" | cut -d'-' -f2)
@@ -141,7 +141,7 @@ case "${KERNEL_FLAVOR}" in
 	# NOTE `make` craps the bed if you pass a leading space in front of the fragment here.
 	MAKE_CONFIG_FRAGMENTS="${FLAVOR}.config ${FLAVOR}-${VARIANT}.fragment.config"
 	;;
-  *)
+*)
 	# Looks like we are dealing with just one <flavor>.config fragment
 	BASE_FLAVOR_CONFIG="${KERNEL_DIR}/configs/${TARGET_ARCH_STANDARD}/${KERNEL_FLAVOR}.config"
 

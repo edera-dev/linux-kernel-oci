@@ -7,7 +7,13 @@ from typing import Optional
 from packaging.version import parse, Version
 
 from matrix import CONFIG
-from util import format_image_name, maybe, smart_script_split, parse_text_bool, get_branch_tag_suffix
+from util import (
+    format_image_name,
+    maybe,
+    smart_script_split,
+    parse_text_bool,
+    get_branch_tag_suffix,
+)
 
 # Targets packaged from artifacts compiled out-of-band (the docker run compile
 # phase) and imported into the image build through the `prebuilt` context.
@@ -35,7 +41,7 @@ def quoted(text: str) -> str:
 def dockerify_version(version_string: str) -> str:
     # "+" is valid for both python versions and semver,
     # but docker rejects it for tags, so sanitize
-    return version_string.replace('+', '-')
+    return version_string.replace("+", "-")
 
 
 def arch_to_platform(arch: str) -> str:
@@ -70,8 +76,15 @@ def docker_build_staged(
     has_firmware = flavor == "zone-amdgpu"
     has_nvidia = flavor == "zone-nvidiagpu"
     if has_nvidia:
-        nv_version = version.split("+nvidia-")[1] if "+nvidia-" in version else version.split("-nvidia-")[1]
-        nv_modules_url = "https://github.com/NVIDIA/open-gpu-kernel-modules/archive/refs/tags/%s.tar.gz" % nv_version
+        nv_version = (
+            version.split("+nvidia-")[1]
+            if "+nvidia-" in version
+            else version.split("-nvidia-")[1]
+        )
+        nv_modules_url = (
+            "https://github.com/NVIDIA/open-gpu-kernel-modules/archive/refs/tags/%s.tar.gz"
+            % nv_version
+        )
     version = dockerify_version(version)
     if has_nvidia:
         target = "build-staged-nvidiagpu"
@@ -81,26 +94,35 @@ def docker_build_staged(
         target = "build-staged"
     iidfile = "image-id-%s-%s-%s" % (version, flavor, target)
     command = [
-        "docker", "buildx", "build",
-        "--builder", "edera",
+        "docker",
+        "buildx",
+        "build",
+        "--builder",
+        "edera",
         "--load",
-        "-f", quoted("Dockerfile"),
-        "--target", quoted(target),
-        "--iidfile", quoted(iidfile),
+        "-f",
+        quoted("Dockerfile"),
+        "--target",
+        quoted(target),
+        "--iidfile",
+        quoted(iidfile),
     ]
     for platform in docker_platforms(archs):
         command += ["--platform", quoted(platform)]
     command += ["--build-arg", quoted("KERNEL_SRC_URL=%s" % src_url)]
     if has_firmware:
         command += [
-            "--build-arg", quoted("FIRMWARE_URL=%s" % firmware_url),
-            "--build-arg", quoted("FIRMWARE_SIG_URL=%s" % firmware_sig_url),
+            "--build-arg",
+            quoted("FIRMWARE_URL=%s" % firmware_url),
+            "--build-arg",
+            quoted("FIRMWARE_SIG_URL=%s" % firmware_sig_url),
         ]
     if has_nvidia:
         command += ["--build-arg", quoted("NV_MODULES_TARBALL_URL=%s" % nv_modules_url)]
     command += ["."]
     return [""] + smart_script_split(
-        command, "stage=stage flavor=%s version=%s arch=%s" % (flavor, version, ",".join(archs))
+        command,
+        "stage=stage flavor=%s version=%s arch=%s" % (flavor, version, ",".join(archs)),
     )
 
 
@@ -125,7 +147,9 @@ def docker_compile(
     staged_iidfile = "image-id-%s-%s-%s" % (version, flavor, stage_target)
 
     lines += ["", "rm -rf target && mkdir -p target && chmod a+rwX target"]
-    lines += ['mkdir -p "${HOME}/.cache/kernel-sccache" && chmod -R a+rwX "${HOME}/.cache/kernel-sccache"']
+    lines += [
+        'mkdir -p "${HOME}/.cache/kernel-sccache" && chmod -R a+rwX "${HOME}/.cache/kernel-sccache"'
+    ]
 
     # The extracted kernel source and object trees are the dominant disk
     # consumers of a build. By default they live in the container's writable
@@ -149,10 +173,14 @@ def docker_compile(
             "docker",
             "run",
             "--rm",
-            "--platform", quoted(platform),
-            "-e", quoted("KERNEL_VERSION=%s" % version),
-            "-e", quoted("KERNEL_FLAVOR=%s" % flavor),
-            "-e", quoted("KERNEL_SRC_URL=/build/override-kernel-src.tar.xz"),
+            "--platform",
+            quoted(platform),
+            "-e",
+            quoted("KERNEL_VERSION=%s" % version),
+            "-e",
+            quoted("KERNEL_FLAVOR=%s" % flavor),
+            "-e",
+            quoted("KERNEL_SRC_URL=/build/override-kernel-src.tar.xz"),
             # The Azure sccache env is passed through by name only (no values),
             # so the generated script stays free of secrets; docker omits any
             # that are unset on the host. Without Azure config sccache falls
@@ -160,27 +188,39 @@ def docker_compile(
             # must match what the "configure sccache" step in
             # .github/workflows/matrix.yml exports; a name missing here
             # silently never reaches the build container.
-            "-e", quoted("SCCACHE_AZURE_CONNECTION_STRING"),
-            "-e", quoted("SCCACHE_AZURE_BLOB_CONTAINER"),
-            "-e", quoted("SCCACHE_AZURE_KEY_PREFIX"),
-            "-e", quoted("SCCACHE_AZURE_RW_MODE"),
-            "-e", quoted("SCCACHE_DIR=/home/build/.cache/sccache"),
-            "-v", quoted("${HOME}/.cache/kernel-sccache:/home/build/.cache/sccache"),
-            "-v", quoted("${PWD}/target:/build/target"),
+            "-e",
+            quoted("SCCACHE_AZURE_CONNECTION_STRING"),
+            "-e",
+            quoted("SCCACHE_AZURE_BLOB_CONTAINER"),
+            "-e",
+            quoted("SCCACHE_AZURE_KEY_PREFIX"),
+            "-e",
+            quoted("SCCACHE_AZURE_RW_MODE"),
+            "-e",
+            quoted("SCCACHE_DIR=/home/build/.cache/sccache"),
+            "-v",
+            quoted("${HOME}/.cache/kernel-sccache:/home/build/.cache/sccache"),
+            "-v",
+            quoted("${PWD}/target:/build/target"),
         ]
         if scratch_dir:
             compile_command += [
-                "-v", quoted("%s/src:/build/src" % scratch_dir),
-                "-v", quoted("%s/obj:/build/obj" % scratch_dir),
+                "-v",
+                quoted("%s/src:/build/src" % scratch_dir),
+                "-v",
+                quoted("%s/obj:/build/obj" % scratch_dir),
             ]
         if has_firmware:
             compile_command += [
-                "-e", quoted("FIRMWARE_URL=/build/override-firmware.tar.xz"),
-                "-e", quoted("FIRMWARE_SIG_URL=/build/override-firmware.tar.sign"),
+                "-e",
+                quoted("FIRMWARE_URL=/build/override-firmware.tar.xz"),
+                "-e",
+                quoted("FIRMWARE_SIG_URL=/build/override-firmware.tar.sign"),
             ]
         if has_nvidia:
             compile_command += [
-                "-e", quoted("NVIDIA_MODULES_PATH=/build/override-nvidia-modules.tar.gz"),
+                "-e",
+                quoted("NVIDIA_MODULES_PATH=/build/override-nvidia-modules.tar.gz"),
             ]
         compile_command += [
             '"$(cat %s)"' % staged_iidfile,
@@ -192,7 +232,6 @@ def docker_compile(
             "stage=compile flavor=%s version=%s arch=%s" % (flavor, version, arch),
         )
     return lines
-
 
 
 def docker_build(
@@ -274,7 +313,8 @@ def docker_build(
     if use_push_by_digest:
         metadata_file = metadata_path(image_root, actual_target)
         image_build_command += [
-            "--metadata-file", quoted(metadata_file),
+            "--metadata-file",
+            quoted(metadata_file),
             "--output",
             quoted(
                 "type=image,name=%s,push-by-digest=true,name-canonical=true,push=true"
@@ -287,14 +327,16 @@ def docker_build(
             image_build_command, "stage=build image=%s arch=%s" % (image_root, archs[0])
         )
         record_command = [
-            "python3", "hack/build/record-digest.py",
+            "python3",
+            "hack/build/record-digest.py",
             quoted(image_root),
             quoted(metadata_file),
             quoted(DIGESTS_FILE),
         ]
         lines += [""]
         lines += smart_script_split(
-            record_command, "stage=record-digest image=%s arch=%s" % (image_root, archs[0])
+            record_command,
+            "stage=record-digest image=%s arch=%s" % (image_root, archs[0]),
         )
         return lines
 
@@ -322,7 +364,8 @@ def docker_build(
     image_build_command += ["."]
     lines += [""]
     lines += smart_script_split(
-        image_build_command, "stage=build image=%s arch=%s" % (image_root, ",".join(archs))
+        image_build_command,
+        "stage=build image=%s arch=%s" % (image_root, ",".join(archs)),
     )
 
     if publish:

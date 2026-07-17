@@ -13,7 +13,7 @@ def get_branch_tag_suffix() -> Optional[str]:
     ref_name = os.getenv("GITHUB_REF_NAME", "")
     if not ref_name or ref_name == "main":
         return None
-    return re.sub(r'[^a-zA-Z0-9._-]', '_', ref_name)
+    return re.sub(r"[^a-zA-Z0-9._-]", "_", ref_name)
 
 
 def format_image_name(
@@ -37,6 +37,7 @@ def maybe(m: dict[str, any], k: str, default_value: any = None) -> any:
         return m[k]
     else:
         return default_value
+
 
 def matches_constraints(
     version: Version,
@@ -157,7 +158,7 @@ def list_remote_git_tags(url: str, attempts: int = 6) -> list[str]:
         parts = line.decode("utf-8").strip().split("\t")
         if len(parts) != 2 or not parts[1].startswith("refs/tags/"):
             continue
-        tags.append(parts[1][len("refs/tags/"):])
+        tags.append(parts[1][len("refs/tags/") :])
     return tags
 
 
@@ -178,7 +179,13 @@ def parse_text_constraint(text: str) -> dict[str, any]:
             constraint[key] = parse_text_bool(value)
         elif key == "lower" or key == "upper":
             constraint[key] = value
-        elif key == "flavors" or key == "flavor" or key == "series" or key == "exact" or key == "arch":
+        elif (
+            key == "flavors"
+            or key == "flavor"
+            or key == "series"
+            or key == "exact"
+            or key == "arch"
+        ):
             if key == "flavor":
                 key = "flavors"
             constraint[key] = value.split(",")

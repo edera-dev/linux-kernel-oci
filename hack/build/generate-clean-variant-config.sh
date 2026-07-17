@@ -1,7 +1,7 @@
 #!/bin/sh
 
 if [ $# -ne 5 ]; then
-		cat << EOF
+	cat <<EOF
 Usage: $(basename "$0") <edera_base_flavor> <edera_flavor_kver> <arch> <customized_variant_config> <output_delta_variant_config>
 
 Fetch an arch-specific Edera base flavor kernel configuration and compare it with another (local) config,
@@ -23,7 +23,7 @@ Notes:
 		- Only lines that were added or changed in <customized_variant_config> are saved in <output_delta_variant_config>
 		- <output_delta_variant_config> must end in '.config' or kernel make will complain.
 EOF
-		exit 1
+	exit 1
 fi
 
 FLAVOR="$1"
@@ -40,8 +40,8 @@ trap 'rm -rf "$TEMP_DIR"; echo "Cleaning up temporary files..."; exit' INT TERM 
 crane export "ghcr.io/edera-dev/$FLAVOR-kernel:$VERSION" - --platform=linux/"$ARCH" | tar --keep-directory-symlink -xf - -C "$TEMP_DIR"
 
 if [ ! -f "$TEMP_DIR/kernel/config.gz" ]; then
-		echo "Error: Exported Edera flavor config file does not exist at $TEMP_DIR/kernel/config.gz!"
-		exit 1
+	echo "Error: Exported Edera flavor config file does not exist at $TEMP_DIR/kernel/config.gz!"
+	exit 1
 fi
 
 gunzip "$TEMP_DIR/kernel/config.gz"
@@ -49,11 +49,11 @@ gunzip "$TEMP_DIR/kernel/config.gz"
 EXTRACTED_CONFIG="$TEMP_DIR/kernel/config"
 
 if [ -f "$EXTRACTED_CONFIG" ]; then
-		echo "Generating a trimmed delta variant config between latest edera $FLAVOR kernel config for $ARCH and $CUSTOMIZED_VARIANT_CONFIG"
+	echo "Generating a trimmed delta variant config between latest edera $FLAVOR kernel config for $ARCH and $CUSTOMIZED_VARIANT_CONFIG"
 	./hack/build/generate-kfragment.sh "$EXTRACTED_CONFIG" "$CUSTOMIZED_VARIANT_CONFIG" "$DELTA_VARIANT_CONFIG"
 else
-		echo "Error: Config file not found at $EXTRACTED_CONFIG"
-		exit 1
+	echo "Error: Config file not found at $EXTRACTED_CONFIG"
+	exit 1
 fi
 
 echo "trimmed delta variant config saved to $DELTA_VARIANT_CONFIG"
