@@ -19,6 +19,7 @@ Env vars consumed:
 The merge matrix entry already contains the canonical produces list and tags,
 so we don't need to re-derive them here.
 """
+
 import json
 import os
 import stat
@@ -93,16 +94,15 @@ def main() -> None:
                 create_command += [quoted("%s@%s" % (image_name, digest))]
             lines += [""]
             lines += smart_script_split(
-                create_command, "stage=merge image=%s archs=%d" % (image_name, len(digests))
+                create_command,
+                "stage=merge image=%s archs=%d" % (image_name, len(digests)),
             )
 
             for tag in tags:
                 ref = "%s:%s" % (image_name, tag)
                 sign_command = ["cosign", "sign", "--yes", quoted(ref)]
                 lines += [""]
-                lines += smart_script_split(
-                    sign_command, "stage=sign image=%s" % ref
-                )
+                lines += smart_script_split(sign_command, "stage=sign image=%s" % ref)
 
     with open("merge.sh", "w") as out:
         out.write("\n".join(lines))

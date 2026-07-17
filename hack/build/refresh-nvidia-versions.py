@@ -6,6 +6,7 @@ Stdlib-only. Only the version digits in each of
 the three matching lines change. If no new versions found, should not update the file.
 Currently only supports amd64 drivers. A human must review the PR opened by the GH Action that runs this.
 """
+
 import re
 import sys
 import urllib.request
@@ -38,7 +39,8 @@ def fetch_latest_versions(url: str = NVIDIA_URL) -> dict[str, str]:
     block_match = LINUX_X86_64_BLOCK.search(html)
     if not block_match:
         raise RuntimeError(
-            "Could not locate the Linux x86_64 block on %s — page layout may have changed." % url
+            "Could not locate the Linux x86_64 block on %s — page layout may have changed."
+            % url
         )
     body = block_match.group("body")
 
@@ -100,7 +102,8 @@ def rewrite_config(versions: dict[str, str], path: Path = CONFIG_PATH) -> bool:
     missing = set(versions) - seen_labels
     if missing:
         raise RuntimeError(
-            "config.yaml is missing local_tags lines for: %s" % ", ".join(sorted(missing))
+            "config.yaml is missing local_tags lines for: %s"
+            % ", ".join(sorted(missing))
         )
 
     if changed:

@@ -1,0 +1,39 @@
+name: Lint
+on:
+  pull_request:
+  push:
+    branches:
+    - main
+permissions:
+  contents: read
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+jobs:
+  format:
+    runs-on: ubuntu-latest
+    env:
+      SHFMT_VERSION: "3.12.0"
+      BLACK_VERSION: "26.5.1"
+      SHELLCHECK_VERSION: "0.11.0"
+    steps:
+      - name: Checkout
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v4
+      # Pin tool versions to match the local formatter; a version skew would
+      # reformat differently and flip the gate red on already-formatted code.
+      - name: Install tools
+        run: |
+          mkdir -p "${HOME}/.local/bin"
+          echo "${HOME}/.local/bin" >> "${GITHUB_PATH}"
+          curl -sSfL "https://github.com/mvdan/sh/releases/download/v${SHFMT_VERSION}/shfmt_v${SHFMT_VERSION}_linux_amd64" -o "${HOME}/.local/bin/shfmt"
+          chmod +x "${HOME}/.local/bin/shfmt"
+          curl -sSfL "https://github.com/koalaman/shellcheck/releases/download/v${SHELLCHECK_VERSION}/shellcheck-v${SHELLCHECK_VERSION}.linux.x86_64.tar.xz" | tar -xJ -C /tmp
+          install -m755 "/tmp/shellcheck-v${SHELLCHECK_VERSION}/shellcheck" "${HOME}/.local/bin/shellcheck"
+          pipx install "black==${BLACK_VERSION}"
+      - name: Show versions
+        run: |
+          shfmt --version
+          black --version
+          shellcheck --version
+      - name: Check formatting
+        run: ./hack/code/format.sh --check

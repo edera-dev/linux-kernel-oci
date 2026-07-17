@@ -36,27 +36,27 @@ SQUASH_SIZE=$(stat -c %s "${ADDONS_SQUASHFS_PATH}")
 
 # Host kernel size matters less, but we still don't want it to massively balloon all of a sudden.
 case "$KERNEL_FLAVOR" in
-    host*)
-        if [ "${SQUASH_SIZE}" -gt 419430400 ]; then
-            echo "ERROR: squashfs is >400MB in size (${SQUASH_SIZE} bytes) which is undesirable for the 'host' kernel, validate kconfig options!" >&2
-            exit 1
-        fi
-        ;;
+host*)
+	if [ "${SQUASH_SIZE}" -gt 419430400 ]; then
+		echo "ERROR: squashfs is >400MB in size (${SQUASH_SIZE} bytes) which is undesirable for the 'host' kernel, validate kconfig options!" >&2
+		exit 1
+	fi
+	;;
 esac
 
 # Generally we want to keep zone kernels small, because large kernels -> longer pull times -> increased zone cold boot times.
 # We don't really care how big the host kernel is.
 # Nvidia kernels have chonker firmwares, even compressed (like 200MB total size), so not much we can really do there.
 case "$KERNEL_FLAVOR" in
-    zone-nvidiagpu)
-        # Firmware means this is unavoidably quite large
-        ;;
-    zone*)
-        if [ "${SQUASH_SIZE}" -gt 52428800 ]; then
-            echo "ERROR: squashfs is >50MB in size (${SQUASH_SIZE} bytes) which is undesirable for the 'zone' kernel, validate kconfig options!" >&2
-            exit 1
-        fi
-        ;;
+zone-nvidiagpu)
+	# Firmware means this is unavoidably quite large
+	;;
+zone*)
+	if [ "${SQUASH_SIZE}" -gt 52428800 ]; then
+		echo "ERROR: squashfs is >50MB in size (${SQUASH_SIZE} bytes) which is undesirable for the 'zone' kernel, validate kconfig options!" >&2
+		exit 1
+	fi
+	;;
 esac
 
 if [ "${TARGET_ARCH_STANDARD}" = "x86_64" ]; then

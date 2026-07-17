@@ -1,7 +1,7 @@
 #!/bin/sh
 
 if [ $# -ne 4 ]; then
-		cat << EOF
+	cat <<EOF
 Usage: $(basename "$0") <kernel_version> <arch> <customized_flavor_config> <output_delta_flavor_config>
 
 Fetch an arch-specific kernel default configuration for a specific stable upstream kernel version and compare it
@@ -24,7 +24,7 @@ Notes:
 		- Only lines that were added or changed in <edera_flavor_config> are saved
 		- <output_file> must end in '.config' or kernel make will complain.
 EOF
-		exit 1
+	exit 1
 fi
 
 UPSTREAM_KVER="$1"
@@ -40,47 +40,47 @@ KERNEL_URL="https://cdn.kernel.org/pub/linux/kernel/v$(echo "$UPSTREAM_KVER" | c
 TARBALL_PATH="$TEMP_DIR/linux-${UPSTREAM_KVER}.tar.xz"
 
 if [ ! -f "$FULL_EDERA_FLAVOR_CONFIG" ]; then
-		echo "Error: Complete Edera kernel config file does not exist at $FULL_EDERA_FLAVOR_CONFIG!"
-		exit 1
+	echo "Error: Complete Edera kernel config file does not exist at $FULL_EDERA_FLAVOR_CONFIG!"
+	exit 1
 fi
 
 echo "Fetching kernel.org stable kernel default config for version $UPSTREAM_KVER (arch: $ARCH)..."
 
 # Map architecture names to kernel arch names and config paths
 case "$ARCH" in
-		x86_64)
-				CONFIG_SNIP="arch/x86/configs/x86_64_defconfig"
-				;;
-		arm64|aarch64)
-				CONFIG_SNIP="arch/arm64/configs/defconfig"
-				;;
-		*)
-				echo "Error: Unsupported architecture: $ARCH"
-				exit 1
-				;;
+x86_64)
+	CONFIG_SNIP="arch/x86/configs/x86_64_defconfig"
+	;;
+arm64 | aarch64)
+	CONFIG_SNIP="arch/arm64/configs/defconfig"
+	;;
+*)
+	echo "Error: Unsupported architecture: $ARCH"
+	exit 1
+	;;
 esac
 
 # Extract only the config file we need
 mkdir -p "$TEMP_DIR/linux"
 echo "Downloading released kernel $UPSTREAM_KVER from $KERNEL_URL to $TARBALL_PATH"
 if ! curl -sSL "$KERNEL_URL" -o "$TARBALL_PATH"; then
-		echo "Error: Failed to download kernel version $UPSTREAM_KVER."
-		exit 1
+	echo "Error: Failed to download kernel version $UPSTREAM_KVER."
+	exit 1
 fi
 
 if ! tar -xf "$TARBALL_PATH" --strip-components=1 -C "$TEMP_DIR/linux" "linux-${UPSTREAM_KVER}/$CONFIG_SNIP"; then
-		echo "Error: Failed to extract config file from the tarball."
-		exit 1
+	echo "Error: Failed to extract config file from the tarball."
+	exit 1
 fi
 
 CONFIG_PATH="$TEMP_DIR/linux/$CONFIG_SNIP"
 
 if [ -f "$CONFIG_PATH" ]; then
-		echo "Generating a trimmed delta flavor config between kernel $UPSTREAM_KVER default config for $ARCH and flavor config $FULL_EDERA_FLAVOR_CONFIG"
+	echo "Generating a trimmed delta flavor config between kernel $UPSTREAM_KVER default config for $ARCH and flavor config $FULL_EDERA_FLAVOR_CONFIG"
 	./hack/build/generate-kfragment.sh "$CONFIG_PATH" "$FULL_EDERA_FLAVOR_CONFIG" "$DELTA_EDERA_FLAVOR_CONFIG"
 else
-		echo "Error: Config file not found at $CONFIG_PATH"
-		exit 1
+	echo "Error: Config file not found at $CONFIG_PATH"
+	exit 1
 fi
 
 echo "trimmed flavor delta config saved to $DELTA_EDERA_FLAVOR_CONFIG"

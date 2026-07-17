@@ -12,7 +12,7 @@ if len(sys.argv) != 3:
 try:
     target_version = parse(sys.argv[1])
 except Exception:
-    target_version = parse(sys.argv[1].split('-')[0])
+    target_version = parse(sys.argv[1].split("-")[0])
 kernel_flavor = sys.argv[2]
 series = "%s.%s" % (target_version.major, target_version.minor)
 

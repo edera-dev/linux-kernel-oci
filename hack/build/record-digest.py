@@ -6,6 +6,7 @@ entry {<image-name>: <digest>} to the cumulative digests file for this build.
 The merge job consumes this file (one per (version, flavor, arch)) to create the
 final manifest list with `docker buildx imagetools create`.
 """
+
 import json
 import os
 import sys
