@@ -17,7 +17,7 @@ ADD ${NV_MODULES_TARBALL_URL} /nvidia-modules.tar.gz
 # reviewed digest bumps - see Dockerfile.buildenv and buildenv.yml. Dependabot
 # keeps the pin current, with buildenv-diff.yml summarizing the package
 # changes in each bump PR.
-FROM --platform=$BUILDPLATFORM ghcr.io/edera-dev/kernel-buildenv:latest@sha256:c0bf191fcec390ef0b97522bcd35e6b776b8ec112676187e3208c933c28c8baa AS buildenv
+FROM --platform=$BUILDPLATFORM ghcr.io/edera-dev/kernel-buildenv:latest@sha256:5f1111cde2487436b4102ae876c1810c304760a3accbb4ba51ff3f725b7374eb AS buildenv
 COPY --chown=build:build . /build
 USER build
 WORKDIR /build
@@ -39,7 +39,7 @@ COPY --from=prebuilt config.gz /kernel/config.gz
 COPY --from=prebuilt addons.squashfs /kernel/addons.squashfs
 COPY --from=prebuilt metadata /kernel/metadata
 
-FROM alpine:3.23@sha256:5b10f432ef3da1b8d4c7eb6c487f2f5a8f096bc91145e68878dd4a5019afde11 AS sdkbuild-prebuilt
+FROM alpine:3.24@sha256:28bd5fe8b56d1bd048e5babf5b10710ebe0bae67db86916198a6eec434943f8b AS sdkbuild-prebuilt
 ARG KERNEL_FLAVOR=zone
 COPY --from=prebuilt sdk.tar.gz /sdk.tar.gz
 COPY --from=prebuilt metadata /metadata

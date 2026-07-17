@@ -6,7 +6,7 @@
 # update silently turns a build into a 100% cache miss. The image is rebuilt on
 # a schedule (see .github/workflows/buildenv.yml); the kernel Dockerfile pins
 # it by digest and dependabot proposes bumps as reviewable PRs.
-FROM debian:bookworm@sha256:ed4fcc40bb1162b6d2d32e7bec15044d13963779abbe63f67f1cd62b06220519
+FROM debian:bookworm@sha256:9344f8b8992482f80cba753f323adeaf17690076c095ccff6cc9536be98185dc
 
 RUN export DEBIAN_FRONTEND=noninteractive && apt-get update && apt-get install -y \
       build-essential squashfs-tools python3-yaml \
