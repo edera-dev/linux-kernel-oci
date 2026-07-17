@@ -4,6 +4,10 @@ on:
   push:
     branches:
     - main
+    # Config-snippet merges are built and published by build.yml; skip the
+    # throwaway publish:false rebuild here so a config merge builds once.
+    paths-ignore:
+    - "configs/**"
 permissions:
   contents: read
   packages: read
