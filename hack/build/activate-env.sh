@@ -10,6 +10,7 @@ activate_env() {
 		python3 -m venv venv
 		pip install --upgrade pip
 	fi
+	# shellcheck source=/dev/null # venv is created at runtime, not present at lint time
 	. venv/bin/activate
 	pip3 install -qq -r requirements.txt
 }
