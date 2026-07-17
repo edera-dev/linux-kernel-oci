@@ -26,6 +26,7 @@ Writes sbom.cdx.json (CycloneDX 1.6) in the current directory.
 
 This was created with Claude.
 """
+
 import json
 import os
 import re

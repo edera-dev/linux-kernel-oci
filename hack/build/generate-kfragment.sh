@@ -1,7 +1,7 @@
 #!/usr/bin/env sh
 
 if [ $# -ne 3 ]; then
-	cat << EOF
+	cat <<EOF
 Usage: $(basename "$0") <old_config> <new_config> <output_file>
 
 Diff two kernel configuration files and output a "fragment" containing
@@ -31,7 +31,7 @@ if [ ! -f "$2" ]; then
 	echo "Error: Updated config file '$2' does not exist."
 fi
 
-cat > "$3"<< EOF
+cat >"$3" <<EOF
 #
 # Edera kernel config snippet
 # - Generated from delta config: $2
@@ -39,4 +39,4 @@ cat > "$3"<< EOF
 #
 EOF
 
-diff -u "$1" "$2" | grep '^+' | grep -v '^+++' | sed 's/^+//' | grep -v '^[[:space:]]*#' >> "$3"
+diff -u "$1" "$2" | grep '^+' | grep -v '^+++' | sed 's/^+//' | grep -v '^[[:space:]]*#' >>"$3"
