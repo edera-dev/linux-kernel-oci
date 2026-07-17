@@ -3,6 +3,15 @@ on:
   # Weekly auto-build
   schedule:
     - cron: "0 0 * * 1"
+  # A merge that changes a kernel config snippet changes the built kernel
+  # without bumping any version, so republish the release set now rather than
+  # waiting for the weekly cron. On main the tags carry no branch suffix, so
+  # this overwrites the canonical release tags with the new config content.
+  push:
+    branches:
+      - main
+    paths:
+      - "configs/**"
   workflow_dispatch:
     inputs:
       spec:
