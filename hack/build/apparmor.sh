@@ -17,7 +17,7 @@ zone*)
 	# Compile to a loadable binary policy without attempting to load it into the current kernel.
 	# The cache file apparmor_parser writes is what we load into the  guest kernel via its `.load` interface.
 	APPARMOR_CACHE_DIR="$(mktemp -d)"
-	apparmor_parser --skip-kernel-load --write-cache \
+	apparmor_parser --skip-kernel-load -M /etc/apparmor.d/abi/3.0 --write-cache \
 		--cache-loc="${APPARMOR_CACHE_DIR}" "${PROFILE_SRC}"
 
 	# Drop the compiled policy under <cache>/<abi-hash>/<name>
