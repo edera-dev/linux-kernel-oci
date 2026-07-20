@@ -1,0 +1,221 @@
+From 28bf8d0a16b76307151e0c35f5da1a20ff1ab9dd Mon Sep 17 00:00:00 2001
+From: Steven Noonan <steven@edera.dev>
+Date: Mon, 20 Jul 2026 13:52:31 -0700
+Subject: [PATCH 06/12] xen/xenbus: home ring mappings on the foreign frame's
+ host node
+
+Xenbus backends in PVH dom0 today have no visibility into which host
+NUMA node the foreign frame backing a grant-mapped ring lives on, so
+nothing can drive kthread or IRQ placement off of it, and every
+backend kthread for every queue piles onto one host node regardless
+of the guest's vNUMA layout.
+
+Make xenbus_map_ring_hvm place its placeholder pages on the foreign
+frame's node.  Placeholders are first drawn from numa_node_id()'s
+pool, because the foreign MFN is not known before the grant_map.
+After grant_map succeeds, the first page's host node is resolved via
+xen_mfn_to_node and the placeholders are relocated: unmap, free,
+re-allocate on the target node, re-map.  When the initial allocation
+already landed on the right node, the relocate is skipped.  After
+this, page_to_nid() of every mapped ring page equals the host node of
+its foreign MFN by construction.
+
+Expose the result as xenbus_ring_host_node(dev, vaddr), returning the
+Linux node id of the node hosting a mapped ring, or NUMA_NO_NODE when
+the information is unavailable.  Thanks to the relocation, it is a
+thin wrapper around vmalloc_to_page() + page_to_nid(): no hypercall,
+no lock, no per-map caching.  Backends feed the value to
+cpumask_of_node() and kthread_create_on_node().
+
+The foreign MFN is sourced from dev_bus_addr in the gnttab map
+result.  Xen sets that field unconditionally for host_map operations
+(see grant_table.c in the hypervisor), so it is reliable in PVH dom0.
+Sampling only the first ring page's MFN is sufficient for the common
+case where a ring is contiguous on one host node; multi-node
+huge-page grants are a future concern.
+
+The relocate costs one extra grant unmap + map pair per backend
+connect (a rare event), paid only when the placeholder pool's node
+disagrees with the foreign frame's.  A failed unmap during the
+relocate marks the pages leaked and fails the whole map, since at
+least one grant may still be live against a placeholder that can no
+longer be reached safely.
+
+PV dom0 is not a NUMA-affinity target: PV mappings install foreign
+MFNs directly in the PTEs and have no struct page in dom0's mem_map
+for the foreign frame, so xenbus_ring_host_node returns NUMA_NO_NODE
+there.  On hypervisors without XENMEM_get_mfn_pxms the node resolves
+to NUMA_NO_NODE at map time and the relocate is skipped entirely.
+Backends seeing NUMA_NO_NODE fall back to today's NUMA-oblivious
+behaviour.
+
+Signed-off-by: Steven Noonan <steven@edera.dev>
+---
+ drivers/xen/xenbus/xenbus_client.c | 96 ++++++++++++++++++++++++++++++
+ include/xen/xenbus.h               | 13 ++++
+ 2 files changed, 109 insertions(+)
+
+diff --git a/drivers/xen/xenbus/xenbus_client.c b/drivers/xen/xenbus/xenbus_client.c
+index 2dc874fb5506..34ac3f197b92 100644
+--- a/drivers/xen/xenbus/xenbus_client.c
++++ b/drivers/xen/xenbus/xenbus_client.c
+@@ -31,15 +31,18 @@
+  */
+ 
+ #include <linux/mm.h>
++#include <linux/numa.h>
+ #include <linux/slab.h>
+ #include <linux/types.h>
+ #include <linux/spinlock.h>
+ #include <linux/vmalloc.h>
+ #include <linux/export.h>
++#include <asm/xen/hypercall.h>
+ #include <asm/xen/hypervisor.h>
+ #include <xen/page.h>
+ #include <xen/interface/xen.h>
+ #include <xen/interface/event_channel.h>
++#include <xen/interface/memory.h>
+ #include <xen/balloon.h>
+ #include <xen/events.h>
+ #include <xen/grant_table.h>
+@@ -674,6 +677,7 @@ static int xenbus_map_ring_hvm(struct xenbus_device *dev,
+ {
+ 	struct xenbus_map_node *node = info->node;
+ 	int err;
++	int host_node = NUMA_NO_NODE;
+ 	void *addr;
+ 	bool leaked = false;
+ 	unsigned int nr_pages = XENBUS_PAGES(nr_grefs);
+@@ -693,6 +697,75 @@ static int xenbus_map_ring_hvm(struct xenbus_device *dev,
+ 	if (err)
+ 		goto out_free_ballooned_pages;
+ 
++	/*
++	 * Xen fills dev_bus_addr with the foreign frame's machine
++	 * address on a successful host_map (see grant_table.c in the
++	 * hypervisor).  Resolve the host node now so we know whether the
++	 * placeholders need to be relocated below.
++	 */
++	if (nr_grefs > 0)
++		host_node = xen_mfn_to_node(
++			PFN_DOWN(info->map[0].dev_bus_addr));
++
++	/*
++	 * Placeholder pages came from numa_node_id()'s pool, which only
++	 * matches the foreign frame's node by coincidence.  If they
++	 * disagree, drop the mapping, return the placeholders, and redo
++	 * the map with placeholders drawn from the correct pool.  After
++	 * this, page_to_nid() of every ring page equals the host node of
++	 * its foreign MFN by construction, which keeps grant-mapped pages
++	 * truthful to every NUMA-aware code path that consults page_to_nid.
++	 *
++	 * The cost is one extra grant unmap + map pair per backend
++	 * connect (a rare event) and is paid only when the placeholder
++	 * pool's node disagrees with the foreign frame.  PV mappings and
++	 * cases where Xen cannot supply node info skip the dance entirely.
++	 */
++	if (host_node != NUMA_NO_NODE &&
++	    page_to_nid(node->hvm.pages[0]) != host_node) {
++		int relocate_err;
++
++		relocate_err = xenbus_unmap_ring(dev, node->handles, nr_grefs,
++						 info->addrs);
++		if (relocate_err != GNTST_okay) {
++			/*
++			 * Partial unmap: at least one grant may still be
++			 * live against a placeholder we can no longer
++			 * reach safely.  Mark the pages leaked and fail
++			 * the whole map.
++			 */
++			leaked = true;
++			err = -EIO;
++			goto out_free_ballooned_pages;
++		}
++
++		xen_free_unpopulated_pages(nr_pages, node->hvm.pages);
++
++		err = xen_alloc_unpopulated_pages_node(nr_pages,
++						       node->hvm.pages,
++						       host_node);
++		if (err) {
++			/*
++			 * Pages already gone; clear the array so the
++			 * cleanup path does not try to free them again.
++			 */
++			memset(node->hvm.pages, 0,
++			       nr_pages * sizeof(*node->hvm.pages));
++			node->nr_handles = 0;
++			goto out_err;
++		}
++
++		info->idx = 0;
++		gnttab_foreach_grant(node->hvm.pages, nr_grefs,
++				     xenbus_map_ring_setup_grant_hvm,
++				     info);
++
++		err = __xenbus_map_ring(dev, gnt_ref, nr_grefs, node->handles,
++					info, GNTMAP_host_map, &leaked);
++		if (err)
++			goto out_free_ballooned_pages;
++	}
++
+ 	addr = vmap(node->hvm.pages, nr_pages, VM_MAP | VM_IOREMAP,
+ 		    PAGE_KERNEL);
+ 	if (!addr) {
+@@ -743,6 +816,29 @@ int xenbus_unmap_ring_vfree(struct xenbus_device *dev, void *vaddr)
+ }
+ EXPORT_SYMBOL_GPL(xenbus_unmap_ring_vfree);
+ 
++int xenbus_ring_host_node(struct xenbus_device *dev, void *vaddr)
++{
++	struct page *page;
++
++	/*
++	 * PV mappings install foreign MFNs directly in the PTEs and have
++	 * no struct page in dom0's mem_map for the foreign frame.  PVH
++	 * dom0 keeps a placeholder struct page (allocated from the
++	 * matching per-node pool of xen_alloc_unpopulated_pages_node)
++	 * whose page_to_nid() reports the host node of the foreign frame
++	 * by construction.
++	 */
++	if (xen_pv_domain())
++		return NUMA_NO_NODE;
++
++	page = vmalloc_to_page(vaddr);
++	if (!page)
++		return NUMA_NO_NODE;
++
++	return page_to_nid(page);
++}
++EXPORT_SYMBOL_GPL(xenbus_ring_host_node);
++
+ #ifdef CONFIG_XEN_PV
+ static int map_ring_apply(pte_t *pte, unsigned long addr, void *data)
+ {
+diff --git a/include/xen/xenbus.h b/include/xen/xenbus.h
+index 7dab04cf4a36..18b902bf79ef 100644
+--- a/include/xen/xenbus.h
++++ b/include/xen/xenbus.h
+@@ -225,6 +225,19 @@ int xenbus_map_ring_valloc(struct xenbus_device *dev, grant_ref_t *gnt_refs,
+ 
+ int xenbus_unmap_ring_vfree(struct xenbus_device *dev, void *vaddr);
+ 
++/*
++ * Return the host NUMA node (Linux node id) of the foreign frame
++ * backing the first page of a mapping previously established by
++ * xenbus_map_ring_valloc().  Returns NUMA_NO_NODE if the hypervisor
++ * cannot provide the information, the mapping is not found, or the
++ * kernel was built without CONFIG_XEN_BACKEND_NUMA_AFFINITY.
++ *
++ * Intended for backends placing their service threads and IRQs on
++ * the node hosting the ring.  The value is resolved at map time and
++ * cached on the mapping, so this call is a cheap lookup.
++ */
++int xenbus_ring_host_node(struct xenbus_device *dev, void *vaddr);
++
+ int xenbus_alloc_evtchn(struct xenbus_device *dev, evtchn_port_t *port);
+ int xenbus_free_evtchn(struct xenbus_device *dev, evtchn_port_t port);
+ 
+-- 
+2.55.0
+

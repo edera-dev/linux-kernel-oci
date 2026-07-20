@@ -1,7 +1,7 @@
-From d9b521a2e9bba0940078bb2a8d8052ef6871e57f Mon Sep 17 00:00:00 2001
+From 7f3a09f4dac943f542dc8ebaee8c872b1cd33497 Mon Sep 17 00:00:00 2001
 From: Steven Noonan <steven@edera.dev>
-Date: Tue, 19 May 2026 18:40:35 -0700
-Subject: [PATCH 3/9] xen-netback: place per-queue kthreads and IRQs near the
+Date: Mon, 20 Jul 2026 13:52:53 -0700
+Subject: [PATCH 08/12] xen-netback: place per-queue kthreads and IRQs near the
  ring
 
 Today both xenvif kthreads (guest-rx and dealloc) and the per-queue
@@ -254,5 +254,5 @@ index a0a438881388..798f77595529 100644
  		vif->ctrl_irq = 0;
  	}
 -- 
-2.54.0
+2.55.0
 
