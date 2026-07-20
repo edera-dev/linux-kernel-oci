@@ -30,6 +30,9 @@ mv "${MODULES_INSTALL_PATH}/lib/modules/${KERNEL_MODULES_VER}" "${MODULES_OUTPUT
 rm -rf "${MODULES_INSTALL_PATH}"
 [ -L "${MODULES_OUTPUT_PATH}/build" ] && unlink "${MODULES_OUTPUT_PATH}/build"
 
+# shellcheck source-path=SCRIPTDIR source=apparmor.sh
+. "${KERNEL_DIR}/hack/build/apparmor.sh"
+
 mksquashfs "${ADDONS_OUTPUT_PATH}" "${ADDONS_SQUASHFS_PATH}" -all-root
 
 SQUASH_SIZE=$(stat -c %s "${ADDONS_SQUASHFS_PATH}")
