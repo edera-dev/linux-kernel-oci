@@ -1,7 +1,7 @@
-From bd2dbbb1f3a05a5d77d18548d41cdb25c0b81912 Mon Sep 17 00:00:00 2001
+From 9aaace179740c21966407a4e241d83c03214ea21 Mon Sep 17 00:00:00 2001
 From: Steven Noonan <steven@edera.dev>
-Date: Tue, 19 May 2026 23:00:20 -0700
-Subject: [PATCH 1/9] xen/events: add _on_node variants of the lateeoi bind
+Date: Mon, 20 Jul 2026 13:51:53 -0700
+Subject: [PATCH 05/12] xen/events: add _on_node variants of the lateeoi bind
  helpers
 
 xen_allocate_irq_dynamic() unconditionally calls
@@ -294,5 +294,5 @@ index de5da58a0205..1abc068557b4 100644
  /*
   * Common unbind function for all event sources. Takes IRQ to unbind from.
 -- 
-2.54.0
+2.55.0
 

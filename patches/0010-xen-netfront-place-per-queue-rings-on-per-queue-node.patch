@@ -1,7 +1,7 @@
-From 2dd13fab395903f26e7f37eaeacec05c8fdd0233 Mon Sep 17 00:00:00 2001
+From 6f614fd873050c104e80392784fb0e3f154c6365 Mon Sep 17 00:00:00 2001
 From: Steven Noonan <steven@edera.dev>
-Date: Tue, 19 May 2026 19:21:52 -0700
-Subject: [PATCH 8/9] xen-netfront: place per-queue rings on per-queue nodes,
+Date: Mon, 20 Jul 2026 13:52:57 -0700
+Subject: [PATCH 10/12] xen-netfront: place per-queue rings on per-queue nodes,
  with XPS
 
 Today every netfront queue allocates its tx and rx rings from
@@ -266,5 +266,5 @@ index a11a0e949400..7c18db3de8d4 100644
  
   fail:
 -- 
-2.54.0
+2.55.0
 

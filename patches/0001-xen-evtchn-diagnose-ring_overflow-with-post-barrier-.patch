@@ -1,0 +1,100 @@
+From 35760e39333ee8b3786ca54eb8e23ad72358b035 Mon Sep 17 00:00:00 2001
+From: Steven Noonan <steven@edera.dev>
+Date: Mon, 20 Jul 2026 13:49:47 -0700
+Subject: [PATCH 01/12] xen/evtchn: diagnose ring_overflow with post-barrier
+ cons re-read
+
+We've been seeing /dev/xen/evtchn fds enter the ring_overflow=1
+state under sustained event load (specifically: many ports bound
+to a single fd, all firing concurrently during a daemon-side
+metrics-collection storm).  Once the flag latches, every read
+returns -EFBIG and the fd is dead for event delivery until reset.
+
+The per-port masking invariant (each bound port can occupy at
+most one ring slot, because lateeoi_ack_dynirq masks the channel
+at Xen level before evtchn_interrupt runs and userspace can't
+unmask until it reads + writes the port back) combined with the
+ring being sized to nr_evtchns means overflow should not be
+reachable.  No "Interrupt for port N, but apparently not enabled"
+WARNs precede the EFBIG state on hosts where this happens, so
+the masking invariant is holding.
+
+One plausible candidate: the producer's READ_ONCE(ring_cons) in
+evtchn_interrupt has no acquire pairing with the consumer's
+WRITE_ONCE in evtchn_read -- they take ring_prod_lock and
+ring_cons_mutex respectively, neither of which synchronizes
+ring_cons between them.  The smp_wmb/smp_rmb pair already
+present covers ring entry visibility against ring_prod, not
+ring_cons.  A producer that fires right after the consumer
+drains can observe a stale ring_cons and compute
+(prod - stale_cons) >= ring_size when the ring actually has
+room.  On x86-TSO the staleness window is bounded to
+store-buffer drain time but is non-zero; on weakly-ordered
+hardware it's wider.
+
+Add an observe-only diagnostic at the overflow point: before
+setting ring_overflow, issue an smp_mb() and re-read ring_cons.
+Emit a rate-limited pr_warn with prod, both cons values, both
+depths, ring_size, nr_evtchns, and the triggering port's
+enabled/unbinding flags, tagging the log with " SPURIOUS" when
+the post-barrier depth is below ring_size (i.e., the original
+overflow detection was based on a stale view).
+
+This does not change runtime behavior other than emitting a log
+line at the overflow boundary (which already required entering
+a path that wedges the fd, so the printk cost is irrelevant).
+If the diagnostic confirms the stale-cons hypothesis, the real
+fix is to switch ring_cons access to smp_load_acquire /
+smp_store_release pairing.
+
+Signed-off-by: Steven Noonan <steven@edera.dev>
+---
+ drivers/xen/evtchn.c | 31 ++++++++++++++++++++++++++++++-
+ 1 file changed, 30 insertions(+), 1 deletion(-)
+
+diff --git a/drivers/xen/evtchn.c b/drivers/xen/evtchn.c
+index 7e4a13e632dc..85619b041ee8 100644
+--- a/drivers/xen/evtchn.c
++++ b/drivers/xen/evtchn.c
+@@ -189,8 +189,37 @@ static irqreturn_t evtchn_interrupt(int irq, void *data)
+ 			kill_fasync(&u->evtchn_async_queue,
+ 				    SIGIO, POLL_IN);
+ 		}
+-	} else
++	} else {
++		unsigned int cons_now;
++
++		/*
++		 * Diagnostic: the READ_ONCE of ring_cons above has no
++		 * acquire pairing with the WRITE_ONCE in evtchn_read --
++		 * the producer holds ring_prod_lock and the consumer
++		 * holds ring_cons_mutex, so they don't synchronize on
++		 * ring_cons.  On weakly-ordered hardware (and within
++		 * the x86 store-buffer drain window) the producer can
++		 * observe a stale ring_cons and conclude the ring is
++		 * full when it actually has room.  Re-read with a full
++		 * barrier before declaring overflow and tag the log as
++		 * SPURIOUS when the post-barrier read shows the ring
++		 * had room -- that pins the cause on the cons
++		 * visibility race rather than a real fill-to-capacity
++		 * or a broken per-port masking invariant.
++		 */
++		smp_mb();
++		cons_now = READ_ONCE(u->ring_cons);
++
++		pr_warn_ratelimited(
++			"xen-evtchn overflow on %s: port=%u prod=%u cons=%u cons_after_mb=%u depth=%u depth_after_mb=%u ring_size=%u nr_evtchns=%u enabled=%d unbinding=%d%s\n",
++			u->name, evtchn->port, prod, cons, cons_now,
++			prod - cons, prod - cons_now,
++			u->ring_size, u->nr_evtchns,
++			(int)evtchn->enabled, (int)evtchn->unbinding,
++			(prod - cons_now) < u->ring_size ? " SPURIOUS" : "");
++
+ 		u->ring_overflow = 1;
++	}
+ 
+ 	spin_unlock(&u->ring_prod_lock);
+ 
+-- 
+2.55.0
+

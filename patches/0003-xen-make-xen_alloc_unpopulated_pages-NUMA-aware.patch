@@ -1,7 +1,7 @@
-From aa8e71b14c040931222a36998a789e4ce3484c70 Mon Sep 17 00:00:00 2001
+From 56ea4dae7db066a61b6c15a0afd3bdad55e38ad3 Mon Sep 17 00:00:00 2001
 From: Steven Noonan <steven@edera.dev>
-Date: Tue, 19 May 2026 18:56:34 -0700
-Subject: [PATCH 5/9] xen: make xen_alloc_unpopulated_pages NUMA-aware
+Date: Mon, 20 Jul 2026 13:51:49 -0700
+Subject: [PATCH 03/12] xen: make xen_alloc_unpopulated_pages NUMA-aware
 
 xen_alloc_unpopulated_pages today hands out ZONE_DEVICE placeholder
 pages from a single global free list, with the underlying section
@@ -28,9 +28,8 @@ Two exported entry points:
 
   xen_alloc_unpopulated_pages(nr, pages) -- existing API, now a
     wrapper that passes numa_node_id().  Strictly an improvement over
-    NUMA_NO_NODE for non-xenbus callers (gntdev, xlate_mmu, privcmd,
-    drm) that have no node hint of their own: the caller's local node
-    is at least as good a guess as none.
+    NUMA_NO_NODE for callers with no node hint of their own: the
+    caller's local node is at least as good a guess as none.
 
 xen_free_unpopulated_pages routes each page back to the pool of the
 node it came from via page_to_nid().  No new arguments; existing
@@ -42,22 +41,15 @@ not contention-sensitive paths.
 
 MAX_NUMNODES sizes the two arrays; on CONFIG_NUMA=n that is 1 and the
 behaviour is byte-for-byte equivalent to the previous single-list
-implementation.
-
-Wire xenbus_map_ring_hvm() through the new API.  Placeholders are
-first drawn from numa_node_id() because the foreign MFN is not known
-before the grant_map.  After grant_map succeeds and the first page's
-host node is known via XENMEM_get_mfn_pxms, the placeholders are
-relocated: unmap, free, re-allocate on the target node, re-map.  When
-the initial allocation already landed on the right node the relocate
-is skipped.
+implementation.  The consumers that pair this allocator with
+xen_mfn_to_node to home placeholders on the foreign frame's node come
+in the patches that follow.
 
 Signed-off-by: Steven Noonan <steven@edera.dev>
 ---
- drivers/xen/unpopulated-alloc.c    | 103 +++++++++++++++++++++++------
- drivers/xen/xenbus/xenbus_client.c |  60 +++++++++++++++++
- include/xen/xen.h                  |   7 ++
- 3 files changed, 149 insertions(+), 21 deletions(-)
+ drivers/xen/unpopulated-alloc.c | 103 +++++++++++++++++++++++++-------
+ include/xen/xen.h               |   7 +++
+ 2 files changed, 89 insertions(+), 21 deletions(-)
 
 diff --git a/drivers/xen/unpopulated-alloc.c b/drivers/xen/unpopulated-alloc.c
 index 1dc0b495c8e5..ea9c76895459 100644
@@ -257,79 +249,8 @@ index 1dc0b495c8e5..ea9c76895459 100644
  	}
  	mutex_unlock(&list_lock);
  }
-diff --git a/drivers/xen/xenbus/xenbus_client.c b/drivers/xen/xenbus/xenbus_client.c
-index 8e0695ba39a3..7f94b135727a 100644
---- a/drivers/xen/xenbus/xenbus_client.c
-+++ b/drivers/xen/xenbus/xenbus_client.c
-@@ -780,6 +780,66 @@ static int xenbus_map_ring_hvm(struct xenbus_device *dev,
- 		node->host_node = xenbus_query_mfn_node(
- 			PFN_DOWN(info->map[0].dev_bus_addr));
- 
-+	/*
-+	 * Placeholder pages came from numa_node_id()'s pool, which only
-+	 * matches the foreign frame's node by coincidence.  If they
-+	 * disagree, drop the mapping, return the placeholders, and redo
-+	 * the map with placeholders drawn from the correct pool.  After
-+	 * this, page_to_nid() of every ring page equals the host node of
-+	 * its foreign MFN by construction, which keeps grant-mapped pages
-+	 * truthful to every NUMA-aware code path that consults page_to_nid.
-+	 *
-+	 * The cost is one extra grant unmap + map pair per backend
-+	 * connect (a rare event) and is paid only when the placeholder
-+	 * pool's node disagrees with the foreign frame.  PV mappings and
-+	 * cases where Xen cannot supply node info skip the dance entirely
-+	 * (host_node stays NUMA_NO_NODE).
-+	 */
-+	if (node->host_node != NUMA_NO_NODE &&
-+	    page_to_nid(node->hvm.pages[0]) != node->host_node) {
-+		int relocate_err;
-+
-+		relocate_err = xenbus_unmap_ring(dev, node->handles, nr_grefs,
-+						 info->addrs);
-+		if (relocate_err != GNTST_okay) {
-+			/*
-+			 * Partial unmap: at least one grant may still be
-+			 * live against a placeholder we can no longer
-+			 * reach safely.  Mark the pages leaked and fail
-+			 * the whole map.
-+			 */
-+			leaked = true;
-+			err = -EIO;
-+			goto out_free_ballooned_pages;
-+		}
-+
-+		xen_free_unpopulated_pages(nr_pages, node->hvm.pages);
-+
-+		err = xen_alloc_unpopulated_pages_node(nr_pages,
-+						       node->hvm.pages,
-+						       node->host_node);
-+		if (err) {
-+			/*
-+			 * Pages already gone; clear the array so the
-+			 * cleanup path does not try to free them again.
-+			 */
-+			memset(node->hvm.pages, 0,
-+			       nr_pages * sizeof(*node->hvm.pages));
-+			node->nr_handles = 0;
-+			goto out_err;
-+		}
-+
-+		info->idx = 0;
-+		gnttab_foreach_grant(node->hvm.pages, nr_grefs,
-+				     xenbus_map_ring_setup_grant_hvm,
-+				     info);
-+
-+		err = __xenbus_map_ring(dev, gnt_ref, nr_grefs, node->handles,
-+					info, GNTMAP_host_map, &leaked);
-+		if (err)
-+			goto out_free_ballooned_pages;
-+	}
-+
- 	addr = vmap(node->hvm.pages, nr_pages, VM_MAP | VM_IOREMAP,
- 		    PAGE_KERNEL);
- 	if (!addr) {
 diff --git a/include/xen/xen.h b/include/xen/xen.h
-index f280c5dcf923..f38cb138d837 100644
+index f7f3dd7a3abe..ccf9bfa33813 100644
 --- a/include/xen/xen.h
 +++ b/include/xen/xen.h
 @@ -70,6 +70,8 @@ extern u64 xen_saved_max_mem_size;
@@ -354,5 +275,5 @@ index f280c5dcf923..f38cb138d837 100644
  		struct page **pages)
  {
 -- 
-2.54.0
+2.55.0
 

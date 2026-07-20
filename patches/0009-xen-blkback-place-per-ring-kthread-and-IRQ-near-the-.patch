@@ -1,7 +1,8 @@
-From dfc8f5b06ce2855798e26f1221a7c176b6ae9cd1 Mon Sep 17 00:00:00 2001
+From 99386006b8da0d96cbb90fc92f87f7f1893e10f9 Mon Sep 17 00:00:00 2001
 From: Steven Noonan <steven@edera.dev>
-Date: Tue, 19 May 2026 18:50:03 -0700
-Subject: [PATCH 4/9] xen-blkback: place per-ring kthread and IRQ near the ring
+Date: Mon, 20 Jul 2026 13:52:54 -0700
+Subject: [PATCH 09/12] xen-blkback: place per-ring kthread and IRQ near the
+ ring
 
 The xenblkd kthread and per-ring event-channel IRQ today run wherever
 the scheduler happens to place them, which in PVH dom0 is typically
@@ -178,5 +179,5 @@ index 0621878940ae..7ded88e97472 100644
  			ring->irq = 0;
  		}
 -- 
-2.54.0
+2.55.0
 
