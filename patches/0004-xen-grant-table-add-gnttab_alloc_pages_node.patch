@@ -1,0 +1,95 @@
+From 0051d0715d03b8515e26ab5c01144a7d61017216 Mon Sep 17 00:00:00 2001
+From: Steven Noonan <steven@edera.dev>
+Date: Mon, 20 Jul 2026 13:51:51 -0700
+Subject: [PATCH 04/12] xen/grant-table: add gnttab_alloc_pages_node
+
+gnttab_alloc_pages draws grant-mapping placeholder pages via
+xen_alloc_unpopulated_pages, which prefers the calling CPU's NUMA
+node.  That is the right default for a caller with no better
+information, but a consumer that already knows the host node of the
+foreign frames it is about to map -- because it queried the node via
+xen_mfn_to_node after a first map -- has no way to ask for
+placeholders from the matching pool.
+
+Add gnttab_alloc_pages_node, taking an explicit node preference and
+passing it through to xen_alloc_unpopulated_pages_node, and reduce
+gnttab_alloc_pages to a wrapper passing NUMA_NO_NODE (which the
+unpopulated allocator clamps to the local node, preserving today's
+behaviour exactly).  Frees are unchanged: gnttab_free_pages already
+routes each page back to its home pool via page_to_nid.
+
+No functional change for existing callers.  The first user is gntdev,
+which will relocate a fresh grant mapping's placeholders onto the
+foreign frames' node the same way the xenbus ring path gains later in
+this series.
+
+Signed-off-by: Steven Noonan <steven@edera.dev>
+---
+ drivers/xen/grant-table.c | 25 ++++++++++++++++++++++---
+ include/xen/grant_table.h |  1 +
+ 2 files changed, 23 insertions(+), 3 deletions(-)
+
+diff --git a/drivers/xen/grant-table.c b/drivers/xen/grant-table.c
+index f8b86a8679de..879e08104805 100644
+--- a/drivers/xen/grant-table.c
++++ b/drivers/xen/grant-table.c
+@@ -968,15 +968,23 @@ EXPORT_SYMBOL_GPL(xen_mfn_to_node);
+ #endif /* CONFIG_XEN_BACKEND_NUMA_AFFINITY */
+ 
+ /**
+- * gnttab_alloc_pages - alloc pages suitable for grant mapping into
++ * gnttab_alloc_pages_node - alloc pages suitable for grant mapping into,
++ * drawn from a specific NUMA node's placeholder pool
+  * @nr_pages: number of pages to alloc
+  * @pages: returns the pages
++ * @node: node to draw the pages from, or NUMA_NO_NODE for the caller's
++ * local node
++ *
++ * A caller that knows the host node of the foreign frames it is about
++ * to map can request placeholders whose page_to_nid() matches; the
++ * generic gnttab_alloc_pages() below has no such knowledge and settles
++ * for the local node.
+  */
+-int gnttab_alloc_pages(int nr_pages, struct page **pages)
++int gnttab_alloc_pages_node(int nr_pages, struct page **pages, int node)
+ {
+ 	int ret;
+ 
+-	ret = xen_alloc_unpopulated_pages(nr_pages, pages);
++	ret = xen_alloc_unpopulated_pages_node(nr_pages, pages, node);
+ 	if (ret < 0)
+ 		return ret;
+ 
+@@ -986,6 +994,17 @@ int gnttab_alloc_pages(int nr_pages, struct page **pages)
+ 
+ 	return ret;
+ }
++EXPORT_SYMBOL_GPL(gnttab_alloc_pages_node);
++
++/**
++ * gnttab_alloc_pages - alloc pages suitable for grant mapping into
++ * @nr_pages: number of pages to alloc
++ * @pages: returns the pages
++ */
++int gnttab_alloc_pages(int nr_pages, struct page **pages)
++{
++	return gnttab_alloc_pages_node(nr_pages, pages, NUMA_NO_NODE);
++}
+ EXPORT_SYMBOL_GPL(gnttab_alloc_pages);
+ 
+ #ifdef CONFIG_XEN_UNPOPULATED_ALLOC
+diff --git a/include/xen/grant_table.h b/include/xen/grant_table.h
+index 69ac6d80a006..d13566a00ce7 100644
+--- a/include/xen/grant_table.h
++++ b/include/xen/grant_table.h
+@@ -211,6 +211,7 @@ void gnttab_free_auto_xlat_frames(void);
+ 
+ #define gnttab_map_vaddr(map) ((void *)(map.host_virt_addr))
+ 
++int gnttab_alloc_pages_node(int nr_pages, struct page **pages, int node);
+ int gnttab_alloc_pages(int nr_pages, struct page **pages);
+ void gnttab_free_pages(int nr_pages, struct page **pages);
+ 
+-- 
+2.55.0
+

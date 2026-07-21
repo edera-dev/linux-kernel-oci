@@ -1,8 +1,8 @@
-From 150666b04dd7ebdef6641d9a09f0d90bfbf801aa Mon Sep 17 00:00:00 2001
+From f82bb54fab9f7662be84a7c2c6cff6916ca4e521 Mon Sep 17 00:00:00 2001
 From: Steven Noonan <steven@edera.dev>
-Date: Tue, 19 May 2026 19:17:39 -0700
-Subject: [PATCH 7/9] xen/xenbus: add xenbus_setup_ring_node for per-node ring
- allocation
+Date: Mon, 20 Jul 2026 13:52:33 -0700
+Subject: [PATCH 07/12] xen/xenbus: add xenbus_setup_ring_node for per-node
+ ring allocation
 
 Frontend drivers today route every ring allocation through
 xenbus_setup_ring, which calls alloc_pages_exact with no node
@@ -51,7 +51,7 @@ Signed-off-by: Steven Noonan <steven@edera.dev>
  2 files changed, 99 insertions(+), 10 deletions(-)
 
 diff --git a/drivers/xen/xenbus/xenbus_client.c b/drivers/xen/xenbus/xenbus_client.c
-index f357c4a0372f..7419a8183903 100644
+index 34ac3f197b92..d3108f9fab32 100644
 --- a/drivers/xen/xenbus/xenbus_client.c
 +++ b/drivers/xen/xenbus/xenbus_client.c
 @@ -31,6 +31,7 @@
@@ -62,7 +62,7 @@ index f357c4a0372f..7419a8183903 100644
  #include <linux/numa.h>
  #include <linux/slab.h>
  #include <linux/types.h>
-@@ -448,33 +449,103 @@ static void xenbus_switch_fatal(struct xenbus_device *dev, int depth, int err,
+@@ -378,33 +379,103 @@ static void xenbus_switch_fatal(struct xenbus_device *dev, int depth, int err,
  }
  
  /*
@@ -176,7 +176,7 @@ index f357c4a0372f..7419a8183903 100644
  	ret = gnttab_alloc_grant_references(nr_pages, &gref_head);
  	if (ret) {
  		xenbus_dev_fatal(dev, ret, "granting access to %u ring pages",
-@@ -508,6 +579,20 @@ int xenbus_setup_ring(struct xenbus_device *dev, gfp_t gfp, void **vaddr,
+@@ -438,6 +509,20 @@ int xenbus_setup_ring(struct xenbus_device *dev, gfp_t gfp, void **vaddr,
  
  	return ret;
  }
@@ -213,5 +213,5 @@ index 18b902bf79ef..8ce096797b86 100644
  		      unsigned int nr_pages, grant_ref_t *grefs);
  void xenbus_teardown_ring(void **vaddr, unsigned int nr_pages,
 -- 
-2.54.0
+2.55.0
 

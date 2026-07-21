@@ -1,7 +1,7 @@
-From 9f2eced2a6cb89bf0f8fcfc4889389880b595e39 Mon Sep 17 00:00:00 2001
+From 3f4b79bd1c1e8fac01ae80121a2eec2b9b05d81d Mon Sep 17 00:00:00 2001
 From: Steven Noonan <steven@edera.dev>
-Date: Tue, 19 May 2026 19:25:21 -0700
-Subject: [PATCH 9/9] xen-blkfront: place per-ring buffers on per-hctx nodes
+Date: Mon, 20 Jul 2026 13:52:59 -0700
+Subject: [PATCH 11/12] xen-blkfront: place per-ring buffers on per-hctx nodes
 
 Today every blkfront ring (one per hctx in multi-queue mode) is
 allocated from xenbus_setup_ring() with no node preference, so all
@@ -154,5 +154,5 @@ index 04fc6b552c04..8414dc737157 100644
  fail:
  	blkif_free(info, 0);
 -- 
-2.54.0
+2.55.0
 
