@@ -26,6 +26,10 @@ jobs:
         with:
           app-id: "${{ secrets.EDERA_CULTIVATION_APP_ID }}"
           private-key: "${{ secrets.EDERA_CULTIVATION_APP_PRIVATE_KEY }}"
+          # Scope the minted token to only what create-pull-request needs:
+          # push the branch (contents) and open/update the PR (pull-requests).
+          permission-contents: write
+          permission-pull-requests: write
         # Uses the GitHub API path under the hood so commits are auto-signed
         # with the web-flow key (the repo enforces "Verified signatures", which
         # blocks plain `git push` from GITHUB_TOKEN). The action is idempotent:
