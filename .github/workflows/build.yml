@@ -35,5 +35,8 @@ jobs:
     uses: ./.github/workflows/matrix.yml
     secrets: inherit
     with:
-      spec: ${{ inputs.spec || 'lts' }}
+      # schedule/push carry no inputs, so this fallback is what the cron and
+      # the configs/** push actually build. Keep it equal to the
+      # workflow_dispatch default above.
+      spec: ${{ inputs.spec || 'only-latest-lts' }}
       publish: ${{ inputs.publish == '' || inputs.publish }}
