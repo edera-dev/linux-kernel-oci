@@ -1,0 +1,416 @@
+From 464f276dd78fc021398e9037e920721d9699bbe6 Mon Sep 17 00:00:00 2001
+From: Ariadne Conill <ariadne@ariadne.space>
+Date: Thu, 23 Jul 2026 15:42:06 -0700
+Subject: [PATCH 1/5] x86/hyperv: enable a Xen PV dom0 to use the L0 Hyper-V
+ host
+
+When Xen is itself a Hyper-V guest and hands its PV dom0 the host's
+VMBus, dom0 must speak Hyper-V to the L0 host through Xen.  Detect this
+"nested on Xen" case (xen_pv_domain() + "Microsoft Hv" CPUID) and bring
+up a minimal Hyper-V guest: GUEST_OS_ID, a hypercall page and the
+per-cpu input pages, skipping the APIC/timer/isolation setup a PV dom0
+does not use.
+
+Add hv_nested_hostpfn()/hv_nested_hostpa() helpers translating dom0's
+pseudo-physical frames to the machine (L1-physical) frames the L0 host
+requires, and have hv_do_hypercall() emit machine addresses in this
+mode.  Reserve VIRQ_HYPERV_VMBUS and add hyperv_setup_xen_vmbus_irq()
+to bind the VMBus interrupt to it.
+
+The helpers compile to no-ops without CONFIG_XEN_PV.
+
+Signed-off-by: Ariadne Conill <ariadne@ariadne.space>
+---
+ arch/x86/hyperv/hv_init.c       |  94 ++++++++++++++++++++-
+ arch/x86/include/asm/mshyperv.h |  30 ++++++-
+ arch/x86/xen/Makefile           |   2 +
+ arch/x86/xen/hyperv.c           | 144 ++++++++++++++++++++++++++++++++
+ include/asm-generic/mshyperv.h  |  22 +++++
+ include/xen/interface/xen.h     |   7 ++
+ 6 files changed, 295 insertions(+), 4 deletions(-)
+ create mode 100644 arch/x86/xen/hyperv.c
+
+diff --git a/arch/x86/hyperv/hv_init.c b/arch/x86/hyperv/hv_init.c
+index e890fd37e..48fbb43f2 100644
+--- a/arch/x86/hyperv/hv_init.c
++++ b/arch/x86/hyperv/hv_init.c
+@@ -429,6 +429,18 @@ static void __init hv_stimer_setup_percpu_clockev(void)
+ 		old_setup_percpu_clockev();
+ }
+ 
++/*
++ * True when running as a Xen PV dom0 that is itself nested under Hyper-V (L0).
++ * Set by the Xen guest code (arch/x86/xen/) after it detects the underlying
++ * Hyper-V.  In this mode Linux stays a Xen guest (x86_hyper_type == XEN_PV) but
++ * additionally brings up the VMBus stack to drive the L0 host's synthetic
++ * devices, with Xen proxying the Hyper-V enlightenments.
++ */
++#ifdef CONFIG_XEN_PV
++bool hyperv_nested_on_xen __ro_after_init;
++EXPORT_SYMBOL_GPL(hyperv_nested_on_xen);
++#endif
++
+ /*
+  * This function is to be invoked early in the boot sequence after the
+  * hypervisor has been detected.
+@@ -607,6 +619,83 @@ void __init hyperv_init(void)
+ 	hv_common_free();
+ }
+ 
++/*
++ * Minimal Hyper-V bring-up for a Xen PV dom0 nested under Hyper-V.
++ *
++ * Unlike hyperv_init(), this deliberately does NOT touch the APIC, timers, TSC
++ * reference page, PCI, syscore or isolation machinery -- Xen owns all of those
++ * for a PV guest.  We set up only what the VMBus stack needs: the per-cpu input
++ * pages (hv_common_init + hv_cpu_init via cpuhp), the guest OS id, and the
++ * hypercall page.  Xen intercepts the GUEST_OS_ID / HYPERCALL MSR writes and
++ * fills the hypercall page with its own trap stub, and proxies the SynIC MSRs
++ * that vmbus_bus_init() subsequently programs.
++ *
++ * Must run after cpuhp is up and before hv_acpi_init() (subsys_initcall).
++ */
++#ifdef CONFIG_XEN_PV
++void __init hyperv_init_nested_on_xen(void)
++{
++	union hv_x64_msr_hypercall_contents hypercall_msr;
++	u64 guest_id;
++
++	if (!hyperv_nested_on_xen)
++		return;
++
++	/* Extract the L0 host's features and hints (subset of ms_hyperv_init). */
++	ms_hyperv.features = cpuid_eax(HYPERV_CPUID_FEATURES);
++	ms_hyperv.priv_high = cpuid_ebx(HYPERV_CPUID_FEATURES);
++	ms_hyperv.ext_features = cpuid_ecx(HYPERV_CPUID_FEATURES);
++	ms_hyperv.misc_features = cpuid_edx(HYPERV_CPUID_FEATURES);
++	ms_hyperv.hints = cpuid_eax(HYPERV_CPUID_ENLIGHTMENT_INFO);
++	ms_hyperv.max_vp_index = cpuid_eax(HYPERV_CPUID_IMPLEMENT_LIMITS);
++	ms_hyperv.max_lp_index = cpuid_ebx(HYPERV_CPUID_IMPLEMENT_LIMITS);
++
++	if (hv_common_init())
++		return;
++
++	guest_id = hv_generate_guest_id(LINUX_VERSION_CODE);
++	wrmsrq(HV_X64_MSR_GUEST_OS_ID, guest_id);
++
++	hv_hypercall_pg = __vmalloc_node_range(PAGE_SIZE, 1, MODULES_VADDR,
++			MODULES_END, GFP_KERNEL, PAGE_KERNEL_ROX,
++			VM_FLUSH_RESET_PERMS, NUMA_NO_NODE,
++			__builtin_return_address(0));
++	if (!hv_hypercall_pg)
++		goto clean_guest_os_id;
++
++	rdmsrq(HV_X64_MSR_HYPERCALL, hypercall_msr.as_uint64);
++	hypercall_msr.enable = 1;
++	/*
++	 * Hand Xen the machine frame so it fills the correct page: for a PV
++	 * guest the pseudo-physical PFN differs from the machine (L1-physical)
++	 * frame the hypervisor uses.
++	 */
++	hypercall_msr.guest_physical_address =
++		hv_nested_hostpfn(vmalloc_to_pfn(hv_hypercall_pg));
++	wrmsrq(HV_X64_MSR_HYPERCALL, hypercall_msr.as_uint64);
++	hv_set_hypercall_pg(hv_hypercall_pg);
++
++	/*
++	 * Bring up the per-cpu input pages (VP assist is left NULL: it is a
++	 * lazy-EOI optimisation the PV dom0 does not need).
++	 */
++	if (cpuhp_setup_state(CPUHP_AP_HYPERV_ONLINE, "x86/hyperv_init:online",
++			      hv_cpu_init, hv_cpu_die) < 0)
++		goto clean_hypercall_pg;
++
++	return;
++
++clean_hypercall_pg:
++	hv_set_hypercall_pg(NULL);
++	vfree(hv_hypercall_pg);
++	hv_hypercall_pg = NULL;
++clean_guest_os_id:
++	wrmsrq(HV_X64_MSR_GUEST_OS_ID, 0);
++	hyperv_nested_on_xen = false;
++	hv_common_free();
++}
++#endif /* CONFIG_XEN_PV */
++
+ /*
+  * This routine is called before kexec/kdump, it does the required cleanup.
+  */
+@@ -675,9 +764,10 @@ bool hv_is_hyperv_initialized(void)
+ 
+ 	/*
+ 	 * Ensure that we're really on Hyper-V, and not a KVM or Xen
+-	 * emulation of Hyper-V
++	 * emulation of Hyper-V.  The exception is a Xen PV dom0 nested under
++	 * Hyper-V, which drives VMBus with Xen proxying the enlightenments.
+ 	 */
+-	if (x86_hyper_type != X86_HYPER_MS_HYPERV)
++	if (x86_hyper_type != X86_HYPER_MS_HYPERV && !hyperv_nested_on_xen)
+ 		return false;
+ 
+ 	/* A TDX VM with no paravisor uses TDX GHCI call rather than hv_hypercall_pg */
+diff --git a/arch/x86/include/asm/mshyperv.h b/arch/x86/include/asm/mshyperv.h
+index 605abd021..79a303ace 100644
+--- a/arch/x86/include/asm/mshyperv.h
++++ b/arch/x86/include/asm/mshyperv.h
+@@ -63,14 +63,40 @@ DECLARE_STATIC_CALL(hv_hypercall, hv_std_hypercall);
+ #define HV_AP_INIT_GPAT_DEFAULT		0x0007040600070406ULL
+ #define HV_AP_SEGMENT_LIMIT		0xffffffff
+ 
++/*
++ * Nested Hyper-V-on-Xen host-address translation.  Shared include-guard with
++ * asm-generic/mshyperv.h so this is defined exactly once regardless of include
++ * order/arch.  A Xen PV dom0 nested under Hyper-V must hand the host machine
++ * (L1-physical) frames, not its own pseudo-physical frames.
++ */
++#ifndef __HV_NESTED_ON_XEN_DEFINED
++#define __HV_NESTED_ON_XEN_DEFINED
++#ifdef CONFIG_XEN_PV
++extern bool hyperv_nested_on_xen;
++unsigned long hv_nested_hostpfn(unsigned long pfn);
++u64 hv_nested_hostpa(void *va);
++void __init hyperv_init_nested_on_xen(void);
++int hyperv_setup_xen_vmbus_irq(void (*isr)(void));
++#else
++#define hyperv_nested_on_xen false
++/* Never called (the caller's hyperv_nested_on_xen test is a build-time false). */
++static inline unsigned long hv_nested_hostpfn(unsigned long pfn) { return pfn; }
++static inline u64 hv_nested_hostpa(void *va) { return 0; }
++static inline void hyperv_init_nested_on_xen(void) {}
++static inline int hyperv_setup_xen_vmbus_irq(void (*isr)(void)) { return -ENODEV; }
++#endif
++#endif /* __HV_NESTED_ON_XEN_DEFINED */
++
+ /*
+  * If the hypercall involves no input or output parameters, the hypervisor
+  * ignores the corresponding GPA pointer.
+  */
+ static inline u64 hv_do_hypercall(u64 control, void *input, void *output)
+ {
+-	u64 input_address = input ? virt_to_phys(input) : 0;
+-	u64 output_address = output ? virt_to_phys(output) : 0;
++	u64 input_address = input ?
++		(hyperv_nested_on_xen ? hv_nested_hostpa(input) : virt_to_phys(input)) : 0;
++	u64 output_address = output ?
++		(hyperv_nested_on_xen ? hv_nested_hostpa(output) : virt_to_phys(output)) : 0;
+ 
+ #ifdef CONFIG_X86_64
+ 	return static_call_mod(hv_hypercall)(control, input_address, output_address);
+diff --git a/arch/x86/xen/Makefile b/arch/x86/xen/Makefile
+index a9ec8c9f5..58484ae6a 100644
+--- a/arch/x86/xen/Makefile
++++ b/arch/x86/xen/Makefile
+@@ -35,6 +35,8 @@ obj-$(CONFIG_XEN_PV)		+= xen-asm.o
+ 
+ obj-$(CONFIG_XEN_PVH)		+= enlighten_pvh.o
+ 
++obj-$(CONFIG_XEN_PV)		+= hyperv.o
++
+ obj-$(CONFIG_EVENT_TRACING)	+= trace.o
+ 
+ obj-$(CONFIG_SMP)		+= smp.o
+diff --git a/arch/x86/xen/hyperv.c b/arch/x86/xen/hyperv.c
+new file mode 100644
+index 000000000..be66bb220
+--- /dev/null
++++ b/arch/x86/xen/hyperv.c
+@@ -0,0 +1,144 @@
++// SPDX-License-Identifier: GPL-2.0
++/*
++ * Xen PV dom0 nested under Hyper-V.
++ *
++ * When Xen itself runs as a guest of Hyper-V (e.g. a nested VM on Azure), its
++ * PV dom0 must drive the L0 host's synthetic (VMBus) devices for storage and
++ * networking.  Xen exposes the Hyper-V enlightenments to dom0 and proxies the
++ * hypercalls / synthetic interrupts, so here we detect that situation, bring up
++ * the (otherwise Hyper-V-only) VMBus stack while remaining a Xen guest, and
++ * route the relayed VMBus interrupt (delivered by Xen as VIRQ_HYPERV_VMBUS)
++ * into the VMBus ISR.
++ */
++#include <linux/init.h>
++
++#if IS_ENABLED(CONFIG_HYPERV)
++
++#include <linux/cpuhotplug.h>
++#include <linux/interrupt.h>
++#include <linux/mm.h>
++#include <linux/printk.h>
++
++#include <asm/cpuid/api.h>
++#include <asm/mshyperv.h>
++#include <asm/xen/page.h>
++
++#include <xen/xen.h>
++#include <xen/events.h>
++#include <xen/interface/xen.h>
++
++/*
++ * Translate a guest pseudo-physical frame / address to the machine
++ * (L1-physical) frame the underlying Hyper-V host must use.  For a Xen PV dom0
++ * the two differ, so every host-facing VMBus / SynIC / hypercall address must
++ * be run through these.
++ */
++unsigned long hv_nested_hostpfn(unsigned long pfn)
++{
++	return hyperv_nested_on_xen ? pfn_to_mfn(pfn) : pfn;
++}
++EXPORT_SYMBOL_GPL(hv_nested_hostpfn);
++
++u64 hv_nested_hostpa(void *va)
++{
++	unsigned long pfn = virt_to_pfn(va);
++
++	if (hyperv_nested_on_xen)
++		pfn = pfn_to_mfn(pfn);
++
++	return ((u64)pfn << PAGE_SHIFT) | offset_in_page(va);
++}
++EXPORT_SYMBOL_GPL(hv_nested_hostpa);
++
++static bool __init xen_detect_hyperv_l0(void)
++{
++	u32 eax, ebx, ecx, edx;
++
++	if (!xen_pv_domain())
++		return false;
++
++	/*
++	 * Xen presents the underlying host's "Microsoft Hv" leaves at
++	 * 0x40000000 (its own XenVMMXenVMM leaves are relocated to 0x40000100).
++	 */
++	cpuid(HYPERV_CPUID_VENDOR_AND_MAX_FUNCTIONS, &eax, &ebx, &ecx, &edx);
++
++	return ebx == 0x7263694d &&	/* "Micr" */
++	       ecx == 0x666f736f &&	/* "osof" */
++	       edx == 0x76482074;	/* "t Hv" */
++}
++
++static int __init xen_hyperv_init(void)
++{
++	if (!xen_detect_hyperv_l0())
++		return 0;
++
++	pr_info("Xen: nested under Hyper-V, enabling VMBus passthrough\n");
++	hyperv_nested_on_xen = true;
++	hyperv_init_nested_on_xen();
++
++	return 0;
++}
++arch_initcall(xen_hyperv_init);
++
++/*
++ * VMBus interrupt bridge.  A PV dom0 receives interrupts as Xen event channels,
++ * not as the native SINT vector VMBus programs, so Xen relays each VMBus
++ * message via the per-vcpu VIRQ_HYPERV_VMBUS.  Bind it on every cpu and drive
++ * the VMBus ISR from its handler.
++ */
++static void (*xen_vmbus_handler)(void);
++static DEFINE_PER_CPU(int, xen_vmbus_irq);
++
++static irqreturn_t xen_hyperv_vmbus_isr(int irq, void *dev_id)
++{
++	if (xen_vmbus_handler)
++		xen_vmbus_handler();
++
++	return IRQ_HANDLED;
++}
++
++static int xen_hyperv_vmbus_cpu_up(unsigned int cpu)
++{
++	int irq;
++
++	irq = bind_virq_to_irqhandler(VIRQ_HYPERV_VMBUS, cpu,
++				      xen_hyperv_vmbus_isr,
++				      IRQF_PERCPU | IRQF_NOBALANCING,
++				      "hyperv-vmbus", NULL);
++	if (irq < 0)
++		return irq;
++
++	per_cpu(xen_vmbus_irq, cpu) = irq;
++
++	return 0;
++}
++
++static int xen_hyperv_vmbus_cpu_down(unsigned int cpu)
++{
++	int irq = per_cpu(xen_vmbus_irq, cpu);
++
++	if (irq > 0) {
++		unbind_from_irqhandler(irq, NULL);
++		per_cpu(xen_vmbus_irq, cpu) = 0;
++	}
++
++	return 0;
++}
++
++int hyperv_setup_xen_vmbus_irq(void (*isr)(void))
++{
++	int ret;
++
++	if (!hyperv_nested_on_xen)
++		return -ENODEV;
++
++	xen_vmbus_handler = isr;
++
++	ret = cpuhp_setup_state(CPUHP_AP_ONLINE_DYN, "xen/hyperv-vmbus:online",
++				xen_hyperv_vmbus_cpu_up, xen_hyperv_vmbus_cpu_down);
++
++	return ret < 0 ? ret : 0;
++}
++
++#endif /* CONFIG_HYPERV */
+diff --git a/include/asm-generic/mshyperv.h b/include/asm-generic/mshyperv.h
+index b89c7e3a2..23728aff0 100644
+--- a/include/asm-generic/mshyperv.h
++++ b/include/asm-generic/mshyperv.h
+@@ -363,6 +363,28 @@ static inline enum hv_isolation_type hv_get_isolation_type(void)
+ }
+ #endif /* CONFIG_HYPERV */
+ 
++/*
++ * Nested Hyper-V-on-Xen host-address translation.  Shared include-guard with
++ * arch/x86/include/asm/mshyperv.h (which defines this first on x86, ahead of
++ * hv_do_hypercall()); this copy serves other arches.
++ */
++#ifndef __HV_NESTED_ON_XEN_DEFINED
++#define __HV_NESTED_ON_XEN_DEFINED
++#ifdef CONFIG_XEN_PV
++extern bool hyperv_nested_on_xen;
++unsigned long hv_nested_hostpfn(unsigned long pfn);
++u64 hv_nested_hostpa(void *va);
++void __init hyperv_init_nested_on_xen(void);
++int hyperv_setup_xen_vmbus_irq(void (*isr)(void));
++#else
++#define hyperv_nested_on_xen false
++static inline unsigned long hv_nested_hostpfn(unsigned long pfn) { return pfn; }
++static inline u64 hv_nested_hostpa(void *va) { return 0; }
++static inline void hyperv_init_nested_on_xen(void) {}
++static inline int hyperv_setup_xen_vmbus_irq(void (*isr)(void)) { return -ENODEV; }
++#endif
++#endif /* __HV_NESTED_ON_XEN_DEFINED */
++
+ #if IS_ENABLED(CONFIG_MSHV_ROOT)
+ static inline bool hv_root_partition(void)
+ {
+diff --git a/include/xen/interface/xen.h b/include/xen/interface/xen.h
+index 0ca23eca2..a7687ad86 100644
+--- a/include/xen/interface/xen.h
++++ b/include/xen/interface/xen.h
+@@ -102,6 +102,13 @@
+ /* Architecture-specific VIRQ definitions. */
+ #define VIRQ_ARCH_0    16
+ #define VIRQ_ARCH_1    17
++/*
++ * Relayed Hyper-V VMBus synthetic interrupt, for a Xen dom0 running nested
++ * under Hyper-V: Xen owns the L0 SynIC and forwards VMBus messages to dom0 via
++ * this per-vcpu VIRQ.  Must match the Xen definition.  NB: VIRQ_ARCH_0 is
++ * VIRQ_MCA (used by xen_mcelog), so VMBus uses VIRQ_ARCH_1.
++ */
++#define VIRQ_HYPERV_VMBUS VIRQ_ARCH_1
+ #define VIRQ_ARCH_2    18
+ #define VIRQ_ARCH_3    19
+ #define VIRQ_ARCH_4    20
+-- 
+2.54.0
+

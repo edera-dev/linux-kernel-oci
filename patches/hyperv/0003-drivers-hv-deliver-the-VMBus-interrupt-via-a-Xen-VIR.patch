@@ -1,0 +1,43 @@
+From f3ba01a01917a88fb48b59583200cc4ae09acc14 Mon Sep 17 00:00:00 2001
+From: Ariadne Conill <ariadne@ariadne.space>
+Date: Thu, 23 Jul 2026 15:42:07 -0700
+Subject: [PATCH 3/5] drivers: hv: deliver the VMBus interrupt via a Xen VIRQ
+ when nested on Xen
+
+When nested on Xen the host's synthetic interrupt is taken by Xen and
+relayed to dom0 as VIRQ_HYPERV_VMBUS.  Bind the VMBus ISR to that VIRQ
+instead of the Hyper-V synthetic vector in that case.
+
+Signed-off-by: Ariadne Conill <ariadne@ariadne.space>
+---
+ drivers/hv/vmbus_drv.c | 14 +++++++++++++-
+ 1 file changed, 13 insertions(+), 1 deletion(-)
+
+diff --git a/drivers/hv/vmbus_drv.c b/drivers/hv/vmbus_drv.c
+index 1a0e350c1..784b4a59e 100644
+--- a/drivers/hv/vmbus_drv.c
++++ b/drivers/hv/vmbus_drv.c
+@@ -1429,7 +1429,19 @@ static int vmbus_bus_init(void)
+ 		vmbus_irq_initialized = true;
+ 	}
+ 
+-	if (vmbus_irq == -1) {
++	if (hyperv_nested_on_xen) {
++		/*
++		 * A Xen PV dom0 nested under Hyper-V receives the relayed VMBus
++		 * interrupt as a Xen event channel (VIRQ_HYPERV_VMBUS), not as
++		 * the native SINT vector, so use the Xen-side bridge.
++		 */
++		ret = hyperv_setup_xen_vmbus_irq(vmbus_isr);
++		if (ret) {
++			pr_err("Can't set up Xen VMbus interrupt bridge, Err %d\n",
++					ret);
++			goto err_setup;
++		}
++	} else if (vmbus_irq == -1) {
+ 		hv_setup_vmbus_handler(vmbus_isr);
+ 	} else {
+ 		vmbus_evt = alloc_percpu(long);
+-- 
+2.54.0
+
