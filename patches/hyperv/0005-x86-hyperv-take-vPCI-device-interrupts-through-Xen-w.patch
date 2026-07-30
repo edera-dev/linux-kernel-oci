@@ -1,0 +1,513 @@
+From c98cf28aec3bc8a65b872834d2e30deb7c18f9a4 Mon Sep 17 00:00:00 2001
+From: Ariadne Conill <ariadne@ariadne.space>
+Date: Mon, 27 Jul 2026 20:30:58 -0700
+Subject: [PATCH 5/5] x86/hyperv: take vPCI device interrupts through Xen when
+ nested on Xen
+
+A Xen PV dom0 nested under Hyper-V cannot back vPCI MSIs with
+x86_vector_domain.  The host composes them against a vector on a virtual
+processor belonging to Xen, so Xen owns the vector and tells us which
+one; and PV never onlines the local APIC, so cpu0 is the only CPU in the
+vector matrix and acking through apic_ack_edge() reaches xen_apic_eoi(),
+which warns.
+
+Query that vector and supply a minimal parent irq domain for these
+interrupts, one in which masking and affinity belong to the host: Xen
+has already acked the vector by the time it relays the interrupt as
+VIRQ_HYPERV_VPCI, and affinity takes effect through the retarget
+hypercall the vPCI irq_chip above issues on unmask.  As one vector
+serves every vPCI device, run each registered handler on every relayed
+interrupt, and mark the interrupts polled so that the spurious detector
+does not eventually disable a busy device whose handler usually has
+nothing to do.
+
+Multi-message MSI cannot work in this configuration - a contiguous block
+of vectors cannot come from the single relay vector - so drop it; MSI-X,
+which NVMe and MANA use, is unaffected.  Config space likewise takes the
+trapped MMIO path in preference to HVCALL_MMIO_READ/WRITE, whose output
+page Xen would otherwise have to marshal, as arm64 already does.
+
+Signed-off-by: Ariadne Conill <ariadne@ariadne.space>
+---
+ arch/x86/include/asm/mshyperv.h     |  10 +
+ arch/x86/xen/hyperv.c               | 275 ++++++++++++++++++++++++++++
+ drivers/pci/controller/pci-hyperv.c |  35 +++-
+ include/asm-generic/mshyperv.h      |   5 +
+ include/xen/interface/physdev.h     |  14 ++
+ include/xen/interface/xen.h         |   8 +
+ 6 files changed, 345 insertions(+), 2 deletions(-)
+
+diff --git a/arch/x86/include/asm/mshyperv.h b/arch/x86/include/asm/mshyperv.h
+index 79a303ace..f0f402f34 100644
+--- a/arch/x86/include/asm/mshyperv.h
++++ b/arch/x86/include/asm/mshyperv.h
+@@ -71,12 +71,20 @@ DECLARE_STATIC_CALL(hv_hypercall, hv_std_hypercall);
+  */
+ #ifndef __HV_NESTED_ON_XEN_DEFINED
+ #define __HV_NESTED_ON_XEN_DEFINED
++struct irq_domain;
+ #ifdef CONFIG_XEN_PV
+ extern bool hyperv_nested_on_xen;
+ unsigned long hv_nested_hostpfn(unsigned long pfn);
+ u64 hv_nested_hostpa(void *va);
+ void __init hyperv_init_nested_on_xen(void);
+ int hyperv_setup_xen_vmbus_irq(void (*isr)(void));
++/*
++ * The vector vPCI device MSIs must be composed with, and the parent irq domain
++ * for them: the host delivers such an MSI to a vector Xen owns and relays it to
++ * us, so x86_vector_domain's vectors (meaningless to a PV guest) cannot be used.
++ */
++unsigned int hyperv_xen_vpci_vector(void);
++struct irq_domain *hyperv_xen_vpci_root_domain(void);
+ #else
+ #define hyperv_nested_on_xen false
+ /* Never called (the caller's hyperv_nested_on_xen test is a build-time false). */
+@@ -84,6 +92,8 @@ static inline unsigned long hv_nested_hostpfn(unsigned long pfn) { return pfn; }
+ static inline u64 hv_nested_hostpa(void *va) { return 0; }
+ static inline void hyperv_init_nested_on_xen(void) {}
+ static inline int hyperv_setup_xen_vmbus_irq(void (*isr)(void)) { return -ENODEV; }
++static inline unsigned int hyperv_xen_vpci_vector(void) { return 0; }
++static inline struct irq_domain *hyperv_xen_vpci_root_domain(void) { return NULL; }
+ #endif
+ #endif /* __HV_NESTED_ON_XEN_DEFINED */
+ 
+diff --git a/arch/x86/xen/hyperv.c b/arch/x86/xen/hyperv.c
+index be66bb220..dc6c8b4b5 100644
+--- a/arch/x86/xen/hyperv.c
++++ b/arch/x86/xen/hyperv.c
+@@ -16,15 +16,22 @@
+ 
+ #include <linux/cpuhotplug.h>
+ #include <linux/interrupt.h>
++#include <linux/irq.h>
++#include <linux/irqdomain.h>
+ #include <linux/mm.h>
++#include <linux/mutex.h>
+ #include <linux/printk.h>
++#include <linux/rculist.h>
++#include <linux/slab.h>
+ 
+ #include <asm/cpuid/api.h>
+ #include <asm/mshyperv.h>
++#include <asm/xen/hypercall.h>
+ #include <asm/xen/page.h>
+ 
+ #include <xen/xen.h>
+ #include <xen/events.h>
++#include <xen/interface/physdev.h>
+ #include <xen/interface/xen.h>
+ 
+ /*
+@@ -141,4 +148,272 @@ int hyperv_setup_xen_vmbus_irq(void (*isr)(void))
+ 	return ret < 0 ? ret : 0;
+ }
+ 
++/*
++ * vPCI (VMBus-assigned PCI device, e.g. NVMe or a MANA VF) interrupt bridge.
++ *
++ * The host composes these MSIs itself and delivers them to the VP, which under
++ * Xen belongs to Xen and not to us: the vPCI protocol messages that request them
++ * travel in a VMBus ring buffer Xen does not inspect, so it cannot rewrite the
++ * vector we ask for.  Xen therefore owns one vector for all of them, tells us
++ * which (PHYSDEVOP_hyperv_vpci_vector), and relays each delivery to the vcpu
++ * that received it as VIRQ_HYPERV_VPCI.  We compose every vPCI MSI with that
++ * vector and demultiplex here, since Xen cannot tell the devices apart.
++ *
++ * That also means x86_vector_domain cannot be the parent of the vPCI MSI domain:
++ * its vectors are meaningless to a PV guest (and acking one reaches
++ * xen_apic_eoi(), which warns).  We supply a minimal parent domain instead - the
++ * host owns masking and affinity, and Xen has already EOId the vector by the
++ * time we run.
++ */
++static u32 xen_hv_vpci_vector;
++static struct irq_domain *xen_hv_vpci_domain;
++static DEFINE_PER_CPU(int, xen_vpci_irq);
++
++/* The vPCI interrupts to consider on each relayed VIRQ. */
++struct xen_hv_vpci_irq {
++	struct list_head node;
++	struct rcu_head rcu;
++	unsigned int irq;
++};
++
++static LIST_HEAD(xen_hv_vpci_irqs);
++static DEFINE_SPINLOCK(xen_hv_vpci_irqs_lock);
++
++static int xen_hv_vpci_irq_add(unsigned int irq)
++{
++	struct xen_hv_vpci_irq *entry;
++
++	entry = kzalloc(sizeof(*entry), GFP_KERNEL);
++	if (!entry)
++		return -ENOMEM;
++
++	entry->irq = irq;
++
++	spin_lock(&xen_hv_vpci_irqs_lock);
++	list_add_rcu(&entry->node, &xen_hv_vpci_irqs);
++	spin_unlock(&xen_hv_vpci_irqs_lock);
++
++	return 0;
++}
++
++static void xen_hv_vpci_irq_del(unsigned int irq)
++{
++	struct xen_hv_vpci_irq *entry;
++
++	spin_lock(&xen_hv_vpci_irqs_lock);
++	list_for_each_entry(entry, &xen_hv_vpci_irqs, node) {
++		if (entry->irq == irq) {
++			list_del_rcu(&entry->node);
++			kfree_rcu(entry, rcu);
++			break;
++		}
++	}
++	spin_unlock(&xen_hv_vpci_irqs_lock);
++}
++
++static irqreturn_t xen_hyperv_vpci_isr(int irq, void *dev_id)
++{
++	struct xen_hv_vpci_irq *entry;
++
++	/*
++	 * One or more of these devices interrupted; which one is not
++	 * recoverable from the relay, so run them all.  Device handlers are
++	 * required to tolerate a spurious call.
++	 */
++	rcu_read_lock();
++	list_for_each_entry_rcu(entry, &xen_hv_vpci_irqs, node)
++		generic_handle_irq(entry->irq);
++	rcu_read_unlock();
++
++	return IRQ_HANDLED;
++}
++
++static int xen_hyperv_vpci_cpu_up(unsigned int cpu)
++{
++	int irq;
++
++	irq = bind_virq_to_irqhandler(VIRQ_HYPERV_VPCI, cpu,
++				      xen_hyperv_vpci_isr,
++				      IRQF_PERCPU | IRQF_NOBALANCING,
++				      "hyperv-vpci", NULL);
++	if (irq < 0)
++		return irq;
++
++	per_cpu(xen_vpci_irq, cpu) = irq;
++
++	return 0;
++}
++
++static int xen_hyperv_vpci_cpu_down(unsigned int cpu)
++{
++	int irq = per_cpu(xen_vpci_irq, cpu);
++
++	if (irq > 0) {
++		unbind_from_irqhandler(irq, NULL);
++		per_cpu(xen_vpci_irq, cpu) = 0;
++	}
++
++	return 0;
++}
++
++/*
++ * Xen acknowledged the host's vector before relaying, so there is nothing to ack
++ * here beyond completing a pending affinity change - the same thing
++ * apic_ack_edge() does for a native MSI.
++ */
++static void xen_hv_vpci_irq_ack(struct irq_data *data)
++{
++	irq_move_irq(data);
++}
++
++static void xen_hv_vpci_irq_noop(struct irq_data *data)
++{
++}
++
++/*
++ * Record where the interrupt should land; the vPCI irq_chip above us turns this
++ * into a HVCALL_RETARGET_INTERRUPT (proxied by Xen) when it unmasks, which is
++ * what actually moves it.
++ */
++static int xen_hv_vpci_set_affinity(struct irq_data *data,
++				    const struct cpumask *mask, bool force)
++{
++	unsigned int cpu = cpumask_first_and(mask, cpu_online_mask);
++
++	if (cpu >= nr_cpu_ids)
++		return -EINVAL;
++
++	irq_data_update_effective_affinity(data, cpumask_of(cpu));
++
++	return IRQ_SET_MASK_OK;
++}
++
++static struct irq_chip xen_hv_vpci_irq_chip = {
++	.name			= "XEN-HV-vPCI",
++	.irq_ack		= xen_hv_vpci_irq_ack,
++	.irq_eoi		= xen_hv_vpci_irq_noop,
++	.irq_mask		= xen_hv_vpci_irq_noop,
++	.irq_unmask		= xen_hv_vpci_irq_noop,
++	.irq_set_affinity	= xen_hv_vpci_set_affinity,
++};
++
++static int xen_hv_vpci_domain_alloc(struct irq_domain *domain, unsigned int virq,
++				    unsigned int nr_irqs, void *arg)
++{
++	unsigned int i;
++	int ret;
++
++	for (i = 0; i < nr_irqs; i++) {
++		ret = xen_hv_vpci_irq_add(virq + i);
++		if (ret)
++			goto err;
++
++		irq_domain_set_info(domain, virq + i, virq + i,
++				    &xen_hv_vpci_irq_chip, NULL,
++				    handle_edge_irq, NULL, NULL);
++
++		/*
++		 * Every handler runs on every relayed interrupt, so most calls
++		 * return IRQ_NONE by design.  Tell the spurious-interrupt
++		 * detector this line is polled, or it would eventually decide a
++		 * busy device's interrupt is stuck and disable it.
++		 */
++		irq_set_status_flags(virq + i, IRQ_IS_POLLED);
++
++		/*
++		 * The host has to be given a VP to deliver to, and
++		 * hv_compose_msi_msg() takes it from the effective affinity, so
++		 * that must never be empty.
++		 */
++		irq_data_update_effective_affinity(irq_domain_get_irq_data(domain,
++									  virq + i),
++						   cpumask_of(0));
++	}
++
++	return 0;
++
++err:
++	while (i--)
++		xen_hv_vpci_irq_del(virq + i);
++
++	return ret;
++}
++
++static void xen_hv_vpci_domain_free(struct irq_domain *domain, unsigned int virq,
++				    unsigned int nr_irqs)
++{
++	unsigned int i;
++
++	for (i = 0; i < nr_irqs; i++) {
++		xen_hv_vpci_irq_del(virq + i);
++		irq_domain_reset_irq_data(irq_domain_get_irq_data(domain, virq + i));
++	}
++}
++
++static const struct irq_domain_ops xen_hv_vpci_domain_ops = {
++	.alloc	= xen_hv_vpci_domain_alloc,
++	.free	= xen_hv_vpci_domain_free,
++};
++
++/* The vector every vPCI MSI must be composed with. */
++unsigned int hyperv_xen_vpci_vector(void)
++{
++	return xen_hv_vpci_vector;
++}
++EXPORT_SYMBOL_GPL(hyperv_xen_vpci_vector);
++
++/*
++ * Parent irq domain for vPCI MSIs, brought up on first use.  Returns NULL if Xen
++ * is not relaying vPCI interrupts, which leaves the vPCI bus unusable - the
++ * devices on it cannot deliver an interrupt any other way.
++ */
++struct irq_domain *hyperv_xen_vpci_root_domain(void)
++{
++	static DEFINE_MUTEX(setup_lock);
++	struct physdev_hyperv_vpci_vector out = {};
++	struct fwnode_handle *fn;
++	int ret;
++
++	if (!hyperv_nested_on_xen)
++		return NULL;
++
++	guard(mutex)(&setup_lock);
++
++	if (xen_hv_vpci_domain)
++		return xen_hv_vpci_domain;
++
++	ret = HYPERVISOR_physdev_op(PHYSDEVOP_hyperv_vpci_vector, &out);
++	if (ret) {
++		pr_err("Xen: no Hyper-V vPCI interrupt vector: %d\n", ret);
++		return NULL;
++	}
++	xen_hv_vpci_vector = out.vector;
++
++	fn = irq_domain_alloc_named_fwnode("XEN-HV-vPCI");
++	if (!fn)
++		return NULL;
++
++	xen_hv_vpci_domain = irq_domain_create_tree(fn, &xen_hv_vpci_domain_ops,
++						    NULL);
++	if (!xen_hv_vpci_domain) {
++		irq_domain_free_fwnode(fn);
++		return NULL;
++	}
++
++	ret = cpuhp_setup_state(CPUHP_AP_ONLINE_DYN, "xen/hyperv-vpci:online",
++				xen_hyperv_vpci_cpu_up, xen_hyperv_vpci_cpu_down);
++	if (ret < 0) {
++		pr_err("Xen: can't bind the Hyper-V vPCI VIRQ: %d\n", ret);
++		irq_domain_remove(xen_hv_vpci_domain);
++		xen_hv_vpci_domain = NULL;
++		return NULL;
++	}
++
++	pr_info("Xen: Hyper-V vPCI interrupts relayed on vector 0x%x\n",
++		xen_hv_vpci_vector);
++
++	return xen_hv_vpci_domain;
++}
++EXPORT_SYMBOL_GPL(hyperv_xen_vpci_root_domain);
++
+ #endif /* CONFIG_HYPERV */
+diff --git a/drivers/pci/controller/pci-hyperv.c b/drivers/pci/controller/pci-hyperv.c
+index 28b157297..1e95c2eaa 100644
+--- a/drivers/pci/controller/pci-hyperv.c
++++ b/drivers/pci/controller/pci-hyperv.c
+@@ -586,12 +586,26 @@ static int hv_pci_irqchip_init(void)
+ 
+ static struct irq_domain *hv_pci_get_root_domain(void)
+ {
++	/*
++	 * Nested under Hyper-V in a Xen PV dom0 the host delivers these MSIs to
++	 * a vector Xen owns, on a VP that is Xen's, so x86_vector_domain has
++	 * nothing to allocate here - Xen provides the vector and the parent
++	 * domain.  See hyperv_xen_vpci_root_domain().
++	 */
++	if (hyperv_nested_on_xen)
++		return hyperv_xen_vpci_root_domain();
++
+ 	return x86_vector_domain;
+ }
+ 
+ static unsigned int hv_msi_get_int_vector(struct irq_data *data)
+ {
+-	struct irq_cfg *cfg = irqd_cfg(data);
++	struct irq_cfg *cfg;
++
++	if (hyperv_nested_on_xen)
++		return hyperv_xen_vpci_vector();
++
++	cfg = irqd_cfg(data);
+ 
+ 	return cfg->vector;
+ }
+@@ -2124,6 +2138,15 @@ static bool hv_pcie_init_dev_msi_info(struct device *dev, struct irq_domain *dom
+ 	if (IS_ENABLED(CONFIG_X86))
+ 		chip->flags |= IRQCHIP_MOVE_DEFERRED;
+ 
++	/*
++	 * Nested under Hyper-V in a Xen PV dom0 all vPCI MSIs share the single
++	 * vector Xen relays on, so there is no contiguous block of vectors to
++	 * back a multi-message MSI allocation.  MSI-X (what NVMe and MANA use)
++	 * is unaffected.
++	 */
++	if (hyperv_nested_on_xen)
++		info->flags &= ~MSI_FLAG_MULTI_PCI_MSI;
++
+ 	return true;
+ }
+ 
+@@ -3806,7 +3829,15 @@ static int hv_pci_probe(struct hv_device *hdev,
+ 	hbus->bridge->domain_nr = dom;
+ #ifdef CONFIG_X86
+ 	hbus->sysdata.domain = dom;
+-	hbus->use_calls = !!(ms_hyperv.hints & HV_X64_USE_MMIO_HYPERCALLS);
++	/*
++	 * The MMIO hypercalls return data through an output page, which Xen
++	 * would have to marshal on our behalf when nested in a PV dom0.  Take
++	 * the trapped-MMIO path instead (as arm64 does unconditionally): the
++	 * config window's machine address is mapped directly, so the host
++	 * intercepts the access with no hypervisor involvement.
++	 */
++	hbus->use_calls = !hyperv_nested_on_xen &&
++			  !!(ms_hyperv.hints & HV_X64_USE_MMIO_HYPERCALLS);
+ #elif defined(CONFIG_ARM64)
+ 	/*
+ 	 * Set the PCI bus parent to be the corresponding VMbus
+diff --git a/include/asm-generic/mshyperv.h b/include/asm-generic/mshyperv.h
+index 23728aff0..85832b8e6 100644
+--- a/include/asm-generic/mshyperv.h
++++ b/include/asm-generic/mshyperv.h
+@@ -370,18 +370,23 @@ static inline enum hv_isolation_type hv_get_isolation_type(void)
+  */
+ #ifndef __HV_NESTED_ON_XEN_DEFINED
+ #define __HV_NESTED_ON_XEN_DEFINED
++struct irq_domain;
+ #ifdef CONFIG_XEN_PV
+ extern bool hyperv_nested_on_xen;
+ unsigned long hv_nested_hostpfn(unsigned long pfn);
+ u64 hv_nested_hostpa(void *va);
+ void __init hyperv_init_nested_on_xen(void);
+ int hyperv_setup_xen_vmbus_irq(void (*isr)(void));
++unsigned int hyperv_xen_vpci_vector(void);
++struct irq_domain *hyperv_xen_vpci_root_domain(void);
+ #else
+ #define hyperv_nested_on_xen false
+ static inline unsigned long hv_nested_hostpfn(unsigned long pfn) { return pfn; }
+ static inline u64 hv_nested_hostpa(void *va) { return 0; }
+ static inline void hyperv_init_nested_on_xen(void) {}
+ static inline int hyperv_setup_xen_vmbus_irq(void (*isr)(void)) { return -ENODEV; }
++static inline unsigned int hyperv_xen_vpci_vector(void) { return 0; }
++static inline struct irq_domain *hyperv_xen_vpci_root_domain(void) { return NULL; }
+ #endif
+ #endif /* __HV_NESTED_ON_XEN_DEFINED */
+ 
+diff --git a/include/xen/interface/physdev.h b/include/xen/interface/physdev.h
+index df74e65a8..213919747 100644
+--- a/include/xen/interface/physdev.h
++++ b/include/xen/interface/physdev.h
+@@ -296,6 +296,20 @@ struct physdev_dbgp_op {
+     } u;
+ };
+ 
++/*
++ * Query the interrupt vector Xen receives Hyper-V vPCI (VMBus-assigned PCI
++ * device) MSIs on, for a hardware domain running nested under Hyper-V.  Such a
++ * device's MSI is composed by the host and delivered to the VP - which is Xen's,
++ * not ours - so we must compose every vPCI MSI with this vector and take the
++ * resulting interrupts as VIRQ_HYPERV_VPCI.  Fails with -ENODEV if Xen is not
++ * relaying Hyper-V enlightenments to this domain.
++ */
++#define PHYSDEVOP_hyperv_vpci_vector    33
++struct physdev_hyperv_vpci_vector {
++    /* OUT */
++    uint32_t vector;
++};
++
+ /*
+  * Notify that some PIRQ-bound event channels have been unmasked.
+  * ** This command is obsolete since interface version 0x00030202 and is **
+diff --git a/include/xen/interface/xen.h b/include/xen/interface/xen.h
+index a7687ad86..812365302 100644
+--- a/include/xen/interface/xen.h
++++ b/include/xen/interface/xen.h
+@@ -110,6 +110,14 @@
+  */
+ #define VIRQ_HYPERV_VMBUS VIRQ_ARCH_1
+ #define VIRQ_ARCH_2    18
++/*
++ * Relayed Hyper-V vPCI device interrupt, for the same nested dom0: the host
++ * delivers MSIs of VMBus-assigned PCI devices to a vector Xen owns (see
++ * PHYSDEVOP_hyperv_vpci_vector), and Xen notifies us via this per-vcpu VIRQ,
++ * leaving us to demultiplex among our own vPCI devices.  Must match the Xen
++ * definition.
++ */
++#define VIRQ_HYPERV_VPCI  VIRQ_ARCH_2
+ #define VIRQ_ARCH_3    19
+ #define VIRQ_ARCH_4    20
+ #define VIRQ_ARCH_5    21
+-- 
+2.54.0
+

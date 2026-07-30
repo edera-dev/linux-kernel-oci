@@ -1,0 +1,46 @@
+From 087e9ab69e40bcc54561aa6c51a4b314b56a693f Mon Sep 17 00:00:00 2001
+From: Ariadne Conill <ariadne@ariadne.space>
+Date: Thu, 23 Jul 2026 15:42:07 -0700
+Subject: [PATCH 4/5] hv_netvsc: DMA-map transmit pages when nested on Xen
+
+Like an isolation VM, a Xen PV dom0 nested under Hyper-V must hand the
+host machine (bus) addresses for transmit page buffers.  Extend the
+DMA-map/unmap path (which routes through swiotlb-xen) to also run in the
+nested-on-Xen case, so RNDIS control and data sends reference machine
+frames the host can read.
+
+Signed-off-by: Ariadne Conill <ariadne@ariadne.space>
+---
+ drivers/net/hyperv/netvsc.c | 9 +++++++--
+ 1 file changed, 7 insertions(+), 2 deletions(-)
+
+diff --git a/drivers/net/hyperv/netvsc.c b/drivers/net/hyperv/netvsc.c
+index 073f2b7bd..fab91c7ab 100644
+--- a/drivers/net/hyperv/netvsc.c
++++ b/drivers/net/hyperv/netvsc.c
+@@ -993,7 +993,7 @@ void netvsc_dma_unmap(struct hv_device *hv_dev,
+ {
+ 	int i;
+ 
+-	if (!hv_is_isolation_supported())
++	if (!hv_is_isolation_supported() && !hyperv_nested_on_xen)
+ 		return;
+ 
+ 	if (!packet->dma_range)
+@@ -1033,7 +1033,12 @@ static int netvsc_dma_map(struct hv_device *hv_dev,
+ 	dma_addr_t dma;
+ 	int i;
+ 
+-	if (!hv_is_isolation_supported())
++	/*
++	 * A Xen PV dom0 nested under Hyper-V must also DMA-map packet pages so
++	 * the host receives machine (bus) addresses (via swiotlb-xen), not the
++	 * guest's pseudo-physical PFNs.
++	 */
++	if (!hv_is_isolation_supported() && !hyperv_nested_on_xen)
+ 		return 0;
+ 
+ 	packet->dma_range = kcalloc(page_count,
+-- 
+2.54.0
+

@@ -1,0 +1,99 @@
+From b56bf4ed14ef96ca1a9f5c5b90fe6e31cd0bcd96 Mon Sep 17 00:00:00 2001
+From: Ariadne Conill <ariadne@ariadne.space>
+Date: Thu, 23 Jul 2026 15:42:06 -0700
+Subject: [PATCH 2/5] Drivers: hv: use host frames for GPADLs and SynIC pages
+ when nested on Xen
+
+The VMBus GPADL page lists and the SynIC SIMP/SIEFP pages must hold the
+machine (L1-physical) frames the L0 Hyper-V host can access, not dom0's
+pseudo-physical frames.  Route them through hv_nested_hostpfn()/
+hv_nested_hostpa() when running nested on Xen; the translation is a
+no-op otherwise.
+
+Signed-off-by: Ariadne Conill <ariadne@ariadne.space>
+---
+ drivers/hv/channel.c    |  7 ++++++-
+ drivers/hv/connection.c | 15 +++++++++++----
+ drivers/hv/hv.c         |  8 ++++----
+ 3 files changed, 21 insertions(+), 9 deletions(-)
+
+diff --git a/drivers/hv/channel.c b/drivers/hv/channel.c
+index 162d6aeec..c2af4fa5a 100644
+--- a/drivers/hv/channel.c
++++ b/drivers/hv/channel.c
+@@ -114,7 +114,12 @@ static inline u64 hv_gpadl_hvpfn(enum hv_gpadl_type type, void *kbuffer,
+ 		break;
+ 	}
+ 
+-	return virt_to_hvpfn(kbuffer + delta + (HV_HYP_PAGE_SIZE * i));
++	/*
++	 * The host consumes these as machine (L1-physical) frames; on a Xen PV
++	 * dom0 that differs from the guest pseudo-physical frame.
++	 */
++	return hv_nested_hostpfn(virt_to_hvpfn(kbuffer + delta +
++					       (HV_HYP_PAGE_SIZE * i)));
+ }
+ 
+ /*
+diff --git a/drivers/hv/connection.c b/drivers/hv/connection.c
+index 1fe3573ae..09f7d6325 100644
+--- a/drivers/hv/connection.c
++++ b/drivers/hv/connection.c
+@@ -101,17 +101,24 @@ int vmbus_negotiate_version(struct vmbus_channel_msginfo *msginfo, u32 version)
+ 		msg->msg_vtl = ms_hyperv.vtl;
+ 		vmbus_connection.msg_conn_id = VMBUS_MESSAGE_CONNECTION_ID_4;
+ 	} else {
+-		msg->interrupt_page = virt_to_phys(vmbus_connection.int_page);
++		msg->interrupt_page = hyperv_nested_on_xen ?
++			hv_nested_hostpa(vmbus_connection.int_page) :
++			virt_to_phys(vmbus_connection.int_page);
+ 		vmbus_connection.msg_conn_id = VMBUS_MESSAGE_CONNECTION_ID;
+ 	}
+ 
+ 	/*
+ 	 * shared_gpa_boundary is zero in non-SNP VMs, so it's safe to always
+-	 * bitwise OR it
++	 * bitwise OR it.  On a Xen PV dom0 the host needs machine (L1-physical)
++	 * addresses for the monitor pages.
+ 	 */
+-	msg->monitor_page1 = virt_to_phys(vmbus_connection.monitor_pages[0]) |
++	msg->monitor_page1 = (hyperv_nested_on_xen ?
++			hv_nested_hostpa(vmbus_connection.monitor_pages[0]) :
++			virt_to_phys(vmbus_connection.monitor_pages[0])) |
+ 				ms_hyperv.shared_gpa_boundary;
+-	msg->monitor_page2 = virt_to_phys(vmbus_connection.monitor_pages[1]) |
++	msg->monitor_page2 = (hyperv_nested_on_xen ?
++			hv_nested_hostpa(vmbus_connection.monitor_pages[1]) :
++			virt_to_phys(vmbus_connection.monitor_pages[1])) |
+ 				ms_hyperv.shared_gpa_boundary;
+ 
+ 	msg->target_vcpu = hv_cpu_number_to_vp_number(VMBUS_CONNECT_CPU);
+diff --git a/drivers/hv/hv.c b/drivers/hv/hv.c
+index b14c5f9e0..6af9abc5b 100644
+--- a/drivers/hv/hv.c
++++ b/drivers/hv/hv.c
+@@ -283,8 +283,8 @@ void hv_synic_enable_regs(unsigned int cpu)
+ 		if (!hv_cpu->synic_message_page)
+ 			pr_err("Fail to map synic message page.\n");
+ 	} else {
+-		simp.base_simp_gpa = virt_to_phys(hv_cpu->synic_message_page)
+-			>> HV_HYP_PAGE_SHIFT;
++		simp.base_simp_gpa = hv_nested_hostpfn(
++			virt_to_phys(hv_cpu->synic_message_page) >> HV_HYP_PAGE_SHIFT);
+ 	}
+ 
+ 	hv_set_msr(HV_MSR_SIMP, simp.as_uint64);
+@@ -302,8 +302,8 @@ void hv_synic_enable_regs(unsigned int cpu)
+ 		if (!hv_cpu->synic_event_page)
+ 			pr_err("Fail to map synic event page.\n");
+ 	} else {
+-		siefp.base_siefp_gpa = virt_to_phys(hv_cpu->synic_event_page)
+-			>> HV_HYP_PAGE_SHIFT;
++		siefp.base_siefp_gpa = hv_nested_hostpfn(
++			virt_to_phys(hv_cpu->synic_event_page) >> HV_HYP_PAGE_SHIFT);
+ 	}
+ 
+ 	hv_set_msr(HV_MSR_SIEFP, siefp.as_uint64);
+-- 
+2.54.0
+

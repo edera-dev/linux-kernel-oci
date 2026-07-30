@@ -117,6 +117,13 @@ patches:
   - 0001-xen-xlate_mmu-relocate-remap_pfn-utils.patch
   - 0002-xen-xlate_mmu-batch-gfn-mappings.patch
   lower: '6.10'
+- patches:
+  - hyperv/0001-x86-hyperv-enable-a-Xen-PV-dom0-to-use-the-L0-Hyper-.patch
+  - hyperv/0002-Drivers-hv-use-host-frames-for-GPADLs-and-SynIC-page.patch
+  - hyperv/0003-drivers-hv-deliver-the-VMBus-interrupt-via-a-Xen-VIR.patch
+  - hyperv/0004-hv_netvsc-DMA-map-transmit-pages-when-nested-on-Xen.patch
+  - hyperv/0005-x86-hyperv-take-vPCI-device-interrupts-through-Xen-w.patch
+  series: '6.18'
 images:
 - target: kernelsrc
   name: kernel-src
