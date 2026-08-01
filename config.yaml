@@ -126,6 +126,7 @@ patches:
   - hyperv/0003-drivers-hv-deliver-the-VMBus-interrupt-via-a-Xen-VIR.patch
   - hyperv/0004-hv_netvsc-DMA-map-transmit-pages-when-nested-on-Xen.patch
   - hyperv/0005-x86-hyperv-take-vPCI-device-interrupts-through-Xen-w.patch
+  - hyperv/0006-drivers-hv-refuse-to-balloon-when-nested-on-Xen.patch
   series: '6.18'
 images:
 - target: kernelsrc

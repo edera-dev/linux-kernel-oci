@@ -1,0 +1,50 @@
+From a2a18f837ac9b7a127292afd34e28306b1110494 Mon Sep 17 00:00:00 2001
+From: Ariadne Conill <ariadne@ariadne.space>
+Date: Sat, 1 Aug 2026 12:26:13 -0700
+Subject: [PATCH 6/6] drivers: hv: refuse to balloon when nested on Xen
+
+The balloon tells the host which page frames it has withdrawn by frame
+number, taken straight from page_to_pfn().  Those numbers are
+pseudo-physical in a Xen PV dom0, so the host reads them as machine
+frames and reclaims whatever Xen happens to have placed there - memory
+belonging to dom0 itself or to another domain - which surfaces later as
+pages of zeroes underneath unrelated processes.
+
+Translating the frame numbers would not make this correct.  dom0's
+memory is Xen's to hand back, and Xen has a balloon of its own for that;
+a second one negotiating directly with the L0 host cannot be reconciled
+with it.  Decline to register the driver instead.
+
+Signed-off-by: Ariadne Conill <ariadne@ariadne.space>
+---
+ drivers/hv/hv_balloon.c | 14 ++++++++++++++
+ 1 file changed, 14 insertions(+)
+
+diff --git a/drivers/hv/hv_balloon.c b/drivers/hv/hv_balloon.c
+index 2b4080e51..fa68fc759 100644
+--- a/drivers/hv/hv_balloon.c
++++ b/drivers/hv/hv_balloon.c
+@@ -2131,6 +2131,20 @@ static  struct hv_driver balloon_drv = {
+ 
+ static int __init init_balloon_drv(void)
+ {
++	/*
++	 * Dynamic memory cannot work when Linux is a Xen PV dom0 running
++	 * nested under Hyper-V.  Ballooning reports the page frames it has
++	 * withdrawn directly to the host, but a PV guest's frame numbers are
++	 * pseudo-physical; the host reads them as machine frames and reclaims
++	 * whatever Xen placed there, silently destroying memory belonging to
++	 * dom0 or to another domain.  Translating them would not make this
++	 * correct either: dom0's memory is Xen's to give back, not ours.
++	 */
++	if (hyperv_nested_on_xen) {
++		pr_info("nested under Xen, not registering: dynamic memory is unsupported\n");
++		return -ENODEV;
++	}
++
+ 	return vmbus_driver_register(&balloon_drv);
+ }
+ 
+-- 
+2.54.0
+
