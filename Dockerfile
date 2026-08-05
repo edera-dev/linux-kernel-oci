@@ -17,7 +17,7 @@ ADD ${NV_MODULES_TARBALL_URL} /nvidia-modules.tar.gz
 # reviewed digest bumps - see Dockerfile.buildenv and buildenv.yml. Dependabot
 # keeps the pin current, with buildenv-diff.yml summarizing the package
 # changes in each bump PR.
-FROM --platform=$BUILDPLATFORM ghcr.io/edera-dev/kernel-buildenv:latest@sha256:00c0e67a93f8d3e6a1d71b03548c4b1157554e28ff117f2d12a8929335aad938 AS buildenv
+FROM --platform=$BUILDPLATFORM ghcr.io/edera-dev/kernel-buildenv:latest@sha256:0eef45e163f7d79e86dffd418dbc6874d7b967c9539f4bc7579b5d45402fffed AS buildenv
 COPY --chown=build:build . /build
 USER build
 WORKDIR /build
