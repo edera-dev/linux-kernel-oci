@@ -1,0 +1,49 @@
+name: Image digest update
+
+# Dependabot's docker updater compares tags, so it will not reliably move a
+# digest pinned against a floating tag like kernel-buildenv:latest. digestabot
+# rewrites `tag@sha256:` pins to whatever the tag currently resolves to, which is
+# exactly what those pins need; docker is deliberately absent from
+# .github/dependabot.yml so the two do not fight over the same lines.
+on:
+  workflow_dispatch:
+  schedule:
+    # At the end of every day
+    - cron: "0 0 * * *"
+
+permissions:
+  contents: read
+
+jobs:
+  image-update:
+    name: Image digest update
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: write # to push the updates
+      pull-requests: write # to open Pull requests
+      id-token: write # used to sign the commits using gitsign
+
+    steps:
+    - name: Harden the runner (Audit all outbound calls)
+      uses: step-security/harden-runner@bf7454d06d71f1098171f2acdf0cd4708d7b5920 # v2.20.0
+      with:
+        egress-policy: audit
+
+    - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v4
+      with:
+        persist-credentials: false
+
+    - uses: chainguard-dev/digestabot@33d0b78e580aa0c83fe188eb3dfad6611b662479 # v1.3.2
+      with:
+        token: ${{ secrets.GITHUB_TOKEN }}
+        signoff: true
+        author: ${{ github.actor }} <${{ github.actor_id }}+${{ github.actor }}@users.noreply.github.com>
+        committer: github-actions[bot] <41898282+github-actions[bot]@users.noreply.github.com>
+        labels-for-pr: automated pr, kind/cleanup
+        branch-for-pr: update-digests-${{ github.ref_name }}
+        title-for-pr: 'build(deps): update images digests (${{ github.ref_name }})'
+        description-for-pr: Update images digests
+        commit-message: 'build(deps): update images digests'
+        use-gitsign: false
+        include-files: 'Dockerfile*'
