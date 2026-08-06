@@ -130,6 +130,12 @@ patches:
   series: '6.18'
 - patch: 0001-feat-xen-deflate-balloon-via-oom-notifier.patch
   lower: '6.18'
+# virtio-gpu decides between DMA and guest-physical addresses on its own,
+# without the xen_domain() case vring_use_dma_api() has, so a Xen PV domain
+# hands the host addresses that resolve to somebody else's memory and the
+# display scans out garbage. This adds the xen_domain() check to fix that.
+- patch: 0001-drm-virtio-use-the-DMA-API-for-resource-backing-on-X.patch
+  series: '6.18'
 images:
 - target: kernelsrc
   name: kernel-src
