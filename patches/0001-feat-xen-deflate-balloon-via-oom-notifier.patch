@@ -1,0 +1,97 @@
+From 121220610624b3a773a7c78659637a877dc06353 Mon Sep 17 00:00:00 2001
+Message-ID: <121220610624b3a773a7c78659637a877dc06353.1786027798.git.alexander@edera.dev>
+From: "Alexander M. Merritt" <alexander@edera.dev>
+Date: Wed, 5 Aug 2026 23:32:27 -0500
+Subject: [PATCH] feat(xen): deflate balloon via oom notifier
+
+Signed-off-by: Alexander M. Merritt <alexander@edera.dev>
+---
+ drivers/xen/balloon.c | 58 +++++++++++++++++++++++++++++++++++++++++++
+ 1 file changed, 58 insertions(+)
+
+diff --git a/drivers/xen/balloon.c b/drivers/xen/balloon.c
+index 8c44a25a7d2b..85b6cfe53b28 100644
+--- a/drivers/xen/balloon.c
++++ b/drivers/xen/balloon.c
+@@ -55,6 +55,7 @@
+ #include <linux/notifier.h>
+ #include <linux/memory.h>
+ #include <linux/memory_hotplug.h>
++#include <linux/oom.h>
+ #include <linux/percpu-defs.h>
+ #include <linux/slab.h>
+ #include <linux/sysctl.h>
+@@ -679,6 +680,61 @@ void xen_free_ballooned_pages(unsigned int nr_pages, struct page **pages)
+ }
+ EXPORT_SYMBOL(xen_free_ballooned_pages);
+ 
++#define BALLOON_OOM_DEFLATE_BATCH 512UL /* pages per OOM event (~2 MiB) */
++
++static int balloon_oom_notify(struct notifier_block *nb, unsigned long dummy,
++			      void *parm)
++{
++	unsigned long *freed = parm;
++	unsigned long before, nr;
++
++	/*
++	 * The balloon worker (or an inflate) may hold balloon_mutex and could
++	 * itself be the allocation that triggered OOM; never block on it here.
++	 * The mutex also guards the shared frame_list used by the populate path.
++	 */
++	if (!mutex_trylock(&balloon_mutex))
++		return NOTIFY_OK;
++
++	/* nr: number of pages parked on the balloon list that we can reclaim */
++	nr = balloon_stats.balloon_low + balloon_stats.balloon_high;
++
++	/* clamp, so we don't release all of them at once */
++	nr = min_t(unsigned long, nr, BALLOON_OOM_DEFLATE_BATCH);
++
++	/* if nr = 0, no pages remain to reclaim, OOM killer proceeds */
++
++	/* capture current before deflating, to calculate actual release */
++	before = balloon_stats.current_pages;
++
++	/* runs XENMEM_populate_physmap, updates current_pages */
++	if (nr > 0)
++		increase_reservation(nr);
++
++	/*
++	 * increase_reservation() bumped current_pages by however many Xen
++	 * actually populated (possibly fewer than asked, or zero if the host is
++	 * out or we are already at max_pages). Report that to the OOM killer so
++	 * it retries instead of killing when we made progress.
++	 */
++	*freed += balloon_stats.current_pages - before;
++
++	/*
++	 * Keep target_pages >= current_pages so
++	 * balloon_process() will not immediately inflate the reclaimed pages back
++	 * out and re-create the pressure. dom0 reconciles the higher figure.
++	 */
++	if (balloon_stats.target_pages < balloon_stats.current_pages)
++		balloon_stats.target_pages = balloon_stats.current_pages;
++
++	mutex_unlock(&balloon_mutex);
++	return NOTIFY_OK;
++}
++
++static struct notifier_block balloon_oom_nb = {
++	.notifier_call = balloon_oom_notify,
++};
++
+ static int __init balloon_add_regions(void)
+ {
+ 	unsigned long start_pfn, pages;
+@@ -773,6 +829,8 @@ static int __init balloon_init(void)
+ 	/* Init the xen-balloon driver. */
+ 	xen_balloon_init();
+ 
++	register_oom_notifier(&balloon_oom_nb);
++
+ 	return 0;
+ 
+  underflow:
+-- 
+2.48.1
+

@@ -128,6 +128,8 @@ patches:
   - hyperv/0005-x86-hyperv-take-vPCI-device-interrupts-through-Xen-w.patch
   - hyperv/0006-drivers-hv-refuse-to-balloon-when-nested-on-Xen.patch
   series: '6.18'
+- patch: 0001-feat-xen-deflate-balloon-via-oom-notifier.patch
+  lower: '6.18'
 images:
 - target: kernelsrc
   name: kernel-src
