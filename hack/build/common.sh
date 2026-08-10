@@ -80,9 +80,9 @@ if [ ! -f "${KERNEL_SRC}/Makefile" ]; then
 	python3 "hack/build/patchlist.py" "${KERNEL_VERSION}" "${KERNEL_FLAVOR}" | while read -r PATCH_NAME; do
 		cd "${KERNEL_SRC}"
 		if [ "${KERNEL_SRC_IS_TAR}" = "1" ]; then
-			patch -p1 <"${KERNEL_DIR}/${PATCH_NAME}"
+			patch --verbose -p1 <"${KERNEL_DIR}/${PATCH_NAME}"
 		else
-			git apply "${KERNEL_DIR}/${PATCH_NAME}"
+			git --verbose apply "${KERNEL_DIR}/${PATCH_NAME}"
 		fi
 		cd "${KERNEL_DIR}"
 	done
