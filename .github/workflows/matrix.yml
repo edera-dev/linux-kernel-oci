@@ -12,8 +12,10 @@ on:
         type: boolean
         default: true
         required: true
+# Publishing runs share one group so two of them can't race on the same image
+# tags. Non-publishing runs only need to be keyed by PR/ref.
 concurrency:
-  group: "kernel-builder"
+  group: ${{ inputs.publish && 'kernel-builder-publish' || format('kernel-builder-{0}', github.event.pull_request.number || github.ref) }}
 jobs:
   matrix:
     name: matrix
