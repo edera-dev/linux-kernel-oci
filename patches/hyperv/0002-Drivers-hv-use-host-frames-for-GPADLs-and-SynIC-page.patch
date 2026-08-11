@@ -73,24 +73,24 @@ index b14c5f9e0..6af9abc5b 100644
 --- a/drivers/hv/hv.c
 +++ b/drivers/hv/hv.c
 @@ -283,8 +283,8 @@ void hv_synic_enable_regs(unsigned int cpu)
- 		if (!hv_cpu->synic_message_page)
+ 		if (!hv_cpu->hyp_synic_message_page)
  			pr_err("Fail to map synic message page.\n");
  	} else {
--		simp.base_simp_gpa = virt_to_phys(hv_cpu->synic_message_page)
+-		simp.base_simp_gpa = virt_to_phys(hv_cpu->hyp_synic_message_page)
 -			>> HV_HYP_PAGE_SHIFT;
 +		simp.base_simp_gpa = hv_nested_hostpfn(
-+			virt_to_phys(hv_cpu->synic_message_page) >> HV_HYP_PAGE_SHIFT);
++			virt_to_phys(hv_cpu->hyp_synic_message_page) >> HV_HYP_PAGE_SHIFT);
  	}
  
  	hv_set_msr(HV_MSR_SIMP, simp.as_uint64);
 @@ -302,8 +302,8 @@ void hv_synic_enable_regs(unsigned int cpu)
- 		if (!hv_cpu->synic_event_page)
+ 		if (!hv_cpu->hyp_synic_event_page)
  			pr_err("Fail to map synic event page.\n");
  	} else {
--		siefp.base_siefp_gpa = virt_to_phys(hv_cpu->synic_event_page)
+-		siefp.base_siefp_gpa = virt_to_phys(hv_cpu->hyp_synic_event_page)
 -			>> HV_HYP_PAGE_SHIFT;
 +		siefp.base_siefp_gpa = hv_nested_hostpfn(
-+			virt_to_phys(hv_cpu->synic_event_page) >> HV_HYP_PAGE_SHIFT);
++			virt_to_phys(hv_cpu->hyp_synic_event_page) >> HV_HYP_PAGE_SHIFT);
  	}
  
  	hv_set_msr(HV_MSR_SIEFP, siefp.as_uint64);
