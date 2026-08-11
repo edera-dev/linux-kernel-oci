@@ -1,0 +1,67 @@
+From 07e6e60199acdb20a7336020335e0b85fb41c683 Mon Sep 17 00:00:00 2001
+From: Ben Leggett <benjamin@edera.io>
+Date: Tue, 11 Aug 2026 13:55:35 -0400
+Subject: [PATCH] firmware: qemu_fw_cfg: do not use the DMA interface on Xen PV
+
+fw_cfg_dma_transfer() describes its descriptor and the caller's buffer to
+the device with virt_to_phys(), on the stated assumption that the device
+needs no IOMMU protection and therefore no address translation:
+
+	*d = (struct fw_cfg_dma_access) {
+		.address = cpu_to_be64(address ? virt_to_phys(address) : 0),
+		...
+	};
+	dma = virt_to_phys(d);
+
+In a Xen PV domain that does not hold. A pseudo-physical address bears no
+relation to the machine address the device model needs to reach the page.
+The device never sees the descriptor and never clears its control word, so
+fw_cfg_wait_for_control() spins on it with no timeout.  Because the loop
+never returns to userspace it also never dequeues a signal, so the task
+cannot be killed and burns a CPU until the domain is reset.
+
+Blob reads go through the data register with ioread8_rep() and are
+unaffected, so refuse only the DMA interface.  fw_cfg_dma_enabled() has a
+single caller, which already warns and continues when the vmcoreinfo write
+fails.  The cost on Xen PV is that the host cannot locate the guest's
+vmcoreinfo note, which it could not do correctly there in any case.
+
+Fixes: 2d6d60a3d3ec ("fw_cfg: write vmcoreinfo details")
+Signed-off-by: Ben Leggett <benjamin@edera.io>
+---
+ drivers/firmware/qemu_fw_cfg.c | 12 ++++++++++++
+ 1 file changed, 12 insertions(+)
+
+diff --git a/drivers/firmware/qemu_fw_cfg.c b/drivers/firmware/qemu_fw_cfg.c
+index 0eebd572f9a5..e13f043f5f9a 100644
+--- a/drivers/firmware/qemu_fw_cfg.c
++++ b/drivers/firmware/qemu_fw_cfg.c
+@@ -38,6 +38,7 @@
+ #include <linux/delay.h>
+ #include <linux/crash_dump.h>
+ #include <linux/vmcore_info.h>
++#include <xen/xen.h>
+ 
+ MODULE_AUTHOR("Gabriel L. Somlo <somlo@cmu.edu>");
+ MODULE_DESCRIPTION("QEMU fw_cfg sysfs support");
+@@ -70,6 +71,17 @@ static void fw_cfg_sel_endianness(u16 key)
+ #ifdef CONFIG_VMCORE_INFO
+ static inline bool fw_cfg_dma_enabled(void)
+ {
++	/*
++	 * The DMA interface hands the device a virt_to_phys() address.
++	 * In a Xen PV domain that is a pseudo-physical address, so the
++	 * device writes the completion somewhere else entirely and
++	 * fw_cfg_wait_for_control() spins forever.
++	 * Reads go through the data register and are unaffected, so only
++	 * the DMA interface is refused.
++	 */
++	if (xen_pv_domain())
++		return false;
++
+ 	return (fw_cfg_rev & FW_CFG_VERSION_DMA) && fw_cfg_reg_dma;
+ }
+ 
+-- 
+2.55.0
+

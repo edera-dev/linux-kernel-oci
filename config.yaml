@@ -136,6 +136,14 @@ patches:
 # display scans out garbage. This adds the xen_domain() check to fix that.
 - patch: 0001-drm-virtio-use-the-DMA-API-for-resource-backing-on-X.patch
   series: '6.18'
+# qemu_fw_cfg's DMA interface hands the device a virt_to_phys() address, which a
+# Xen PV domain's pseudo-physical address is not. The device never clears the
+# control word and the probe spins in fw_cfg_wait_for_control() forever, in a
+# loop that never dequeues a signal, so the udev worker cannot be killed and
+# burns a CPU until the domain is reset. Refuse the DMA interface on PV; reads
+# use the data register and still work.
+- patch: 0001-firmware-qemu_fw_cfg-do-not-use-the-DMA-interface-on.patch
+  series: '6.18'
 images:
 - target: kernelsrc
   name: kernel-src
