@@ -20,12 +20,12 @@ jobs:
     runs-on: ubuntu-latest
     steps:
     - name: Harden the runner (Audit all outbound calls)
-      uses: step-security/harden-runner@bf7454d06d71f1098171f2acdf0cd4708d7b5920 # v2.20.0
+      uses: step-security/harden-runner@b09bb98e06d4d774595224525879c09bc6e98c40 # v2.20.1
       with:
         egress-policy: audit
 
     - name: checkout repository
-      uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v4
+      uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v4
       with:
         submodules: recursive
     - name: install dependencies
@@ -70,22 +70,22 @@ jobs:
       KERNEL_ARCH: "${{ matrix.builds.arch }}"
     steps:
       - name: Harden the runner (Audit all outbound calls)
-        uses: step-security/harden-runner@bf7454d06d71f1098171f2acdf0cd4708d7b5920 # v2.20.0
+        uses: step-security/harden-runner@b09bb98e06d4d774595224525879c09bc6e98c40 # v2.20.1
         with:
           egress-policy: audit
 
       - name: report disk space (before)
-        uses: edera-dev/actions/report-disk-space@f92635e9fe8739c2b8a78fa87e9c8567bfa81b9c # v0.0.15
+        uses: edera-dev/actions/report-disk-space@6e6996f6fff5d6016bcdc097e9065da6fb33ac7f # v0.0.17
       - name: reclaim runner disk space
         # Kernel builds never touch Rust or the hosted toolcache, so both
         # opt-in removals are on. Must stay before cosign-installer, which
         # installs into the toolcache this deletes.
-        uses: edera-dev/actions/reclaim-disk-space@f92635e9fe8739c2b8a78fa87e9c8567bfa81b9c # v0.0.15
+        uses: edera-dev/actions/reclaim-disk-space@6e6996f6fff5d6016bcdc097e9065da6fb33ac7f # v0.0.17
         with:
           remove-toolcache: 'true'
           remove-rust: 'true'
       - name: checkout repository
-        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v4
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v4
         with:
           submodules: recursive
       - name: install cosign
@@ -135,7 +135,7 @@ jobs:
         # list in hack/build/generate-docker-script.py (docker_compile); a
         # name missing there silently never reaches the build container.
         id: sccache
-        uses: edera-dev/actions/configure-azure-sccache@f92635e9fe8739c2b8a78fa87e9c8567bfa81b9c # v0.0.15
+        uses: edera-dev/actions/configure-azure-sccache@6e6996f6fff5d6016bcdc097e9065da6fb33ac7f # v0.0.17
         with:
           connection-string-rw: ${{ secrets.SCCACHE_AZURE_CONNECTION_STRING }}
           connection-string-ro: ${{ secrets.SCCACHE_AZURE_CONNECTION_STRING_RO }}
@@ -155,7 +155,7 @@ jobs:
       - name: report disk space (after)
         # always() so ENOSPC failures still show where the disk went.
         if: always()
-        uses: edera-dev/actions/report-disk-space@f92635e9fe8739c2b8a78fa87e9c8567bfa81b9c # v0.0.15
+        uses: edera-dev/actions/report-disk-space@6e6996f6fff5d6016bcdc097e9065da6fb33ac7f # v0.0.17
       - name: upload digests
         # Only produced when publishing — push-by-digest path writes digests.json.
         if: ${{ inputs.publish }}
@@ -186,13 +186,13 @@ jobs:
       DIGESTS_DIR: digests
     steps:
       - name: Harden the runner (Audit all outbound calls)
-        uses: step-security/harden-runner@bf7454d06d71f1098171f2acdf0cd4708d7b5920 # v2.20.0
+        uses: step-security/harden-runner@b09bb98e06d4d774595224525879c09bc6e98c40 # v2.20.1
         with:
           egress-policy: audit
       - name: checkout repository
-        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v4
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v4
       - name: set up Python
-        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: '3.13'
       - name: install python deps
