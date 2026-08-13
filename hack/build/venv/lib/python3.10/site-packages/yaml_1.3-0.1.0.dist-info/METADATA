@@ -1,0 +1,22 @@
+Metadata-Version: 2.0
+Name: yaml-1.3
+Version: 0.1.0
+Summary: next YAML parser
+Home-page: https://bitbucket.org/ruamel/yaml_1.3
+Author: Anthon van der Neut
+Author-email: a.van.der.neut@ruamel.eu
+License: Copyright Ruamel bvba 2007-2017
+Keywords: pypi statistics
+Platform: UNKNOWN
+Classifier: Development Status :: 4 - Beta
+Classifier: Intended Audience :: Developers
+Classifier: License :: Other/Proprietary License
+Classifier: Operating System :: OS Independent
+Classifier: Programming Language :: Python
+Requires-Dist: ruamel.appconfig
+Requires-Dist: ruamel.std.argparse (>=0.8)
+
+
+next YAML parser
+
+

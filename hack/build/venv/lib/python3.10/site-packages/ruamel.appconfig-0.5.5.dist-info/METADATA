@@ -1,0 +1,241 @@
+Metadata-Version: 2.1
+Name: ruamel.appconfig
+Version: 0.5.5
+Summary: create and read configuration dir/file, set argparse (sub)parser defaults from config
+Home-page: https://sourceforge.net/p/ruamel-appconfig/code/ci/default/tree
+Author: Anthon van der Neut
+Author-email: a.van.der.neut@ruamel.eu
+License: MIT license
+Platform: UNKNOWN
+Classifier: Development Status :: 4 - Beta
+Classifier: Intended Audience :: Developers
+Classifier: License :: OSI Approved :: MIT License
+Classifier: Operating System :: OS Independent
+Classifier: Programming Language :: Python
+Description-Content-Type: text/x-rst
+
+
+appconfig
+=========
+
+This module provides a way to easily add a config directory and config file to an
+application. The config directory can be used for additional
+user specific data files.
+
+By default it uses `ruamel.yaml <https://pypi.python.org/pypi/ruamel.yaml>`_
+for reading and
+writing the configuration files, as this library preserves any
+comments added (which pythons own ``ConfigParser`` discards).
+
+The basic invocation is::
+
+  from __future__ import print_function
+
+  import sys
+
+  from ruamel.appconfig import AppConfig
+
+  def to_stdout(*args):
+      sys.stdout.write(' '.join(args))
+
+  ac = AppConfig(
+      'appconfigbasic',  # name of config diretory, normally the application name
+      warning=to_stdout,
+  )
+
+::
+
+  from __future__ import print_function
+
+  import sys
+
+  from ruamel.appconfig import AppConfig
+
+
+  def to_stdout(*args):
+      sys.stdout.write(' '.join(args))
+
+
+  ac = AppConfig(
+      'appconfigbasic',  # name of config directory, normally the application name
+      warning=to_stdout,
+  )
+
+Resulting in::
+
+  created directory /home/a114/.config/appconfigbasic
+
+
+By default (on Linux/macOS) the config directory is created under
+``~/.config``, and the default config file would be
+``~/.config/appconfigbasic/appconfigbasic.ini`` (the ``appconfigbasic``
+being the value passed to ``AppConfig()``. Before that it is
+tested if that file already exists, or whether
+``~/.appconfigbasic/appconfigbasic.ini`` or ``~/.appconfigbasic.ini``
+exists.
+
+On windows the config directory is to be ``$APPDATA/appconfigbasic``
+
+Interaction with argparse
+-------------------------
+
+``AppConfig()`` has additional options to interact with `argparse
+<https://docs.python.org/3/library/argparse.html>`_ argument parsing:
+
+- it is able to fill in the defaults for application options
+  (including those options for subparsers).
+- it can add a ``--config`` option to allow the user to specify an
+  alternative path for the config file.
+- it can add a ``--save-defaults`` with which the user can save values
+  for options specified on the commandline, to the config file. Global
+  options are stored in the ``[global]`` section of the configuration
+  file, options for subparsers in sections with the suparser name.
+
+Adding ``--config``
++++++++++++++++++++
+
+To get this option added, pass in the parser and set
+the ``filename`` parameter to the ``AppConfig.check`` attribute::
+
+  from __future__ import print_function
+
+  from argparse import ArgumentParser
+  from ruamel.appconfig import AppConfig
+
+  parser = ArgumentParser()
+
+  ac = AppConfig(
+      'appconfigconfig',
+      parser=parser,  # needed to set new options
+      filename=AppConfig.check,  # sets --config option
+  )
+
+  parser.parse_args(['--help'])
+
+Resulting in::
+
+  usage: addconfig.py [-h] [--config FILE]
+
+  optional arguments:
+    -h, --help     show this help message and exit
+    --config FILE  set FILE as configuration file
+                   [~/.config/appconfigconfig/appconfigconfig.ini]
+
+Setting defaults and adding ``--save-defaults``
++++++++++++++++++++++++++++++++++++++++++++++++
+
+To add the saving the defaults to the config file::
+
+  from __future__ import print_function
+
+  from argparse import ArgumentParser
+  from ruamel.appconfig import AppConfig
+
+  parser = ArgumentParser()
+
+  parser.add_argument('--delete', '-d', default='bla',
+                      help='delete a file (default: %(default)s)')
+  parser.add_argument('--owner', default='itsme',
+                      help='set owner (default: %(default)s)')
+  parser.add_argument('--force', action='store_true',
+                      help='force action (default: %(default)s)')
+  ac = AppConfig(
+      'addconfigsave',
+      parser=parser,  # needed to set new options
+      filename=AppConfig.check,  # sets --config option
+      add_save=True,  # add save option
+  )
+  ac.set_defaults()  # set the ArgumentParser() defaults
+  # and save to config file
+  args = ac.parse_args(['--delete', 'two', '--save-defaults'])
+
+  with open(ac.get_file_name()) as fp:
+      print(fp.read())
+
+Resulting in::
+
+  [global]
+  delete = two
+  owner = itsme
+  force = False
+
+
+
+Interaction with ``ruamel.std.argparse`` decorators
+---------------------------------------------------
+
+Since the ``ruamel.std.argparse`` decorator is a wrapper
+around normal argparse usage, adding ``AppConfig()`` is easy::
+
+  from __future__ import print_function
+
+  import sys
+  import os
+
+  from ruamel.std.argparse import ProgramBase, option, sub_parser, version, \
+      SmartFormatter
+
+
+  class TestCmd(ProgramBase):
+      def __init__(self):
+          super(TestCmd, self).__init__(
+              formatter_class=SmartFormatter
+          )
+
+      # you can put these on __init__, but subclassing TestCmd
+      # will cause that to break
+      @option('--quiet', '-q', help='suppress verbosity', action='store_true',
+              global_option=True)
+      @version('version: 1.2.3')
+      def _pb_init(self):
+          # special name for which attribs are included in help
+          pass
+
+      def run(self):
+          if self._args.func:
+              return self._args.func()
+
+      def parse_args(self, *args):
+          from ruamel.appconfig import AppConfig
+          app = 'addconfigcomplex'
+          # pre populate config file
+          with open(os.path.expanduser(
+              '~/.config/{}/{}.ini'.format(app, app)), 'w') as fp:
+              fp.write('[readit]\nname=XYZ\n')
+          self._config = AppConfig(
+              app,
+              parser=self._parser,  # self._parser set by ProgramBase
+              filename=AppConfig.check,  # sets --config option
+              add_save=True,  # add save option
+          )
+          self._config.set_defaults()
+          self._parse_args(*args)
+
+      @sub_parser(help='specific help for readit')
+      @option('--name', default='abc',
+              help='help for name (default: %(default)s)')
+      def readit(self):
+          print('calling readit')
+
+      @sub_parser('writeit', help='help for writeit')
+      @option('--target')
+      def other_name(self):
+          print('calling writeit')
+
+
+  n = TestCmd()
+  n.parse_args(['readit', '--help'])  # normaly no parameters -> sys.argv
+  n.run()  # never reached
+
+With outputs (please note the XYZ as default, because of the config
+file being written before the ``AppConfig`` instantiation)::
+
+  usage: complex.py readit [-h] [--name NAME] [--quiet] [--save-defaults]
+
+  optional arguments:
+    -h, --help       show this help message and exit
+    --name NAME      help for name (default: XYZ)
+    --quiet, -q      suppress verbosity
+    --save-defaults  save option values as defaults to config file
+
+

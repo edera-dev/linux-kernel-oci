@@ -1,0 +1,360 @@
+Metadata-Version: 2.1
+Name: ruamel.std.argparse
+Version: 0.8.3
+Summary: Enhancements to argparse: extra actions, subparser aliases, smart formatter, a decorator based wrapper
+Home-page: https://sourceforge.net/p/ruamel-std-argparse/code/ci/default/tree
+Author: Anthon van der Neut
+Author-email: a.van.der.neut@ruamel.eu
+License: MIT license
+Keywords: argparse enhanced
+Platform: UNKNOWN
+Classifier: Development Status :: 4 - Beta
+Classifier: Intended Audience :: Developers
+Classifier: License :: OSI Approved :: MIT License
+Classifier: Operating System :: OS Independent
+Classifier: Programming Language :: Python
+Description-Content-Type: text/x-rst
+
+argparse extensions
+===================
+
+This package provides extensions to argparse on two levels:
+
+- basic argparse extensions: default subparser, subparser aliases in
+  2.X
+- additional actions that can be specified for add_argument
+- smart formatter that allows combination of defaults help formatting
+  **and** raw desciptions
+- wrapper for argparse using decorators
+
+Extensions to basic argparse
+----------------------------
+
+Insert the following to be able to specify `aliases
+<https://docs.python.org/3/library/argparse.html#sub-commands>`_ in
+subparser definitions in 2.6 and 2.7::
+
+  from __future__ import print_function
+
+  import sys
+  from ruamel.std.argparse import ArgumentParser, SubParsersAction
+
+  parser = ArgumentParser()
+  if sys.version_info < (3,):  # add aliases support
+      parser.register('action', 'parsers', SubParsersAction)
+  subparsers = parser.add_subparsers()
+  checkout = subparsers.add_parser('checkout', aliases=['co'])
+  checkout.add_argument('foo')
+  args = parser.parse_args(['co', 'bar'])
+  print(args)
+
+.. example code aliases.py
+
+Resulting in::
+
+  Namespace(foo='bar')
+
+
+.. example output aliases.py
+
+Additional actions
+------------------
+
+CountAction
++++++++++++
+
+Count up and down::
+
+  from __future__ import print_function
+
+  from ruamel.std.argparse import CountAction
+  import argparse
+
+  parser = argparse.ArgumentParser()
+  parser.add_argument('--verbose', '-v', action=CountAction, const=1, nargs=0)
+  parser.add_argument('--quiet', '-q', action=CountAction, dest='verbose',
+                      const=-1, nargs=0)
+
+  print(parser.parse_args("--verbose -v -q".split()))
+
+.. example code countaction.py
+
+results in::
+
+  Namespace(verbose=1)
+
+
+.. example output countaction.py
+
+
+SplitAppend
++++++++++++
+
+Append after splitting on "``,``". Running::
+
+  from __future__ import print_function
+
+  from ruamel.std.argparse import SplitAppendAction
+  import argparse
+
+  parser = argparse.ArgumentParser()
+  parser.add_argument('-d', action=SplitAppendAction)
+
+  print(parser.parse_args("-d ab -d cd -d kl -d mn".split()))
+  print(parser.parse_args("-d ab,cd,kl,mn".split()))
+  print(parser.parse_args("-d ab,cd -d kl,mn".split()))
+
+.. example code splitaction.py
+
+results in::
+
+  Namespace(d=['ab', 'cd', 'kl', 'mn'])
+  Namespace(d=['ab', 'cd', 'kl', 'mn'])
+  Namespace(d=['ab', 'cd', 'kl', 'mn'])
+
+
+.. example output splitaction.py
+
+CheckSingleStoreAction
+++++++++++++++++++++++
+
+Complain if the same option is called  multiple times::
+
+  from __future__ import print_function
+
+  from ruamel.std.argparse import CheckSingleStoreAction
+  import argparse
+
+  parser = argparse.ArgumentParser()
+  parser.add_argument('--check', '-c', action=CheckSingleStoreAction, const=1,
+                      nargs=0)
+
+  print(parser.parse_args("--check -c".split()))
+
+.. example code checksingleaction.py
+
+results in::
+
+  WARNING: previous optional argument "-c []" overwritten by "-c []"
+  Namespace(check=[])
+
+
+.. example output checksingleaction.py
+
+Smart formatting
+----------------
+
+You can only specify one formatter in standard argparse, so you cannot
+both have pre-formatted description. using
+RawDescriptionHelpFormatter,as well as default arguments with
+ArgumentDefaultsHelpFormatter.
+
+The ``SmartFormatter`` is a subclass of ``argparse.HelpFormatter`` and
+has the normal formatter as default. Help text can be marked at the
+beginning for variations in formatting:
+
+- ``"R|.."`` format raw, i.e. don't wrap and fill out, observer newline
+- ``"*|.."`` format a password help, never echo password defaults
+- ``"D|.."`` add defaults to **all** entries (that is why having ``*|``
+  is important)
+
+The version string is formatted using _split_lines and preserves any
+line breaks in the version string.
+
+::
+
+  from __future__ import print_function
+
+  from ruamel.std.argparse import SmartFormatter
+  import argparse
+
+
+  def exit(self, *args, **kw):
+      pass
+
+  argparse.ArgumentParser.exit = exit
+
+  # the 'D|....' in the second pass triggers generating defaults for all entries,
+  # while being smart about which one already have a %(default)s
+
+  for index, log_s in enumerate(['log to file', 'D|log to file']):
+      parser = argparse.ArgumentParser(formatter_class=SmartFormatter)
+
+      parser.add_argument('--log', default='abc.log', help=log_s)
+      parser.add_argument('--username',
+                          help='username to login with (default: %(default)s)')
+      parser.add_argument('--password', help='*|password to use for login')
+      parser.add_argument('--recursive', '-r', action='store_true',
+                          help="R|recurse into subdirectories \nto find files")
+      parser.set_defaults(username='anthon', password="test123")
+
+      if index > 0:
+          print('--------------------------------------\n')
+      parser.parse_args(["--help"])
+
+.. example code smartformatter.py
+
+results in::
+
+  usage: smartformatter.py [-h] [--log LOG] [--username USERNAME]
+                           [--password PASSWORD] [--recursive]
+
+  optional arguments:
+    -h, --help           show this help message and exit
+    --log LOG            log to file
+    --username USERNAME  username to login with (default: anthon)
+    --password PASSWORD  password to use for login
+    --recursive, -r      recurse into subdirectories
+                         to find files
+  --------------------------------------
+
+  usage: smartformatter.py [-h] [--log LOG] [--username USERNAME]
+                           [--password PASSWORD] [--recursive]
+
+  optional arguments:
+    -h, --help           show this help message and exit
+    --log LOG            log to file (default: abc.log)
+    --username USERNAME  username to login with (default: anthon)
+    --password PASSWORD  password to use for login (default: *******)
+    --recursive, -r      recurse into subdirectories
+                         to find files (default: False)
+
+
+.. example output smartformatter.py
+
+
+Wrapping argparse
+-----------------
+
+When using argparse with subparser, each of which have their own
+function ( using ``.set_defaults(func=function``) that can be called,
+there is a lot of repetitive code.
+
+An alternative is provided by the ``ProgramBase`` class that should be
+subclassed and the ``sub_parser``, ``option`` and ``version``
+decorators that can be applied to methods of that subclass.
+
+A typical use case is::
+
+  from __future__ import print_function
+
+  import sys
+  import os
+
+  from ruamel.std.argparse import ProgramBase, option, sub_parser, version, \
+      SmartFormatter
+
+
+  class TestCmd(ProgramBase):
+      def __init__(self):
+          super(TestCmd, self).__init__(
+              formatter_class=SmartFormatter
+          )
+
+      # you can put these on __init__, but subclassing TestCmd
+      # will cause that to break
+      @option('--quiet', '-q', help='suppress verbosity', action='store_true',
+              global_option=True)
+      @version('version: 1.2.3')
+      def _pb_init(self):
+          # special name for which attribs are included in help
+          pass
+
+      def run(self):
+          if self._args.func:
+              return self._args.func()
+
+      def parse_args(self, *args):
+          self._parse_args(*args)
+
+      @sub_parser(help='specific help for readit')
+      @option('--name', default='abc')
+      def readit(self):
+          print('calling readit')
+
+      @sub_parser('writeit', help='help for writeit')
+      @option('--target')
+      def other_name(self):
+          print('calling writeit')
+
+
+  n = TestCmd()
+  n.parse_args(['--help'])
+  n.run()
+
+.. example code testcmd.py
+
+and output::
+
+  usage: testcmd.py [-h] [--quiet] [--version] {readit,writeit} ...
+
+  positional arguments:
+    {readit,writeit}
+      readit          specific help for readit
+      writeit         help for writeit
+
+  optional arguments:
+    -h, --help        show this help message and exit
+    --quiet, -q       suppress verbosity
+    --version         show program's version number and exit
+
+
+.. example output testcmd.py
+
+
+
+The method name is by default the name of the sub_parser. This can be
+overriden by providing a non-keyword argument to ``sub_parser``. The
+keyword arguments are passed to the  ``add_parser`` method.
+
+The ``option`` functions as ``add_argument``. If ``option`` is put on
+a method that is not a sub_parser, such an option will be a global
+option. These have to be specified before any sub_parser argument when
+invoking the script. Often it is handy to specify such an option with
+an ``global_option=True`` keyword argument. This makes sure that
+option is added to all the sub_parsers as well. This allows you to
+invoke both ``prog --quiet writeit`` and ``prog writeit --quiet``).
+You can assing these options to ``__init__``, but when sub classing
+``TestCmd`` this will lead to problems. It is therefore better to pu
+them on the special handled method ``_pb_init`` if subclassing might
+happen.
+
+Care should be taken that all attributes on ``TestCmd`` are accessed
+during scanning for sub parsers. In particular any property method
+will be accessedi and its code executed.
+
+Default command
+---------------
+
+In case you want to have specific sub_parser be invoked as the default, you
+can use::
+
+  self._parse_args(default_sub_parser='show')
+
+to have the following invocations on the commandline of a program called
+``pass`` be the same::
+
+    pass
+    pass show
+
+Help on all subcommands
+-----------------------
+
+If you provide a True value to the optional help_all parameter for
+``self._parse_args()``::
+
+  self._parse_args(help_all=True)
+
+then the commandline is checked for the option ``--help-all`` and the global
+help is printed, follow by the help for each sub parsers, separated by a dashed
+line.
+
+Testing
+-------
+
+Testing is done using the `tox <https://pypi.python.org/pypi/tox>`_, which
+uses `virtualenv <https://pypi.python.org/pypi/virtualenv>`_ and
+`pytest <http://pytest.org/latest/>`_.
+
+
+
