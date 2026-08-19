@@ -118,10 +118,10 @@ jobs:
           else
             echo "keeping build trees on / (${ROOT_AVAIL}K avail vs ${MNT_AVAIL}K on /mnt)"
           fi
-      - name: docker setup linux-kernel-oci
-        run: sudo python3 ./hack/build/docker-setup.py
-      - name: docker setup buildx
-        uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c # v4.2.0
+      # - name: docker setup linux-kernel-oci
+      #   run: sudo python3 ./hack/build/docker-setup.py
+      # - name: docker setup buildx
+      #   uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c # v4.2.0
       - name: docker login ghcr.io
         uses: Wandalen/wretry.action@e68c23e6309f2871ca8ae4763e7629b9c258e1ea # v3.8.0
         with:
@@ -142,6 +142,12 @@ jobs:
           connection-string-rw: ${{ secrets.SCCACHE_AZURE_CONNECTION_STRING }}
           connection-string-ro: ${{ secrets.SCCACHE_AZURE_CONNECTION_STRING_RO }}
           key-prefix: kernel
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.12'
+          cache: 'pip' # Automatically caches packages found in requirements.txt
+      - name: python requirements
+        run: pip install -r requirements.txt
       - name: generate docker script
         run: "./hack/build/generate-docker-script.sh"
       - name: upload docker script
