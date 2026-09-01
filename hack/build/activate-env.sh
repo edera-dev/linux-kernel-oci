@@ -7,12 +7,11 @@ unset REAL_SCRIPT
 
 activate_env() {
 	if [ ! -d "venv" ]; then
-		python3 -m venv venv
-		pip install --upgrade pip
+		uv venv venv
 	fi
 	# shellcheck source=/dev/null # venv is created at runtime, not present at lint time
 	. venv/bin/activate
-	pip3 install -qq -r requirements.txt
+	uv sync
 }
 
 activate_env

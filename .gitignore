@@ -9,3 +9,4 @@
 /matrix.json
 /docker.sh
 **/__pycache__/**
+/.venv

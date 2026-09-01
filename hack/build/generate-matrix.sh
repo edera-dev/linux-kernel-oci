@@ -3,4 +3,4 @@ set -e
 
 cd "$(dirname "${0}")/../.."
 
-python3 "$(dirname "${0}")/generate-matrix.py" "${@}"
+uv run "$(dirname "${0}")/generate-matrix.py" "${@}"
