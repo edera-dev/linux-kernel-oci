@@ -166,11 +166,11 @@ runners:
 # Match order matters: first runner whose constraints match wins.
 - name: ubuntu-24.04-arm
   arch: aarch64
-- name: edera-large
+- name: edera-24
   arch: x86_64
   flavors:
   - host
   - zone-amdgpu
   - zone-nvidiagpu
-- name: ubuntu-latest
+- name: edera-24
   arch: x86_64

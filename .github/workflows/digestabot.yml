@@ -17,7 +17,9 @@ permissions:
 jobs:
   image-update:
     name: Image digest update
-    runs-on: ubuntu-latest
+    runs-on:
+      group: Self Hosted
+      labels: edera-24
 
     permissions:
       contents: write # to push the updates

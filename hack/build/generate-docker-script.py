@@ -327,7 +327,8 @@ def docker_build(
             image_build_command, "stage=build image=%s arch=%s" % (image_root, archs[0])
         )
         record_command = [
-            "python3",
+            "uv",
+            "run",
             "hack/build/record-digest.py",
             quoted(image_root),
             quoted(metadata_file),

@@ -11,10 +11,11 @@ concurrency:
   cancel-in-progress: true
 jobs:
   format:
-    runs-on: ubuntu-latest
+    runs-on:
+      group: Self Hosted
+      labels: edera-24
     env:
       SHFMT_VERSION: "3.12.0"
-      BLACK_VERSION: "26.5.1"
       SHELLCHECK_VERSION: "0.11.0"
     steps:
       - name: Checkout
@@ -29,11 +30,14 @@ jobs:
           chmod +x "${HOME}/.local/bin/shfmt"
           curl -sSfL "https://github.com/koalaman/shellcheck/releases/download/v${SHELLCHECK_VERSION}/shellcheck-v${SHELLCHECK_VERSION}.linux.x86_64.tar.xz" | tar -xJ -C /tmp
           install -m755 "/tmp/shellcheck-v${SHELLCHECK_VERSION}/shellcheck" "${HOME}/.local/bin/shellcheck"
-          pipx install "black==${BLACK_VERSION}"
+      - name: Install the latest version of uv
+        uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
+        with:
+          python-version: "3.14"
       - name: Show versions
         run: |
           shfmt --version
-          black --version
+          uv tool run black --version
           shellcheck --version
       - name: Check formatting
         run: ./hack/code/format.sh --check

@@ -22,12 +22,12 @@ if [ -n "${CHECK}" ]; then
 	# shellcheck disable=SC2086 # word-splitting the file list is intended
 	shfmt -d ${SH_FILES} || RC=1
 	# shellcheck disable=SC2086
-	black --check ${PY_FILES} || RC=1
+	uv tool run black --check ${PY_FILES} --target-version py314 || RC=1
 else
 	# shellcheck disable=SC2086
 	shfmt -w ${SH_FILES}
 	# shellcheck disable=SC2086
-	black ${PY_FILES}
+	uv tool run black ${PY_FILES} --target-version py314
 fi
 
 # The linter has no autofix, so it runs as a check in both modes.

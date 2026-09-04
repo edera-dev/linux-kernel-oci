@@ -77,7 +77,7 @@ if [ ! -f "${KERNEL_SRC}/Makefile" ]; then
 		rm "${KERNEL_SRC}.txz"
 	fi
 
-	python3 "hack/build/patchlist.py" "${KERNEL_VERSION}" "${KERNEL_FLAVOR}" | while read -r PATCH_NAME; do
+	uv run "hack/build/patchlist.py" "${KERNEL_VERSION}" "${KERNEL_FLAVOR}" | while read -r PATCH_NAME; do
 		cd "${KERNEL_SRC}"
 		if [ "${KERNEL_SRC_IS_TAR}" = "1" ]; then
 			patch --verbose -p1 <"${KERNEL_DIR}/${PATCH_NAME}"
