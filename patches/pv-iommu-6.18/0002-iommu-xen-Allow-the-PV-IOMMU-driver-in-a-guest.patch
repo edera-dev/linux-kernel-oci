@@ -1,0 +1,69 @@
+From ba74c369c799713f6d47b9fee45ca3d16d09bb52 Mon Sep 17 00:00:00 2001
+From: Alex Zenla <alex@edera.dev>
+Date: Wed, 2 Sep 2026 00:44:53 -0700
+Subject: [PATCH 02/11] iommu/xen: Allow the PV-IOMMU driver in a guest
+
+The driver itself was never Dom0-specific -- it only checks xen_domain()
+and sends the SBDF it sees, which is what the hypervisor now translates.
+The restriction lived entirely in Kconfig, so drop it to depends on XEN.
+
+Guests do need one adjustment. Dom0 sees the real topology, bridges
+included, and Xen tracks all of it. A guest only gets the endpoints vPCI
+assigned to it, sitting under an emulated bridge that has no device on the
+Xen side, so don't claim bridges there; attaching a context to one can only
+fail.
+
+A guest also has to call IOMMU_init before it has any contexts to allocate,
+which the driver already does unconditionally.
+---
+ drivers/iommu/Kconfig     |  8 +++++---
+ drivers/iommu/xen-iommu.c | 10 ++++++++++
+ 2 files changed, 15 insertions(+), 3 deletions(-)
+
+diff --git a/drivers/iommu/Kconfig b/drivers/iommu/Kconfig
+index 8ab6cd68bdcc..2e1e4a72670e 100644
+--- a/drivers/iommu/Kconfig
++++ b/drivers/iommu/Kconfig
+@@ -373,13 +373,15 @@ config VIRTIO_IOMMU
+ 
+ config XEN_IOMMU
+ 	bool "Xen IOMMU driver"
+-	depends on XEN_DOM0
++	depends on XEN
+ 	select IOMMU_API
+ 	select IOMMU_IO_PGTABLE
+ 	help
+-		Xen PV-IOMMU driver for Dom0.
++		Xen PV-IOMMU driver.
+ 
+-		Say Y here if you intend to run this guest as Xen Dom0.
++		Say Y here if you intend to run this kernel under Xen, either as
++		Dom0 or as a guest whose passed-through devices come through
++		vPCI.
+ 
+ config SPRD_IOMMU
+ 	tristate "Unisoc IOMMU Support"
+diff --git a/drivers/iommu/xen-iommu.c b/drivers/iommu/xen-iommu.c
+index 1ea66aeda096..35cbc7d7026b 100644
+--- a/drivers/iommu/xen-iommu.c
++++ b/drivers/iommu/xen-iommu.c
+@@ -119,6 +119,16 @@ static struct iommu_device *xen_iommu_probe_device(struct device *dev)
+ 	if (!dev_is_pci(dev))
+ 		return ERR_PTR(-ENODEV);
+ 
++	/*
++	 * Dom0 sees the real topology, bridges included, and Xen tracks all of
++	 * it. A guest only gets the endpoints vPCI assigned to it; the bridge
++	 * above them is emulated and has no device for Xen to attach a context
++	 * to, so leave it alone rather than fail the attach later.
++	 */
++	if (!xen_initial_domain() &&
++	    to_pci_dev(dev)->hdr_type != PCI_HEADER_TYPE_NORMAL)
++		return ERR_PTR(-ENODEV);
++
+ 	return &xen_iommu_device;
+ }
+ 
+-- 
+2.55.0
+

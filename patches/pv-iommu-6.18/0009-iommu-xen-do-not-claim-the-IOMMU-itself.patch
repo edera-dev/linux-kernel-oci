@@ -1,0 +1,53 @@
+From 17bc7d257503a52576e685b5b57369efd4009b5b Mon Sep 17 00:00:00 2001
+From: Alex Zenla <alex@edera.dev>
+Date: Thu, 3 Sep 2026 09:15:38 -0700
+Subject: [PATCH 09/11] iommu/xen: do not claim the IOMMU itself
+
+An IOMMU does not sit behind itself, so the hypervisor has no device for
+it and reattach fails with -ENODEV. The IOMMU core does not allow a
+driver to fail the first domain attach, so claiming it takes down
+registration of the whole driver:
+
+  WARNING at drivers/iommu/iommu.c:3037 iommu_setup_default_domain
+   iommu_device_register
+   xen_iommu_init
+  xen-iommu: Unable to register Xen IOMMU device -19
+
+Only reachable in the initial domain, which sees the real topology; a
+guest is never given the IOMMU. Skip PCI class 0806.
+---
+ drivers/iommu/xen-iommu.c | 11 +++++++++++
+ 1 file changed, 11 insertions(+)
+
+diff --git a/drivers/iommu/xen-iommu.c b/drivers/iommu/xen-iommu.c
+index 3a9bf55ecadb..78ced18c4c90 100644
+--- a/drivers/iommu/xen-iommu.c
++++ b/drivers/iommu/xen-iommu.c
+@@ -65,6 +65,9 @@ static struct xen_iommu_domain xen_iommu_identity_domain = {
+ 		.ops = &xen_iommu_identity_ops,
+ 	},
+ };
++/* PCI base class 08h, sub-class 06h: IOMMU. */
++#define XEN_IOMMU_PCI_CLASS 0x0806
++
+ static unsigned long xen_iommu_pgsize_bitmap = XEN_PAGE_SIZE;
+ static bool map_single_pages = false;
+ module_param(map_single_pages, bool, 0444);
+@@ -192,6 +195,14 @@ static struct iommu_device *xen_iommu_probe_device(struct device *dev)
+ 	    to_pci_dev(dev)->hdr_type != PCI_HEADER_TYPE_NORMAL)
+ 		return ERR_PTR(-ENODEV);
+ 
++	/*
++	 * An IOMMU does not sit behind itself, so Xen has no device for it and
++	 * a context can never be attached. Claiming it fails the first attach,
++	 * which the IOMMU core treats as fatal to registering the driver.
++	 */
++	if ((to_pci_dev(dev)->class >> 8) == XEN_IOMMU_PCI_CLASS)
++		return ERR_PTR(-ENODEV);
++
+ 	return &xen_iommu_device;
+ }
+ 
+-- 
+2.55.0
+

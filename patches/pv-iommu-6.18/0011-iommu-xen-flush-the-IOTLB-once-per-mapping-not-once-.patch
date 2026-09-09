@@ -1,0 +1,159 @@
+From 8c4bb578f2c5d44403928bc93f36f13d14c7d1e9 Mon Sep 17 00:00:00 2001
+From: Alex Zenla <alex@edera.dev>
+Date: Thu, 3 Sep 2026 12:21:19 -0700
+Subject: [PATCH 11/11] iommu/xen: flush the IOTLB once per mapping, not once
+ per subop
+
+A map subop covers a run of frames contiguous in both dfn and gfn, and
+in a PV domain gfns are machine frames, so a scattered buffer breaks
+into runs of a few pages. Each subop then flushed, and against an
+emulated IOMMU a flush is a command and a completion wait that costs far
+more than the mapping does. Mapping several gigabytes took long enough
+for callers to give up.
+
+The core already has somewhere to put this: ask the hypervisor to skip
+the per-subop flush and issue one over the whole range from
+iotlb_sync_map(). Gated on IOMMUCAP_deferred_flush so an older
+hypervisor keeps flushing per subop rather than never flushing at all.
+---
+ drivers/iommu/xen-iommu.c        | 31 +++++++++++++++++++++++++++++++
+ include/xen/interface/pv-iommu.h | 32 ++++++++++++++++++++++++++++++++
+ 2 files changed, 63 insertions(+)
+
+diff --git a/drivers/iommu/xen-iommu.c b/drivers/iommu/xen-iommu.c
+index 78ced18c4c90..36ad0dbee42c 100644
+--- a/drivers/iommu/xen-iommu.c
++++ b/drivers/iommu/xen-iommu.c
+@@ -69,6 +69,8 @@ static struct xen_iommu_domain xen_iommu_identity_domain = {
+ #define XEN_IOMMU_PCI_CLASS 0x0806
+ 
+ static unsigned long xen_iommu_pgsize_bitmap = XEN_PAGE_SIZE;
++static bool deferred_flush;
++
+ static bool map_single_pages = false;
+ module_param(map_single_pages, bool, 0444);
+ MODULE_PARM_DESC(map_single_pages,
+@@ -233,6 +235,14 @@ static int xen_iommu_map_pages(struct iommu_domain *domain, unsigned long iova,
+ 	if (prot & IOMMU_CACHE)
+ 		map.map_flags |= IOMMU_MAP_cache;
+ 
++	/*
++	 * A scattered buffer costs one subop per run of contiguous frames, and
++	 * each one flushes. Leave the flush to iotlb_sync_map(), which pays it
++	 * once for the whole mapping.
++	 */
++	if (deferred_flush)
++		map.map_flags |= IOMMU_MAP_no_flush;
++
+ 	if (map_single_pages) {
+ 		size_t i = 0;
+ 
+@@ -285,6 +295,23 @@ static int xen_iommu_map_pages(struct iommu_domain *domain, unsigned long iova,
+ 	return ret;
+ }
+ 
++static int xen_iommu_sync_map(struct iommu_domain *domain, unsigned long iova,
++			      size_t size)
++{
++	struct xen_iommu_domain *dom = to_xen_iommu_domain(domain);
++	struct pv_iommu_flush_pages flush = {
++		.ctx_no = dom->ctx_no,
++		.dfn = addr_to_pfn(iova),
++		.pgsize = PAGE_SIZE,
++		.nr_pages = size >> PAGE_SHIFT,
++	};
++
++	if (!deferred_flush)
++		return 0;
++
++	return HYPERVISOR_iommu_op(IOMMU_flush_pages, &flush);
++}
++
+ static size_t xen_iommu_unmap_pages(struct iommu_domain *domain, unsigned long iova,
+ 				    size_t pgsize, size_t pgcount,
+ 				    struct iommu_iotlb_gather *iotlb_gather)
+@@ -440,6 +467,7 @@ static struct iommu_ops xen_iommu_ops = {
+ 	.def_domain_type = xen_iommu_def_domain_type,
+ 	.default_domain_ops = &(const struct iommu_domain_ops) {
+ 		.map_pages = xen_iommu_map_pages,
++		.iotlb_sync_map = xen_iommu_sync_map,
+ 		.unmap_pages = xen_iommu_unmap_pages,
+ 		.attach_dev = xen_iommu_attach_dev,
+ 		.iova_to_phys = xen_iommu_iova_to_phys,
+@@ -503,6 +531,9 @@ static int __init xen_iommu_init(void)
+ 	pr_info("default_identity=%c\n", (caps.cap_flags & IOMMUCAP_default_identity) ? 'y' : 'n');
+ 	pr_info("cache=%c\n", (caps.cap_flags & IOMMUCAP_cache) ? 'y' : 'n');
+ 
++	deferred_flush = caps.cap_flags & IOMMUCAP_deferred_flush;
++	pr_info("deferred_flush=%c\n", deferred_flush ? 'y' : 'n');
++
+ 	if (caps.max_ctx_no == 0) {
+ 		pr_err("Unable to use IOMMU PV driver (no context available ?)\n");
+ 		return -ENOTSUPP; /* Unable to use IOMMU PV ? */
+diff --git a/include/xen/interface/pv-iommu.h b/include/xen/interface/pv-iommu.h
+index a4a470319486..d4e58edd6e0d 100644
+--- a/include/xen/interface/pv-iommu.h
++++ b/include/xen/interface/pv-iommu.h
+@@ -36,6 +36,7 @@ enum {
+     IOMMU_flush_nested,     /* if IOMMUCAP_nested */
+     IOMMU_attach_pasid,     /* if IOMMUCAP_pasid */
+     IOMMU_detach_pasid,     /* if IOMMUCAP_pasid */
++    IOMMU_flush_pages,      /* if IOMMUCAP_deferred_flush */
+ };
+ 
+ /**
+@@ -65,6 +66,11 @@ enum {
+  */
+ #define IOMMUCAP_identity (1 << 4)
+ 
++/**
++ * Support for IOMMU_MAP_no_flush and IOMMU_flush_pages.
++ */
++#define IOMMUCAP_deferred_flush (1 << 5)
++
+ /**
+  * IOMMU_query_capabilities
+  * Query PV-IOMMU capabilities for this domain.
+@@ -163,6 +169,12 @@ DEFINE_GUEST_HANDLE_STRUCT(pv_iommu_free_t);
+ /* Enforce DMA coherency */
+ #define IOMMU_MAP_cache (1 << 2)
+ 
++/*
++ * Don't flush the IOTLB for this call. The caller must issue IOMMU_flush_pages
++ * over the range before a device uses it.
++ */
++#define IOMMU_MAP_no_flush (1 << 3)
++
+ /**
+  * IOMMU_map_pages
+  * Map pages on a IOMMU context.
+@@ -193,6 +205,26 @@ struct pv_iommu_map_pages {
+     /* OUT: Number of pages actually mapped */
+     uint32_t mapped;
+ };
++
++/**
++ * IOMMU_flush_pages
++ * Flush the IOTLB over a device frame range on a IOMMU context.
++ *
++ * Pairs with IOMMU_MAP_no_flush.
++ */
++struct pv_iommu_flush_pages {
++    /* IN: IOMMU context number */
++    uint16_t ctx_no;
++
++    /* IN: Device frame number */
++    uint64_aligned_t dfn;
++
++    /* IN: Size of pages to flush */
++    uint32_t pgsize;
++
++    /* IN: Number of pages to flush */
++    uint32_t nr_pages;
++};
+ typedef struct pv_iommu_map_pages pv_iommu_map_pages_t;
+ DEFINE_GUEST_HANDLE_STRUCT(pv_iommu_map_pages_t);
+ 
+-- 
+2.55.0
+
