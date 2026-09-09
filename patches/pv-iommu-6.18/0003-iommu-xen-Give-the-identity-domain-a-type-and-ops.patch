@@ -1,0 +1,50 @@
+From 9d31f2f48b7b6fec0f2f006fd0998e8014e2d672 Mon Sep 17 00:00:00 2001
+From: Alex Zenla <alex@edera.dev>
+Date: Wed, 2 Sep 2026 10:08:58 -0700
+Subject: [PATCH 03/11] iommu/xen: Give the identity domain a type and ops
+
+xen_iommu_identity_domain is statically allocated, and the core only fills
+in type and ops for domains it allocated itself. Left at zero the type is
+IOMMU_DOMAIN_BLOCKED, not identity, and the ops pointer is NULL, so
+anything the core routes to this domain either does the wrong thing or
+dereferences NULL.
+
+Name both explicitly. attach_dev is the same as for a paging domain -- the
+identity domain is just context 0.
+---
+ drivers/iommu/xen-iommu.c | 19 ++++++++++++++++++-
+ 1 file changed, 18 insertions(+), 1 deletion(-)
+
+diff --git a/drivers/iommu/xen-iommu.c b/drivers/iommu/xen-iommu.c
+index 35cbc7d7026b..d43fd5a869a3 100644
+--- a/drivers/iommu/xen-iommu.c
++++ b/drivers/iommu/xen-iommu.c
+@@ -43,7 +43,24 @@ struct xen_iommu_domain {
+ static struct iommu_device xen_iommu_device;
+ static struct pv_iommu_capabilities caps;
+ 
+-static struct xen_iommu_domain xen_iommu_identity_domain;
++static int xen_iommu_attach_dev(struct iommu_domain *domain,
++				struct device *dev);
++
++static const struct iommu_domain_ops xen_iommu_identity_ops = {
++	.attach_dev = xen_iommu_attach_dev,
++};
++
++/*
++ * A statically allocated domain has to name its own type and ops; the core
++ * only fills those in for domains it allocated itself. Leaving type at 0 makes
++ * this an IOMMU_DOMAIN_BLOCKED domain with no ops at all.
++ */
++static struct xen_iommu_domain xen_iommu_identity_domain = {
++	.domain = {
++		.type = IOMMU_DOMAIN_IDENTITY,
++		.ops = &xen_iommu_identity_ops,
++	},
++};
+ static unsigned long xen_iommu_pgsize_bitmap = XEN_PAGE_SIZE;
+ static bool map_single_pages = false;
+ 
+-- 
+2.55.0
+

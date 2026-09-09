@@ -1,0 +1,195 @@
+From 28f6cdec0a2ecb54354a6dc1daa0807618623b3a Mon Sep 17 00:00:00 2001
+From: Alex Zenla <alex@edera.dev>
+Date: Wed, 2 Sep 2026 11:26:57 -0700
+Subject: [PATCH 05/11] xen/pcifront: Let callers ask for a device's machine
+ BDF
+
+The BDF a PV guest sees for a passed-through device is invented by pciback
+in the hardware domain and never reaches the hypervisor, so it cannot be
+used to name the device in a hypercall. PV-IOMMU needs to.
+
+pciback already publishes both halves of the mapping in its xenstore
+directory -- dev-N is the machine BDF, vdev-N the one this domain sees --
+and pcifront already reads vdev-N when detaching, so the mapping is right
+there. Walk it and hand the machine BDF back.
+
+Use it in the PV-IOMMU driver for both reattach and the reserved-region
+query. With vPCI the SBDF a guest sees is one Xen assigned and can
+translate, so this only changes what a PV guest sends. Both end up naming a
+device the hypervisor can find.
+---
+ drivers/iommu/xen-iommu.c  | 33 +++++++++++++++++----
+ drivers/pci/xen-pcifront.c | 59 ++++++++++++++++++++++++++++++++++++++
+ include/xen/pci.h          | 14 +++++++++
+ 3 files changed, 100 insertions(+), 6 deletions(-)
+
+diff --git a/drivers/iommu/xen-iommu.c b/drivers/iommu/xen-iommu.c
+index 56b36160b378..7195bc76baa1 100644
+--- a/drivers/iommu/xen-iommu.c
++++ b/drivers/iommu/xen-iommu.c
+@@ -14,6 +14,8 @@
+ #include <linux/module.h>
+ #include <linux/iommu.h>
+ 
++#include <xen/pci.h>
++
+ #include "iommu-priv.h"
+ #include <linux/pci.h>
+ #include <linux/printk.h>
+@@ -133,6 +135,29 @@ static struct iommu_domain *xen_iommu_domain_alloc_paging(struct device *dev)
+ 	return &domain->domain;
+ }
+ 
++/*
++ * Name a device the way the hypervisor knows it. With vPCI the SBDF this domain
++ * sees is one Xen assigned and can translate. A PV guest's comes from pciback
++ * instead and means nothing to Xen, so use the machine BDF pciback published
++ * alongside it.
++ */
++static void xen_iommu_set_dev(struct physdev_pci_device *out,
++			      struct pci_dev *pdev)
++{
++	u32 sbdf;
++
++	if (!pcifront_machine_sbdf(pdev, &sbdf)) {
++		out->seg = sbdf >> 16;
++		out->bus = (sbdf >> 8) & 0xff;
++		out->devfn = sbdf & 0xff;
++		return;
++	}
++
++	out->seg = pci_domain_nr(pdev->bus);
++	out->bus = pdev->bus->number;
++	out->devfn = pdev->devfn;
++}
++
+ static struct iommu_device *xen_iommu_probe_device(struct device *dev)
+ {
+ 	if (!dev_is_pci(dev))
+@@ -240,9 +265,7 @@ static int xen_iommu_attach_dev(struct iommu_domain *domain, struct device *dev)
+ 
+ 	pdev = to_pci_dev(dev);
+ 
+-	reattach.dev.seg = pci_domain_nr(pdev->bus);
+-	reattach.dev.bus = pdev->bus->number;
+-	reattach.dev.devfn = pdev->devfn;
++	xen_iommu_set_dev(&reattach.dev, pdev);
+ 
+ 	return HYPERVISOR_iommu_op(IOMMU_reattach_device, &reattach);
+ }
+@@ -303,9 +326,7 @@ static void xen_iommu_get_resv_regions(struct device *dev, struct list_head *hea
+ 	map.nr_entries = 0;
+ 	map.flags = 0;
+ 
+-	map.dev.pci.seg = pci_domain_nr(pdev->bus);
+-	map.dev.pci.bus = pdev->bus->number;
+-	map.dev.pci.devfn = pdev->devfn;
++	xen_iommu_set_dev(&map.dev.pci, pdev);
+ 
+ 	ret = HYPERVISOR_memory_op(XENMEM_reserved_device_memory_map, &map);
+ 
+diff --git a/drivers/pci/xen-pcifront.c b/drivers/pci/xen-pcifront.c
+index 11636634ae51..2654ce573c01 100644
+--- a/drivers/pci/xen-pcifront.c
++++ b/drivers/pci/xen-pcifront.c
+@@ -8,6 +8,7 @@
+ #include <linux/init.h>
+ #include <linux/mm.h>
+ #include <xen/xenbus.h>
++#include <xen/pci.h>
+ #include <xen/events.h>
+ #include <xen/grant_table.h>
+ #include <xen/page.h>
+@@ -404,6 +405,64 @@ static int pcifront_claim_resource(struct pci_dev *dev, void *data)
+ 	return 0;
+ }
+ 
++/*
++ * pciback names every assigned device twice in its xenstore directory: dev-N is
++ * the machine BDF and vdev-N is the BDF this domain sees. Only the former means
++ * anything to the hypervisor, so hand it back to callers that have to name a
++ * device to Xen -- the PV-IOMMU driver -- since the BDF a PV guest sees was
++ * invented in the backend and never reached Xen at all.
++ *
++ * Returns the machine SBDF packed as Xen expects it: seg << 16 | bus << 8 |
++ * devfn.
++ */
++int pcifront_machine_sbdf(const struct pci_dev *dev, u32 *sbdf)
++{
++	unsigned int domain, bus, slot, func;
++	struct pcifront_device *pdev;
++	int i, num_devs;
++	char str[64];
++
++	if (dev->bus->ops != &pcifront_bus_ops)
++		return -ENODEV;
++
++	pdev = pcifront_get_pdev(dev->bus->sysdata);
++	if (!pdev)
++		return -ENODEV;
++
++	if (xenbus_scanf(XBT_NIL, pdev->xdev->otherend, "num_devs", "%d",
++			 &num_devs) != 1)
++		return -ENODEV;
++
++	for (i = 0; i < num_devs; i++) {
++		if (snprintf(str, sizeof(str), "vdev-%d", i) >= sizeof(str) - 1)
++			return -ENODEV;
++
++		if (xenbus_scanf(XBT_NIL, pdev->xdev->otherend, str,
++				 "%x:%x:%x.%x", &domain, &bus, &slot,
++				 &func) != 4)
++			continue;
++
++		if (domain != pci_domain_nr(dev->bus) ||
++		    bus != dev->bus->number ||
++		    PCI_DEVFN(slot, func) != dev->devfn)
++			continue;
++
++		if (snprintf(str, sizeof(str), "dev-%d", i) >= sizeof(str) - 1)
++			return -ENODEV;
++
++		if (xenbus_scanf(XBT_NIL, pdev->xdev->otherend, str,
++				 "%x:%x:%x.%x", &domain, &bus, &slot,
++				 &func) != 4)
++			return -ENODEV;
++
++		*sbdf = (domain << 16) | (bus << 8) | PCI_DEVFN(slot, func);
++		return 0;
++	}
++
++	return -ENODEV;
++}
++EXPORT_SYMBOL_GPL(pcifront_machine_sbdf);
++
+ static int pcifront_scan_bus(struct pcifront_device *pdev,
+ 				unsigned int domain, unsigned int bus,
+ 				struct pci_bus *b)
+diff --git a/include/xen/pci.h b/include/xen/pci.h
+index 424b8ea89ca8..b5efff694a03 100644
+--- a/include/xen/pci.h
++++ b/include/xen/pci.h
+@@ -3,6 +3,20 @@
+ #ifndef __XEN_PCI_H__
+ #define __XEN_PCI_H__
+ 
++#include <linux/errno.h>
++#include <linux/types.h>
++
++struct pci_dev;
++
++#if defined(CONFIG_XEN_PCIDEV_FRONTEND)
++int pcifront_machine_sbdf(const struct pci_dev *dev, u32 *sbdf);
++#else
++static inline int pcifront_machine_sbdf(const struct pci_dev *dev, u32 *sbdf)
++{
++	return -ENODEV;
++}
++#endif
++
+ #if defined(CONFIG_XEN_DOM0)
+ int xen_reset_device(const struct pci_dev *dev);
+ int xen_find_device_domain_owner(struct pci_dev *dev);
+-- 
+2.55.0
+

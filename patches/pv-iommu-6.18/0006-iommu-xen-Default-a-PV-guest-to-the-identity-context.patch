@@ -1,0 +1,69 @@
+From b5d8cdfb20894156c9da6642adfed05d371e9926 Mon Sep 17 00:00:00 2001
+From: Alex Zenla <alex@edera.dev>
+Date: Wed, 2 Sep 2026 12:02:36 -0700
+Subject: [PATCH 06/11] iommu/xen: Default a PV guest to the identity context
+
+A PV guest reaches its devices through xen-swiotlb, which hands them
+machine addresses. Attaching one to a translated IOMMU context as well
+leaves two translations disagreeing about every address, and the DMA layer
+rejects the combination outright:
+
+  WARNING: CPU: 0 PID: 11 at kernel/dma/mapping.c:881 dma_supported+0x5e/0x80
+   dma_set_mask+0x24/0xe0
+   nv_set_dma_address_size+0x52/0x70 [nvidia]
+   nv_pci_probe+0x28f/0x1090 [nvidia]
+
+dma_supported() warns and returns false when a device both uses iommu-dma
+and has dma_map_ops, which in a PV guest it always does. The driver's
+dma_set_mask() then fails and every mapping after it is wrong; the GPU here
+got as far as GspStatusQueueInit before returning NV_ERR_RESET_REQUIRED.
+
+Report IOMMU_DOMAIN_IDENTITY as the default domain type there, which is
+context 0 and what the hypervisor already advertises as identity. Normal
+DMA stays on xen-swiotlb and translated contexts can still be asked for
+explicitly, which is what a guest wanting one for VFIO would do.
+
+Guests whose devices come through vPCI are unaffected; they have no
+dma_map_ops of their own and use iommu-dma as before.
+---
+ drivers/iommu/xen-iommu.c | 17 +++++++++++++++++
+ 1 file changed, 17 insertions(+)
+
+diff --git a/drivers/iommu/xen-iommu.c b/drivers/iommu/xen-iommu.c
+index 7195bc76baa1..f06dc957e8b0 100644
+--- a/drivers/iommu/xen-iommu.c
++++ b/drivers/iommu/xen-iommu.c
+@@ -158,6 +158,22 @@ static void xen_iommu_set_dev(struct physdev_pci_device *out,
+ 	out->devfn = pdev->devfn;
+ }
+ 
++/*
++ * A PV guest reaches its devices through xen-swiotlb, which hands them machine
++ * addresses. Putting a device in a translated context as well leaves two
++ * translations disagreeing about every address, and the DMA layer refuses the
++ * combination outright -- dma_supported() warns and fails once a device both
++ * uses iommu-dma and has dma_map_ops, which every PV guest does. Default to
++ * the identity context there and let translated ones be asked for explicitly.
++ */
++static int xen_iommu_def_domain_type(struct device *dev)
++{
++	if (xen_pv_domain())
++		return IOMMU_DOMAIN_IDENTITY;
++
++	return 0;
++}
++
+ static struct iommu_device *xen_iommu_probe_device(struct device *dev)
+ {
+ 	if (!dev_is_pci(dev))
+@@ -386,6 +402,7 @@ static struct iommu_ops xen_iommu_ops = {
+ 	.probe_device = xen_iommu_probe_device,
+ 	.device_group = pci_device_group,
+ 	.get_resv_regions = xen_iommu_get_resv_regions,
++	.def_domain_type = xen_iommu_def_domain_type,
+ 	.default_domain_ops = &(const struct iommu_domain_ops) {
+ 		.map_pages = xen_iommu_map_pages,
+ 		.unmap_pages = xen_iommu_unmap_pages,
+-- 
+2.55.0
+

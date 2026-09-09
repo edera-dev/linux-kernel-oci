@@ -1,0 +1,55 @@
+From 57110ab30a67bb0ed5b780b69f4d04e641ad763d Mon Sep 17 00:00:00 2001
+From: Alex Zenla <alex@edera.dev>
+Date: Thu, 3 Sep 2026 10:53:59 -0700
+Subject: [PATCH 10/11] x86/xen: disable the right interrupt type when tearing
+ down MSI
+
+pci_disable_msix() clears msix_enabled in pci_msix_shutdown() before
+pci_free_msi_irqs() reaches the domain teardown, so by the time
+xen_pv_teardown_msi_irqs() runs the flag can no longer say which of the
+two the device was using. It always took the MSI branch.
+
+The backend therefore never saw XEN_PCI_OP_disable_msix and left MSI-X
+enabled on the real device, and a later guest asking to enable it got
+-EALREADY from xen_pcibk_enable_msix(). Seen as a device usable exactly
+once per assignment.
+
+Take the type from a descriptor instead. The descriptor lock is already
+held by the caller.
+---
+ arch/x86/pci/xen.c | 19 ++++++++++++++++++-
+ 1 file changed, 18 insertions(+), 1 deletion(-)
+
+diff --git a/arch/x86/pci/xen.c b/arch/x86/pci/xen.c
+index b8755cde2419..de9a1c946a3f 100644
+--- a/arch/x86/pci/xen.c
++++ b/arch/x86/pci/xen.c
+@@ -400,7 +400,24 @@ static void xen_teardown_msi_irqs(struct pci_dev *dev)
+ 
+ static void xen_pv_teardown_msi_irqs(struct pci_dev *dev)
+ {
+-	if (dev->msix_enabled)
++	struct msi_desc *desc;
++	bool msix = false;
++
++	/*
++	 * pci_disable_msix() clears msix_enabled in pci_msix_shutdown() before
++	 * freeing the irqs brings us here, so it cannot say which of the two
++	 * the device was using. Ask a descriptor instead: getting this wrong
++	 * leaves the backend with MSI-X still enabled on the real device, and
++	 * the next attempt to enable it fails with -EALREADY.
++	 *
++	 * The descriptor lock is already held by pci_disable_msix().
++	 */
++	msi_for_each_desc(desc, &dev->dev, MSI_DESC_ALL) {
++		msix = desc->pci.msi_attrib.is_msix;
++		break;
++	}
++
++	if (msix)
+ 		xen_pci_frontend_disable_msix(dev);
+ 	else
+ 		xen_pci_frontend_disable_msi(dev);
+-- 
+2.55.0
+

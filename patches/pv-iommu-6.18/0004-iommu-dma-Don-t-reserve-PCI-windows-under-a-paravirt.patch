@@ -1,0 +1,120 @@
+From 4b057c93075246242d30b29b3f8d854f07382c9c Mon Sep 17 00:00:00 2001
+From: Alex Zenla <alex@edera.dev>
+Date: Wed, 2 Sep 2026 10:51:23 -0700
+Subject: [PATCH 04/11] iommu/dma: Don't reserve PCI windows under a
+ paravirtual IOMMU
+
+A PCI host bridge's memory windows are reserved in IOVA space so that an
+IOVA cannot collide with an address the bridge would route to MMIO rather
+than to memory. Under a paravirtual IOMMU that reasoning does not apply:
+the IOVA space belongs to the hypervisor, is programmed by hypercall, and
+is not the bridge's address space at all.
+
+Worse, the windows a Xen guest sees are invented. pcifront hands out
+iomem_resource itself as the root bus window, and a PVH guest has no host
+bridge _CRS so Linux falls back to its catch-all default, clipped only by
+the guest's physical address width:
+
+  pci_bus 0000:00: root bus resource [mem 0x00000000-0x3fffffffffff]
+
+Reserving that swallows the whole aperture the hypervisor reported, and
+every IOVA allocation fails -- even for a single page:
+
+  nvidia 0000:00:01.0: IOVA alloc failed: len=1 limit=7fffffffff shift=12
+                       granule=4096 start_pfn=1 aperture=0-7fffffffff
+  NVRM: GPU0 osIovaMap: failed to map allocation (status = 0x59)
+
+The device then never gets a DMA mapping and the driver cannot attach. This
+is inert without an IOMMU, since there is no IOVA space to reserve, so it
+only appears once a guest drives one.
+
+Let the driver owning the IOVA space opt out. Kept to a private header
+rather than a flag in struct iommu_ops: adding a field there changes the
+CRC of every exported symbol whose type graph reaches it, which breaks
+every already-built out-of-tree module.
+---
+ drivers/iommu/dma-iommu.c  | 14 +++++++++++++-
+ drivers/iommu/iommu-priv.h |  9 +++++++++
+ drivers/iommu/xen-iommu.c  |  7 +++++++
+ 3 files changed, 29 insertions(+), 1 deletion(-)
+
+diff --git a/drivers/iommu/dma-iommu.c b/drivers/iommu/dma-iommu.c
+index b0dca7e7429a..3c2ad70d1c83 100644
+--- a/drivers/iommu/dma-iommu.c
++++ b/drivers/iommu/dma-iommu.c
+@@ -28,6 +28,8 @@
+ #include <linux/of_iommu.h>
+ #include <linux/pci.h>
+ #include <linux/pci-p2pdma.h>
++
++#include "iommu-priv.h"
+ #include <linux/scatterlist.h>
+ #include <linux/spinlock.h>
+ #include <linux/swiotlb.h>
+@@ -558,7 +560,17 @@ static int iova_reserve_iommu_regions(struct device *dev,
+ 	LIST_HEAD(resv_regions);
+ 	int ret = 0;
+ 
+-	if (dev_is_pci(dev)) {
++	/*
++	 * A PCI host bridge's windows are reserved so that an IOVA cannot
++	 * collide with an address the bridge would route to MMIO. Under a
++	 * paravirtual IOMMU the IOVA space belongs to the hypervisor and is not
++	 * the bridge's address space at all, and the windows a Xen guest sees
++	 * are invented -- pcifront hands out iomem_resource itself, and a PVH
++	 * guest with no host bridge _CRS gets Linux's catch-all default. There
++	 * is nothing meaningful to reserve, and reserving it leaves no usable
++	 * IOVA space whatsoever.
++	 */
++	if (dev_is_pci(dev) && !xen_iommu_manages_iova(dev)) {
+ 		ret = iova_reserve_pci_windows(to_pci_dev(dev), iovad);
+ 		if (ret)
+ 			return ret;
+diff --git a/drivers/iommu/iommu-priv.h b/drivers/iommu/iommu-priv.h
+index c95394cd03a7..292a73b1dd1d 100644
+--- a/drivers/iommu/iommu-priv.h
++++ b/drivers/iommu/iommu-priv.h
+@@ -7,6 +7,15 @@
+ #include <linux/iommu.h>
+ #include <linux/msi.h>
+ 
++#ifdef CONFIG_XEN_IOMMU
++bool xen_iommu_manages_iova(struct device *dev);
++#else
++static inline bool xen_iommu_manages_iova(struct device *dev)
++{
++	return false;
++}
++#endif
++
+ static inline const struct iommu_ops *dev_iommu_ops(struct device *dev)
+ {
+ 	/*
+diff --git a/drivers/iommu/xen-iommu.c b/drivers/iommu/xen-iommu.c
+index d43fd5a869a3..56b36160b378 100644
+--- a/drivers/iommu/xen-iommu.c
++++ b/drivers/iommu/xen-iommu.c
+@@ -13,6 +13,8 @@
+ #include <linux/err.h>
+ #include <linux/module.h>
+ #include <linux/iommu.h>
++
++#include "iommu-priv.h"
+ #include <linux/pci.h>
+ #include <linux/printk.h>
+ #include <linux/stddef.h>
+@@ -372,6 +374,11 @@ static struct iommu_ops xen_iommu_ops = {
+ 	},
+ };
+ 
++bool xen_iommu_manages_iova(struct device *dev)
++{
++	return dev->iommu && dev_iommu_ops(dev) == &xen_iommu_ops;
++}
++
+ static int __init xen_iommu_init(void)
+ {
+ 	long ret;
+-- 
+2.55.0
+
