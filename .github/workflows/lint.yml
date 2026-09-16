@@ -13,7 +13,7 @@ jobs:
   format:
     runs-on:
       group: Self Hosted
-      labels: edera-24
+      labels: edera-16
     env:
       SHFMT_VERSION: "3.12.0"
       SHELLCHECK_VERSION: "0.11.0"
