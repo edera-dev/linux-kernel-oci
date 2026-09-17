@@ -77,7 +77,20 @@ if [ ! -f "${KERNEL_SRC}/Makefile" ]; then
 		rm "${KERNEL_SRC}.txz"
 	fi
 
-	uv run "hack/build/patchlist.py" "${KERNEL_VERSION}" "${KERNEL_FLAVOR}" | while read -r PATCH_NAME; do
+	# Generate the patch list up front rather than piping it straight into the
+	# loop: in a pipeline the exit status of uv is discarded, so a failing
+	# patchlist.py would silently look like "no patches to apply".
+	if ! PATCH_LIST="$(uv run "hack/build/patchlist.py" "${KERNEL_VERSION}" "${KERNEL_FLAVOR}")"; then
+		echo "ERROR: failed to generate patch list for ${KERNEL_VERSION} (${KERNEL_FLAVOR})." >&2
+		exit 1
+	fi
+
+	while read -r PATCH_NAME; do
+		[ -n "${PATCH_NAME}" ] || continue
+		if [ ! -f "${KERNEL_DIR}/${PATCH_NAME}" ]; then
+			echo "ERROR: patch file not found: ${KERNEL_DIR}/${PATCH_NAME}" >&2
+			exit 1
+		fi
 		cd "${KERNEL_SRC}"
 		if [ "${KERNEL_SRC_IS_TAR}" = "1" ]; then
 			patch --verbose -p1 <"${KERNEL_DIR}/${PATCH_NAME}"
@@ -85,7 +98,9 @@ if [ ! -f "${KERNEL_SRC}/Makefile" ]; then
 			git --verbose apply "${KERNEL_DIR}/${PATCH_NAME}"
 		fi
 		cd "${KERNEL_DIR}"
-	done
+	done <<EOF
+${PATCH_LIST}
+EOF
 	cd "${KERNEL_DIR}"
 fi
 

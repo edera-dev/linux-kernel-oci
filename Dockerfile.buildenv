@@ -55,14 +55,62 @@ RUN case "${TARGETARCH}" in \
     done
 ENV PATH="/usr/lib/sccache:${PATH}"
 
+# The kernel build shells out to the repo's Python helpers from *inside* this
+# container - hack/build/common.sh runs `uv run patchlist.py` to pick the patch
+# set - so uv has to live in the image. setup-uv in the workflow only installs
+# it on the runner, which the container never sees.
+ARG UV_VERSION=0.12.15
+ARG UV_SHA256_AMD64=f97935763c04be3e692460a7aaeaaab8fc3b78fcf8b389da820b38ae7423a638
+ARG UV_SHA256_ARM64=0e9a3499b0587d449c9ff684c0160da607826e4af1cee220bc87f378702d3e08
+RUN case "${TARGETARCH}" in \
+      amd64) UV_ARCH=x86_64 UV_SHA256="${UV_SHA256_AMD64}" ;; \
+      arm64) UV_ARCH=aarch64 UV_SHA256="${UV_SHA256_ARM64}" ;; \
+      *) echo "unsupported TARGETARCH ${TARGETARCH}" >&2; exit 1 ;; \
+    esac && \
+    UV_DIST="uv-${UV_ARCH}-unknown-linux-gnu" && \
+    curl -Lf -o /tmp/uv.tar.gz "https://github.com/astral-sh/uv/releases/download/${UV_VERSION}/${UV_DIST}.tar.gz" && \
+    echo "${UV_SHA256}  /tmp/uv.tar.gz" | sha256sum -c - && \
+    tar -xz -C /tmp -f /tmp/uv.tar.gz && \
+    install -m 0755 "/tmp/${UV_DIST}/uv" /usr/local/bin/uv && \
+    install -m 0755 "/tmp/${UV_DIST}/uvx" /usr/local/bin/uvx && \
+    rm -rf /tmp/uv.tar.gz "/tmp/${UV_DIST}"
+
+# pyproject.toml requires >=3.14 but bookworm ships 3.11, so uv would fetch a
+# managed CPython mid-build on every run. Bake it in for the same reason the
+# compilers are baked in: the toolchain stays a reviewed input rather than a
+# build-day download. Keep in step with .python-version - a skew only costs a
+# runtime download, it does not break the build.
+ARG UV_PYTHON_VERSION=3.14.7
+ENV UV_PYTHON_INSTALL_DIR=/usr/local/share/uv/python
+RUN uv python install "${UV_PYTHON_VERSION}" && \
+    chmod -R a+rX /usr/local/share/uv
+
 RUN useradd -ms /bin/sh build
+
+# Warm uv's cache with the project's locked dependencies. The compile container
+# runs --rm, so nothing survives between builds: without this, every kernel
+# build re-fetches packaging and pyyaml from PyPI just to compute the patch
+# list, and a registry hiccup fails the build. The deb-installed python3 this
+# replaced had those baked in, so this keeps the patch step hermetic the way it
+# used to be. A uv.lock change only costs a fetch, it does not break the build.
+# link-mode=copy because the cache lives in the image while .venv is created
+# in the bind-mounted build tree; hardlinks across the two fail and uv warns
+# on every build otherwise.
+ENV UV_CACHE_DIR=/usr/local/share/uv/cache \
+    UV_LINK_MODE=copy
+COPY pyproject.toml uv.lock .python-version /tmp/warm/
+RUN cd /tmp/warm && uv sync --frozen && \
+    rm -rf /tmp/warm && \
+    chown -R build:build /usr/local/share/uv/cache
 
 # Self-describing package manifest: lets any two image digests be diffed
 # without external records (docker run <image> cat /usr/share/buildenv/packages.tsv).
 # The buildenv-diff workflow uses this to summarize dependabot digest bumps.
 RUN mkdir -p /usr/share/buildenv && \
     { dpkg-query -W -f '${Package}\t${Version}\t${Architecture}\n' | sort; \
-      printf 'sccache\t%s\tgithub-release\n' "${SCCACHE_VERSION}"; } \
+      printf 'sccache\t%s\tgithub-release\n' "${SCCACHE_VERSION}"; \
+      printf 'uv\t%s\tgithub-release\n' "${UV_VERSION}"; \
+      printf 'python\t%s\tuv-managed\n' "${UV_PYTHON_VERSION}"; } \
       >/usr/share/buildenv/packages.tsv
 
 LABEL org.opencontainers.image.source="https://github.com/edera-dev/linux-kernel-oci"
