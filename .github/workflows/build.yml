@@ -4,9 +4,10 @@ on:
   schedule:
     - cron: "0 0 * * 1"
   # A merge that changes a kernel config snippet changes the built kernel
-  # without bumping any version, so republish the release set now rather than
-  # waiting for the weekly cron. On main the tags carry no branch suffix, so
-  # this overwrites the canonical release tags with the new config content.
+  # without moving any kernel branch, so `new` would see nothing to do. Force a
+  # rebuild now rather than waiting for the weekly cron. On main the tags carry
+  # no branch suffix, so this overwrites the canonical tags with the new config
+  # content.
   push:
     branches:
       - main
@@ -17,7 +18,7 @@ on:
       spec:
         description: 'Build Specification'
         type: string
-        default: "only-latest-lts"
+        default: "new"
         required: true
       publish:
         description: 'Publish Builds'
@@ -35,8 +36,9 @@ jobs:
     uses: ./.github/workflows/matrix.yml
     secrets: inherit
     with:
-      # schedule/push carry no inputs, so this fallback is what the cron and
-      # the configs/** push actually build. Keep it equal to the
-      # workflow_dispatch default above.
-      spec: ${{ inputs.spec || 'only-latest-lts' }}
+      # schedule/push carry no inputs, so these fallbacks are what the cron and
+      # the configs/** push actually build. The cron only wants branches that
+      # have moved (`new`); a configs/** merge changed the build inputs without
+      # moving anything, so it has to force `rebuild`.
+      spec: ${{ inputs.spec || (github.event_name == 'push' && 'rebuild' || 'new') }}
       publish: ${{ inputs.publish == '' || inputs.publish }}

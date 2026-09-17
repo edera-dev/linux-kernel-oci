@@ -1,16 +1,24 @@
-import json
 import os
+import random
 import re
-
-import yaml
 import subprocess
+import sys
+import time
+import urllib.error
 import urllib.request
 from collections import OrderedDict
 from functools import cache
 
+import yaml
 from packaging.version import Version, parse
 
-from util import matches_constraints, list_remote_git_tags, format_image_name
+from util import (
+    format_image_name,
+    list_remote_git_tags,
+    matches_constraints,
+    maybe,
+    resolve_remote_branch,
+)
 
 try:
     from yaml import CLoader as Loader
@@ -21,6 +29,164 @@ with open("config.yaml", "r") as f:
     CONFIG = yaml.load(f, Loader)
 
 image_name_format = CONFIG["imageNameFormat"]
+
+KERNEL_CDN = "https://cdn.kernel.org/pub/linux/kernel"
+
+GITHUB_PREFIX = "https://github.com/"
+
+# git abbreviates to 12 characters for a repository the size of linux.git, and
+# the kernel's own scripts/setlocalversion does the same. Shorter prefixes are
+# not safely unique across the millions of objects in that history, and an
+# image tag that silently aliases two commits is worse than a long tag.
+SHORT_COMMIT_LENGTH = 12
+
+
+@cache
+def source_repo() -> str:
+    return CONFIG["source"]["repo"].rstrip("/")
+
+
+@cache
+def _github_slug() -> str:
+    """The `owner/name` of the configured source repo.
+
+    Resolving a branch to a commit only needs git, but reading one file out of
+    that commit (the Makefile, for the kernel version) and fetching the source
+    archive both go through GitHub's HTTP endpoints. Moving to a different
+    forge means teaching these two URL builders about it, which is why the
+    assumption fails loudly here rather than 404ing later.
+    """
+    repo = source_repo()
+    if not repo.startswith(GITHUB_PREFIX):
+        raise Exception(
+            "source.repo must be a https://github.com/ URL, got %s "
+            "(archive and raw-file URLs are GitHub-specific)" % repo
+        )
+    slug = repo[len(GITHUB_PREFIX) :].strip("/")
+    if slug.endswith(".git"):
+        slug = slug[: -len(".git")]
+    if slug.count("/") != 1:
+        raise Exception("source.repo is not an owner/name GitHub URL: %s" % repo)
+    return slug
+
+
+def source_archive_url(commit: str) -> str:
+    """Tarball of the tree at `commit`.
+
+    Addressed by commit rather than by branch so the URL is immutable: buildkit
+    caches the `ADD` by URL, and a branch-addressed URL would let a stale cache
+    entry silently serve the wrong source. The archive carries no .git
+    directory, so scripts/setlocalversion contributes nothing and `uname -r`
+    stays the plain kernel version, exactly as it did with kernel.org tarballs.
+    """
+    return "%s%s/archive/%s.tar.gz" % (GITHUB_PREFIX, _github_slug(), commit)
+
+
+def source_raw_url(commit: str, path: str) -> str:
+    return "https://raw.githubusercontent.com/%s/%s/%s" % (
+        _github_slug(),
+        commit,
+        path,
+    )
+
+
+def fetch_url_text(url: str, attempts: int = 6) -> str:
+    for attempt in range(attempts):
+        try:
+            with urllib.request.urlopen(url, timeout=60) as response:
+                return response.read().decode("utf-8")
+        except (urllib.error.URLError, TimeoutError) as error:
+            sys.stderr.write(
+                "fetching %s failed (attempt %d/%d): %s\n"
+                % (url, attempt + 1, attempts, error)
+            )
+            if attempt + 1 >= attempts:
+                raise
+            time.sleep(min(120, 10 * 2**attempt) + random.uniform(0, 5))
+
+
+MAKEFILE_VERSION_FIELD = re.compile(
+    r"^(VERSION|PATCHLEVEL|SUBLEVEL|EXTRAVERSION)\s*=\s*(.*?)\s*$"
+)
+
+
+def kernel_version_from_makefile(makefile: str) -> str:
+    """The kernel version a Makefile declares, e.g. "6.18.52" or "7.3.0-rc3".
+
+    The Edera branches carry no release tags of their own, so the Makefile is
+    the authority on what version a branch currently is. These are the same
+    four fields the kernel's own build uses to form KERNELRELEASE, so what we
+    tag an image with is what the kernel inside it reports.
+    """
+    fields = {}
+    for line in makefile.splitlines():
+        match = MAKEFILE_VERSION_FIELD.match(line)
+        if match and match.group(1) not in fields:
+            fields[match.group(1)] = match.group(2)
+    for required in ("VERSION", "PATCHLEVEL"):
+        if not fields.get(required):
+            raise Exception("kernel Makefile has no %s" % required)
+    version = "%s.%s.%s" % (
+        fields["VERSION"],
+        fields["PATCHLEVEL"],
+        fields.get("SUBLEVEL") or "0",
+    )
+    # "-rc3" and friends attach directly, matching how the kernel spells it.
+    return version + fields.get("EXTRAVERSION", "")
+
+
+@cache
+def resolve_branches() -> tuple[dict[str, any], ...]:
+    """Resolve every configured branch to a commit and a kernel version.
+
+    Everything downstream keys off this: the commit fixes the source archive
+    and the immutable image tag, the version fixes the moving tags.
+    """
+    repo = source_repo()
+    resolved = []
+    for branch_info in CONFIG["branches"]:
+        name = branch_info["name"]
+        ref = branch_info["ref"]
+        commit = resolve_remote_branch(repo, ref)
+        version = kernel_version_from_makefile(
+            fetch_url_text(source_raw_url(commit, "Makefile"))
+        )
+        resolved.append(
+            {
+                "name": name,
+                "ref": ref,
+                "repo": repo,
+                "commit": commit,
+                "short_commit": commit[:SHORT_COMMIT_LENGTH],
+                "version": version,
+                "aliases": list(maybe(branch_info, "aliases", [])),
+            }
+        )
+    return tuple(resolved)
+
+
+def branch_tags(branch: dict[str, any]) -> list[str]:
+    """Every tag a build of this branch publishes, immutable one first.
+
+    The `<version>-g<commit>` tag is unique to one commit and is never reused,
+    which is both what makes a rebuild detectable (see filter_new_builds) and
+    what lets a consumer pin to an exact tree. Everything after it moves.
+    """
+    version = branch["version"]
+    version_info = parse(version)
+    tags = ["%s-g%s" % (version, branch["short_commit"]), version]
+    # A prerelease must not claim the series tag: `7.3` belongs to 7.3 proper,
+    # not to the 7.3-rc3 that precedes it.
+    if not version_info.is_prerelease:
+        tags.append("%s.%s" % (version_info.major, version_info.minor))
+    tags.append(branch["name"])
+    tags += branch["aliases"]
+
+    unique = []
+    for tag in tags:
+        if tag not in unique:
+            unique.append(tag)
+    return unique
 
 
 @cache
@@ -41,35 +207,11 @@ def flavor_architectures(flavor_info: dict[str, any]) -> list[str]:
 
 
 @cache
-def get_current_kernel_releases() -> dict[str, any]:
-    with urllib.request.urlopen("https://www.kernel.org/releases.json") as response:
-        releases = json.load(response)
-        return releases
-
-
-@cache
-def get_all_kernel_releases() -> list[str]:
-    # Release tags (vX.Y[.Z]) map 1:1 to the published linux-X.Y[.Z].tar.xz
-    # artifacts; "-" excludes -rc and other pre-release tags. Tags only reach
-    # back to v2.6.11, but nothing anywhere near that old is buildable here.
-    releases = []
-    for tag in list_remote_git_tags(
-        "https://git.kernel.org/pub/scm/linux/kernel/git/stable/linux.git"
-    ):
-        if not tag.startswith("v"):
-            continue
-        kernel_version = tag[1:]
-        if "-" in kernel_version:
-            continue
-        releases.append(kernel_version)
-    return releases
-
-
-@cache
 def get_all_firmware_releases() -> list[str]:
     # Snapshot tags are pure YYYYMMDD and map 1:1 to the published
     # linux-firmware-YYYYMMDD.tar.xz artifacts, so lexicographic sort is
-    # chronological.
+    # chronological. This is the one remaining kernel.org dependency, and it
+    # has nothing to do with the kernel source.
     snapshots = []
     for tag in list_remote_git_tags(
         "https://git.kernel.org/pub/scm/linux/kernel/git/firmware/linux-firmware.git"
@@ -80,23 +222,6 @@ def get_all_firmware_releases() -> list[str]:
     snapshots.sort()
     snapshots.reverse()
     return snapshots
-
-
-def merge_matrix(matrix_list: list[list[dict[str, any]]]) -> list[dict[str, any]]:
-    all_builds = OrderedDict()  # type: dict[str, dict[str, any]]
-    for builds in matrix_list:
-        for item in builds:
-            key = "%s::%s::%s" % (item["version"], item["flavor"], item["arch"])
-            if key not in all_builds:
-                all_builds[key] = item
-            else:
-                for tag in item["tags"]:
-                    if tag not in all_builds[key]["tags"]:
-                        all_builds[key]["tags"].append(tag)
-
-    builds = list(all_builds.values())
-    builds.sort(key=lambda build: parse(build["version"]))
-    return builds
 
 
 def extract_base_images(builds: list[dict[str, any]]):
@@ -127,14 +252,16 @@ def find_existing_tags(images: list[str]) -> dict[str, list[str]]:
 
 
 def validate_produce_conflicts(builds: list[dict[str, any]]):
-    # produces are intentionally shared across arches for the same (version, flavor);
-    # each arch build pushes its single-platform image by digest, and the merge step
-    # later tags the combined manifest list. Only flag when the *same* image:tag is
-    # claimed by two different (version, flavor) combinations.
+    # produces are intentionally shared across arches for the same
+    # (branch, flavor); each arch build pushes its single-platform image by
+    # digest, and the merge step later tags the combined manifest list. Only
+    # flag when the *same* image:tag is claimed by two different
+    # (branch, flavor) combinations -- most plausibly two branches that have
+    # converged on one version, or that both claim an alias like `latest`.
     produce_owner = {}
 
     for build in builds:
-        owner = "%s::%s" % (build["version"], build["flavor"])
+        owner = "%s::%s" % (build["branch"], build["flavor"])
         for produce in build["produces"]:
             if produce in produce_owner and produce_owner[produce] != owner:
                 raise Exception(
@@ -145,6 +272,13 @@ def validate_produce_conflicts(builds: list[dict[str, any]]):
 
 
 def filter_new_builds(builds: list[dict[str, any]]) -> list[dict[str, any]]:
+    """Drop builds whose every published tag is already in the registry.
+
+    Because each build's tag list leads with `<version>-g<commit>`, a branch
+    that has moved always looks new here even when its kernel version has not
+    changed -- the normal case for a downstream branch picking up a patch
+    between upstream releases.
+    """
     images = extract_base_images(builds)
     existing = find_existing_tags(images)
     should_builds = []
@@ -163,77 +297,23 @@ def filter_new_builds(builds: list[dict[str, any]]) -> list[dict[str, any]]:
     return should_builds
 
 
-def limit_gh_builds(builds: list[dict[str, any]]) -> list[dict[str, any]]:
-    builds.sort(key=lambda build: parse(build["version"]))
-
-    if len(builds) > 250:
-        builds = builds[-250:]
-    return builds
-
-
-def is_release_current(version: str) -> bool:
-    current_kernel_releases = get_current_kernel_releases()
-    latest_stable = current_kernel_releases["latest_stable"]["version"]
-    is_current = False
-    if latest_stable is not None and version == latest_stable:
-        is_current = True
-        return is_current
-    for release in current_kernel_releases["releases"]:
-        if not release["moniker"] in ["stable", "longterm"]:
-            continue
-        if release["version"] == version:
-            is_current = True
-            break
-    return is_current
-
-
 def filter_matrix(
     builds: list[dict[str, any]], constraint: dict[str, any]
 ) -> list[dict[str, any]]:
     output_builds = []
     for build in builds:
-        version = build["version"]
-        version_info = parse(version)
-        flavor = build["flavor"]
-        is_current_release = is_release_current(version_info.base_version)
-        should_build = matches_constraints(
-            version_info,
-            flavor,
+        if matches_constraints(
+            build["branch"],
+            build["flavor"],
             constraint,
-            is_current_release=is_current_release,
             arch=build.get("arch"),
-        )
-        if should_build:
+        ):
             output_builds.append(build)
     return output_builds
 
 
-def filter_config_versions(builds: list[dict[str, any]]) -> list[dict[str, any]]:
-    output_builds = []
-    for build in builds:
-        version = build["version"]
-        version_info = parse(version)
-        flavor = build["flavor"]
-        is_current_release = is_release_current(version_info.base_version)
-        should_build = False
-        for constraint in CONFIG["versions"]:
-            if matches_constraints(
-                version_info, flavor, constraint, is_current_release=is_current_release
-            ):
-                should_build = True
-        if should_build:
-            output_builds.append(build)
-
-    return output_builds
-
-
-def generate_matrix(tags: dict[str, str]) -> list[dict[str, any]]:
-    unique_versions = list(set(tags.values()))
-    unique_versions.sort(key=Version)
-
+def generate_matrix(branches: list[dict[str, any]]) -> list[dict[str, any]]:
     version_builds = []
-
-    kernel_cdn = "https://cdn.kernel.org/pub/linux/kernel"
 
     # TODO later on we could get cute and let the config drive
     # which firmware snapshot to use - but as far as the official firmware goes
@@ -243,99 +323,74 @@ def generate_matrix(tags: dict[str, str]) -> list[dict[str, any]]:
     latest_firmware = all_firmware_releases[0]
 
     firmware_url = "%s/firmware/linux-firmware-%s.tar.xz" % (
-        kernel_cdn,
+        KERNEL_CDN,
         latest_firmware,
     )
 
     firmware_sig_url = "%s/firmware/linux-firmware-%s.tar.sign" % (
-        kernel_cdn,
+        KERNEL_CDN,
         latest_firmware,
     )
 
-    for version in unique_versions:
-        version_tags = []
-        for tag in tags:
-            tag_version = tags[tag]
-            if tag_version == version:
-                version_tags.append(tag)
+    for branch in branches:
+        version = branch["version"]
         version_info = parse(version)
+        src_url = source_archive_url(branch["commit"])
+        base_tags = branch_tags(branch)
 
-        version_for_url = version
-        if version_info.micro == 0:
-            version_for_url = "%s.%s" % (version_info.major, version_info.minor)
-
-        src_url = "%s/v%s.x/linux-%s.tar.xz" % (
-            kernel_cdn,
-            version_info.major,
-            version_for_url,
-        )
         for flavor_info in CONFIG["flavors"]:
             flavor = flavor_info["name"]
             if "constraints" in flavor_info and not matches_constraints(
-                version_info, flavor, flavor_info["constraints"]
+                branch["name"], flavor, flavor_info["constraints"]
             ):
                 continue
 
             architectures = flavor_architectures(flavor_info)
 
-            if "local_tags" in flavor_info:
-                for local_tag in flavor_info["local_tags"]:
-                    produces = []
-                    local_version_tags = []
-                    for tag in version_tags:
-                        local_append = tag + "-" + local_tag
-                        local_version_tags.append(local_append)
-                        kernel_output = format_image_name(
+            # A flavor with local_tags publishes one distinct image per tag
+            # (today: one per NVIDIA driver series), each carrying the whole
+            # tag set with the local tag appended.
+            local_tags = maybe(flavor_info, "local_tags", [None])
+            for local_tag in local_tags:
+                if local_tag is None:
+                    build_version = version
+                    tags = list(base_tags)
+                else:
+                    build_version = "%s+%s" % (version, local_tag)
+                    tags = ["%s-%s" % (tag, local_tag) for tag in base_tags]
+
+                produces = []
+                for tag in tags:
+                    produces.append(
+                        format_image_name(
                             image_name_format,
                             flavor,
                             version_info,
                             "[flavor]-kernel",
-                            local_append,
+                            tag,
                         )
-                        kernel_sdk_output = format_image_name(
+                    )
+                    produces.append(
+                        format_image_name(
                             image_name_format,
                             flavor,
                             version_info,
                             "[flavor]-kernel-sdk",
-                            local_append,
+                            tag,
                         )
-                        produces.append(kernel_output)
-                        produces.append(kernel_sdk_output)
-                    for arch in architectures:
-                        version_builds.append(
-                            {
-                                "version": version + "+" + local_tag,
-                                "firmware_url": firmware_url,
-                                "firmware_sig_url": firmware_sig_url,
-                                "tags": local_version_tags,
-                                "source": src_url,
-                                "flavor": flavor,
-                                "arch": arch,
-                                "produces": produces,
-                            }
-                        )
-            else:
-                produces = []
-                for tag in version_tags:
-                    kernel_output = format_image_name(
-                        image_name_format, flavor, version_info, "[flavor]-kernel", tag
                     )
-                    kernel_sdk_output = format_image_name(
-                        image_name_format,
-                        flavor,
-                        version_info,
-                        "[flavor]-kernel-sdk",
-                        tag,
-                    )
-                    produces.append(kernel_output)
-                    produces.append(kernel_sdk_output)
+
                 for arch in architectures:
                     version_builds.append(
                         {
-                            "version": version,
+                            "branch": branch["name"],
+                            "ref": branch["ref"],
+                            "repo": branch["repo"],
+                            "commit": branch["commit"],
+                            "version": build_version,
                             "firmware_url": firmware_url,
                             "firmware_sig_url": firmware_sig_url,
-                            "tags": version_tags,
+                            "tags": tags,
                             "source": src_url,
                             "flavor": flavor,
                             "arch": arch,
@@ -343,6 +398,10 @@ def generate_matrix(tags: dict[str, str]) -> list[dict[str, any]]:
                         }
                     )
     return version_builds
+
+
+def generate_full_matrix() -> list[dict[str, any]]:
+    return generate_matrix(list(resolve_branches()))
 
 
 def summarize_matrix(builds: list[dict[str, any]]):
@@ -358,10 +417,12 @@ def summarize_matrix(builds: list[dict[str, any]]):
                 image_names.append(image_name)
         tags.sort()
         print(
-            "build %s %s for %s with tags %s to %s on %s"
+            "build %s %s (%s @ %s) for %s with tags %s to %s on %s"
             % (
                 build["flavor"],
                 build["version"],
+                build["branch"],
+                build["commit"][:SHORT_COMMIT_LENGTH],
                 build["arch"],
                 ", ".join(tags),
                 ", ".join(image_names),
@@ -370,102 +431,13 @@ def summarize_matrix(builds: list[dict[str, any]]):
         )
 
 
-def build_release_tags(versions: list[str]) -> dict[str, str]:
-    tags = {}
-    for raw_version in versions:
-        parsed_ver = parse(raw_version)
-        # Hardcode skip of pre-5.x.x kernels
-        if parsed_ver.major < 5:
-            print(f"skipping {raw_version}, too old to support")
-            continue
-        major = str(parsed_ver.major)
-        major_minor = "%s.%s" % (parsed_ver.major, parsed_ver.minor)
-        if major not in tags or parse(tags[major]) < parsed_ver:
-            tags[major] = raw_version
-        if major_minor not in tags or parse(tags[major_minor]) < parsed_ver:
-            tags[major_minor] = raw_version
-    for tag in list(tags.keys()):
-        tags[tags[tag]] = tags[tag]
-    return tags
-
-
-def generate_stable_matrix() -> list[dict[str, any]]:
-    current_kernel_releases = get_current_kernel_releases()
-    latest_stable = current_kernel_releases["latest_stable"]["version"]
-    versions = [
-        r["version"]
-        for r in current_kernel_releases["releases"]
-        if r["moniker"] in ["stable", "longterm"]
-    ]
-    tags = build_release_tags(versions)
-    tags["stable"] = latest_stable
-    tags["latest"] = latest_stable
-    return generate_matrix(tags)
-
-
-def generate_lts_matrix() -> list[dict[str, any]]:
-    current_kernel_releases = get_current_kernel_releases()
-    versions = [
-        r["version"]
-        for r in current_kernel_releases["releases"]
-        if r["moniker"] == "longterm"
-    ]
-    return generate_matrix(build_release_tags(versions))
-
-
-def generate_backbuild_matrix() -> list[dict[str, any]]:
-    tags = {}
-    major_minors = {}
-
-    all_releases = get_all_kernel_releases()
-    for version in all_releases:
-        parts = parse(version)
-        major_minor = "%s.%s" % (parts.major, parts.minor)
-
-        if major_minor in tags:
-            existing = tags[major_minor]
-            if parse(existing) < parts:
-                tags[major_minor] = version
-                major_minors[major_minor] = version
-        else:
-            tags[major_minor] = version
-            major_minors[major_minor] = version
-
-    for tag in list(tags.keys()):
-        version = tags[tag]
-        tags[version] = version
-
-    current_kernel_releases = get_current_kernel_releases()
-    for release in current_kernel_releases["releases"]:
-        if not release["moniker"] in ["stable", "longterm"]:
-            continue
-        for key in list(tags.keys()):
-            if tags[key] == release["version"]:
-                tags.pop(key)
-        for key in list(major_minors.keys()):
-            if major_minors[key] == release["version"]:
-                major_minors.pop(key)
-        parts = parse(release["version"])
-        major_minor = "%s.%s" % (parts.major, parts.minor)
-        if major_minor in major_minors:
-            major_minors.pop(major_minor)
-        if major_minor in tags:
-            tags.pop(major_minor)
-    return generate_matrix(tags)
-
-
 def pick_runner(build: dict[str, any]) -> str:
-    version: str = build["version"]
-    version_info: Version = parse(version)
-    flavor: str = build["flavor"]
-    arch: str = build["arch"]
     for runner in CONFIG["runners"]:
         if matches_constraints(
-            version_info,
-            flavor,
+            build["branch"],
+            build["flavor"],
             runner,
-            is_current_release=is_release_current(version_info.base_version),
-            arch=arch,
+            arch=build["arch"],
         ):
             return runner["name"]
     raise Exception("No runner found for build %s" % build)
@@ -477,28 +449,34 @@ def fill_runners(builds: list[dict[str, any]]):
 
 
 def sort_matrix(builds: list[dict[str, any]]):
-    builds.sort(key=lambda build: Version(build["version"]))
+    builds.sort(
+        key=lambda build: (Version(build["version"]), build["flavor"], build["arch"])
+    )
 
 
 def generate_merges(builds: list[dict[str, any]]) -> list[dict[str, any]]:
-    """Group per-arch builds into one merge entry per (version, flavor).
+    """Group per-arch builds into one merge entry per (branch, version, flavor).
 
-    The merge job runs after all per-arch build jobs for that (version, flavor)
-    complete; it stitches the single-platform pushes into a manifest list per
-    produced image:tag.
+    The merge job runs after all per-arch build jobs for that group complete;
+    it stitches the single-platform pushes into a manifest list per produced
+    image:tag.
     """
     merges = OrderedDict()  # type: dict[str, dict[str, any]]
     for build in builds:
-        key = "%s::%s" % (build["version"], build["flavor"])
+        key = "%s::%s::%s" % (build["branch"], build["version"], build["flavor"])
         if key not in merges:
             merges[key] = {
+                "branch": build["branch"],
                 "version": build["version"],
                 "flavor": build["flavor"],
                 "tags": list(build["tags"]),
                 "produces": list(build["produces"]),
                 "archs": [build["arch"]],
                 # Carried for SBOM generation in the merge job; identical across
-                # archs for a given (version, flavor).
+                # archs for a given (branch, flavor).
+                "repo": build["repo"],
+                "ref": build["ref"],
+                "commit": build["commit"],
                 "source": build["source"],
                 "firmware_url": build["firmware_url"],
             }

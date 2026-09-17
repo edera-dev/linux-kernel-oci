@@ -19,5 +19,5 @@ jobs:
     uses: ./.github/workflows/matrix.yml
     secrets: inherit
     with:
-      spec: "only-latest-lts:flavor=host,zone,zone-nvidiagpu"
+      spec: "rebuild:branch=6.18-lts;flavor=host,zone,zone-nvidiagpu"
       publish: false
