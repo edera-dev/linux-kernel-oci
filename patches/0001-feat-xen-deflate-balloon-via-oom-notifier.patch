@@ -80,7 +80,7 @@ index 8c44a25a7d2b..85b6cfe53b28 100644
 +	.notifier_call = balloon_oom_notify,
 +};
 +
- static int __init balloon_add_regions(void)
+ static int __init balloon_add_regions(bool append)
  {
  	unsigned long start_pfn, pages;
 @@ -773,6 +829,8 @@ static int __init balloon_init(void)
