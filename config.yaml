@@ -12,6 +12,12 @@ flavors:
   - aarch64
   constraints:
     lower: '6.1'
+- name: zone-kvm
+  # zone kernel built with kvm and nbd enabled for e2e testing in the protect repo
+  architectures:
+  - x86_64
+  constraints:
+    lower: '6.1'
 - name: zone-amdgpu
   constraints:
     lower: '6.1'
