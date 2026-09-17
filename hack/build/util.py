@@ -40,93 +40,62 @@ def maybe(m: dict[str, any], k: str, default_value: any = None) -> any:
 
 
 def matches_constraints(
-    version: Version,
+    branch: str,
     flavor: str,
     constraints: dict[str, any],
-    is_current_release=None,
     arch: Optional[str] = None,
 ) -> bool:
+    """Does a (branch, flavor, arch) build match a constraint block?
+
+    Constraints are matched on names, not version ranges: the kernel version is
+    a property of whatever edera-dev/linux branch is being built, not something
+    this repo picks, so anything that wants to scope itself to a particular
+    kernel says which branch it means.
+
+    Recognized keys: `branches`, `flavors`, `arch`, and `any` (a list of
+    constraint blocks, matching if any one of them does). A key that is absent
+    places no restriction; an empty constraint block matches everything.
+    """
     if "any" in constraints:
         for constraint in constraints["any"]:
-            if matches_constraints(
-                version,
-                flavor,
-                constraint,
-                is_current_release=is_current_release,
-                arch=arch,
-            ):
+            if matches_constraints(branch, flavor, constraint, arch=arch):
                 return True
         return False
 
-    major_minor_series = "%s.%s" % (version.major, version.minor)
-    major_series = str(version.major)
-
+    branches = maybe(constraints, "branches")
     flavors = maybe(constraints, "flavors")
-    lower = maybe(constraints, "lower")
-    only_series = maybe(constraints, "series")
-    upper = maybe(constraints, "upper")
-    exact = maybe(constraints, "exact")
-    current = maybe(constraints, "current")
     arch_constraint = maybe(constraints, "arch")
 
-    if lower is not None:
-        lower = Version(lower)
-    if upper is not None:
-        upper = Version(upper)
-    if exact is str:
-        exact = [exact]
+    if type(branches) is str:
+        branches = [branches]
+    if type(flavors) is str:
+        flavors = [flavors]
+    if type(arch_constraint) is str:
+        arch_constraint = [arch_constraint]
 
-    applies = True
-
-    if is_current_release is not None and current is not None:
-        if is_current_release != current:
-            applies = False
-
-    if lower is None and upper is not None:
-        if version > upper:
-            applies = False
-
-    if lower is not None and upper is None:
-        if version < lower:
-            applies = False
-
-    if lower is not None and upper is not None:
-        if version < lower or version > upper:
-            applies = False
-
-    if type(only_series) is str:
-        only_series = [only_series]
-
-    if only_series is not None and (
-        (major_minor_series not in only_series) and (major_series not in only_series)
-    ):
-        applies = False
+    if branches is not None and branch is not None and branch not in branches:
+        return False
 
     if flavors is not None and flavor not in flavors:
-        applies = False
+        return False
 
-    version_string = str(version)
-    if exact is not None and not version_string in exact:
-        applies = False
+    if arch_constraint is not None and arch is not None and arch not in arch_constraint:
+        return False
 
-    if arch_constraint is not None and arch is not None:
-        if type(arch_constraint) is str:
-            arch_constraint = [arch_constraint]
-        if arch not in arch_constraint:
-            applies = False
-
-    return applies
+    return True
 
 
-def list_remote_git_tags(url: str, attempts: int = 6) -> list[str]:
-    # ls-remote fetches only the tag advertisement (protocol v2 filters it
-    # server-side), so this avoids both a clone and rsync.kernel.org's
-    # aggressive concurrent-connection cap. Retries cover transient network
-    # failures, with stderr surfaced so the failure mode shows up in CI logs.
+def _git_ls_remote(
+    args: list[str], url: str, patterns: list[str] = [], attempts: int = 6
+) -> bytes:
+    # ls-remote fetches only the ref advertisement (protocol v2 filters it
+    # server-side), so this avoids a clone entirely. Retries cover transient
+    # network failures, with stderr surfaced so the failure mode shows up in CI
+    # logs.
     for attempt in range(attempts):
         try:
             result = subprocess.run(
-                ["git", "ls-remote", "--tags", "--refs", url],
+                ["git", "ls-remote", *args, url, *patterns],
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
                 # git has no network timeout of its own, so without this a
@@ -136,7 +105,7 @@ def list_remote_git_tags(url: str, attempts: int = 6) -> list[str]:
             )
         except subprocess.TimeoutExpired:
             sys.stderr.write(
-                "listing tags of %s timed out (attempt %d/%d)\n"
+                "listing refs of %s timed out (attempt %d/%d)\n"
                 % (url, attempt + 1, attempts)
             )
             if attempt + 1 < attempts:
@@ -146,14 +115,19 @@ def list_remote_git_tags(url: str, attempts: int = 6) -> list[str]:
         if result.returncode == 0:
             break
         sys.stderr.write(
-            "listing tags of %s failed (attempt %d/%d):\n%s\n"
+            "listing refs of %s failed (attempt %d/%d):\n%s\n"
             % (url, attempt + 1, attempts, result.stderr.decode("utf-8", "replace"))
         )
         if attempt + 1 < attempts:
             time.sleep(min(120, 10 * 2**attempt) + random.uniform(0, 5))
     result.check_returncode()
+    return result.stdout
+
+
+def list_remote_git_tags(url: str, attempts: int = 6) -> list[str]:
+    stdout = _git_ls_remote(["--tags", "--refs"], url, attempts=attempts)
     tags = []
-    for line in result.stdout.splitlines(keepends=False):
+    for line in stdout.splitlines(keepends=False):
         # "<oid>\trefs/tags/<tag>"
         parts = line.decode("utf-8").strip().split("\t")
         if len(parts) != 2 or not parts[1].startswith("refs/tags/"):
@@ -162,30 +136,48 @@ def list_remote_git_tags(url: str, attempts: int = 6) -> list[str]:
     return tags
 
 
+def resolve_remote_branch(url: str, branch: str, attempts: int = 6) -> str:
+    """Resolve a branch name on a remote to the commit it currently points at.
+
+    Matching is against refs/heads/<branch> exactly: `--heads <branch>` would
+    also match a ref whose name merely ends in the same path component, and
+    silently building the wrong branch is far worse than failing here.
+    """
+    ref = "refs/heads/%s" % branch
+    stdout = _git_ls_remote(["--heads"], url, patterns=[ref], attempts=attempts)
+    for line in stdout.splitlines(keepends=False):
+        parts = line.decode("utf-8").strip().split("\t")
+        if len(parts) != 2:
+            continue
+        if parts[1] == ref:
+            return parts[0]
+    raise Exception("branch %s does not exist on %s" % (branch, url))
+
+
 def parse_text_bool(text: str) -> bool:
     return text.lower() in ["1", "true", "yes"]
 
 
 def parse_text_constraint(text: str) -> dict[str, any]:
+    """Parse a build-spec constraint string, e.g. "branch=mainline;flavor=zone".
+
+    Keys mirror the constraint blocks in config.yaml. `branch` and `flavor` are
+    accepted as singular spellings of `branches` and `flavors`; values are
+    comma-separated.
+    """
     constraint = {}
     for item in text.split(";"):
         item = item.strip()
+        if not item:
+            continue
         parts = item.split("=", maxsplit=1)
         if len(parts) != 2:
             parts = [parts[0], ""]
         key = parts[0]
         value = parts[1]
-        if key == "current":
-            constraint[key] = parse_text_bool(value)
-        elif key == "lower" or key == "upper":
-            constraint[key] = value
-        elif (
-            key == "flavors"
-            or key == "flavor"
-            or key == "series"
-            or key == "exact"
-            or key == "arch"
-        ):
+        if key in ["branch", "branches", "flavor", "flavors", "arch"]:
+            if key == "branch":
+                key = "branches"
             if key == "flavor":
                 key = "flavors"
             constraint[key] = value.split(",")
