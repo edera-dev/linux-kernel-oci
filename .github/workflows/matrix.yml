@@ -52,8 +52,9 @@ jobs:
       run: |
         # Split matrix.json into two strategy-matrix-shaped outputs: one keyed
         # on `builds` (per-arch build jobs) and one on `merges` (per
-        # (version, flavor) manifest-list assembly jobs). Each iteration of the
-        # build job sees matrix.builds.* and each merge sees matrix.merges.*.
+        # (branch, version, flavor) manifest-list assembly jobs). Each iteration
+        # of the build job sees matrix.builds.* and each merge sees
+        # matrix.merges.*.
         BUILDS=$(jq -c '{builds: .builds}' matrix.json)
         MERGES=$(jq -c '{merges: .merges}' matrix.json)
         echo "builds=${BUILDS}" >> "${GITHUB_OUTPUT}"
@@ -62,7 +63,7 @@ jobs:
       builds: "${{ steps.capture-matrix.outputs.builds }}"
       merges: "${{ steps.capture-matrix.outputs.merges }}"
   build:
-    name: "build ${{ matrix.builds.version }} ${{ matrix.builds.flavor }} ${{ matrix.builds.arch }}"
+    name: "build ${{ matrix.builds.branch }} ${{ matrix.builds.version }} ${{ matrix.builds.flavor }} ${{ matrix.builds.arch }}"
     needs: matrix
     strategy:
       fail-fast: false
@@ -72,6 +73,9 @@ jobs:
       KERNEL_PUBLISH: "${{ inputs.publish }}"
       KERNEL_VERSION: "${{ matrix.builds.version }}"
       KERNEL_SRC_URL: "${{ matrix.builds.source }}"
+      KERNEL_SRC_REPO: "${{ matrix.builds.repo }}"
+      KERNEL_SRC_REF: "${{ matrix.builds.ref }}"
+      KERNEL_SRC_COMMIT: "${{ matrix.builds.commit }}"
       FIRMWARE_URL: "${{ matrix.builds.firmware_url }}"
       FIRMWARE_SIG_URL: "${{ matrix.builds.firmware_sig_url }}"
       KERNEL_FLAVOR: "${{ matrix.builds.flavor }}"
@@ -158,7 +162,7 @@ jobs:
       - name: upload docker script
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: "build-${{ matrix.builds.version }}-${{ matrix.builds.flavor }}-${{ matrix.builds.arch }}.sh"
+          name: "build-${{ matrix.builds.branch }}-${{ matrix.builds.version }}-${{ matrix.builds.flavor }}-${{ matrix.builds.arch }}.sh"
           path: "docker.sh"
           compression-level: 0
       - name: run docker script
@@ -174,7 +178,7 @@ jobs:
         if: ${{ inputs.publish }}
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: "digests-${{ matrix.builds.version }}-${{ matrix.builds.flavor }}-${{ matrix.builds.arch }}"
+          name: "digests-${{ matrix.builds.branch }}-${{ matrix.builds.version }}-${{ matrix.builds.flavor }}-${{ matrix.builds.arch }}"
           path: "digests.json"
           if-no-files-found: error
           compression-level: 0
@@ -182,7 +186,7 @@ jobs:
   merge:
     # Stitch the per-arch single-platform pushes from `build` into multi-arch
     # manifest lists. Only runs when publishing; no-op when nothing was pushed.
-    name: "merge ${{ matrix.merges.version }} ${{ matrix.merges.flavor }}"
+    name: "merge ${{ matrix.merges.branch }} ${{ matrix.merges.version }} ${{ matrix.merges.flavor }}"
     needs: [matrix, build]
     if: ${{ inputs.publish && needs.matrix.outputs.merges != '' }}
     strategy:
@@ -197,6 +201,9 @@ jobs:
       KERNEL_FLAVOR: "${{ matrix.merges.flavor }}"
       KERNEL_PRODUCES: "${{ join(matrix.merges.produces, ',') }}"
       KERNEL_SRC_URL: "${{ matrix.merges.source }}"
+      KERNEL_SRC_REPO: "${{ matrix.merges.repo }}"
+      KERNEL_SRC_REF: "${{ matrix.merges.ref }}"
+      KERNEL_SRC_COMMIT: "${{ matrix.merges.commit }}"
       FIRMWARE_URL: "${{ matrix.merges.firmware_url }}"
       DIGESTS_DIR: digests
     steps:
@@ -230,14 +237,14 @@ jobs:
           # Each per-arch build uploads its digests under a uniquely-named
           # artifact; pattern + default merge-multiple=false drops each artifact
           # into its own subdirectory under digests/.
-          pattern: "digests-${{ matrix.merges.version }}-${{ matrix.merges.flavor }}-*"
+          pattern: "digests-${{ matrix.merges.branch }}-${{ matrix.merges.version }}-${{ matrix.merges.flavor }}-*"
           path: digests
       - name: generate merge script
         run: uv run ./hack/build/generate-merge-script.py
       - name: upload merge script
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: "merge-${{ matrix.merges.version }}-${{ matrix.merges.flavor }}.sh"
+          name: "merge-${{ matrix.merges.branch }}-${{ matrix.merges.version }}-${{ matrix.merges.flavor }}.sh"
           path: "merge.sh"
           compression-level: 0
       - name: run merge script

@@ -9,13 +9,13 @@ outputting a delta variant config containing only the changed/added lines from t
 
 Arguments:
 		<edera_base_flavor>						The edera flavor to start from ("zone" or "host")
-		<edera_flavor_kver>           The edera flavor kernel version to base this off of (recommend oldest-supported kver)
+		<edera_flavor_kver>           The published image tag to base this off of (a version like 6.18.52, or a branch tag like 6.18-lts)
 		<arch>												Target OCI image architecture (amd64, arm64)
 		<customized_variant_config>		Path to the customized, variant kernel config file to compare against. May be complete, or a fragment.
 		<output_delta_variant_config>	Path where the delta config containing only modified options will be saved.
 
 Example:
-		$(basename "$0") zone 5.4.293 amd64 /boot/myflavorvariant.config zone-myflavorvariant.config
+		$(basename "$0") zone 6.18-lts amd64 /boot/myflavorvariant.config zone-myflavorvariant.config
 
 Notes:
 		- The script will fetch the latest released flavor config for the specified flavor from ghcr.io/edera-dev

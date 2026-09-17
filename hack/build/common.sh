@@ -28,8 +28,13 @@ if [ -z "${KERNEL_VERSION}" ]; then
 	exit 1
 fi
 
+# Kernel sources come from Edera's downstream tree (see config.yaml); there is
+# no upstream fallback to derive a URL from, so this must be supplied. The
+# matrix hands it to us as an immutable commit archive; the Dockerfile stages
+# that into the build container as a local file.
 if [ -z "${KERNEL_SRC_URL}" ]; then
-	KERNEL_SRC_URL="$(./hack/build/cdn-url.sh "${KERNEL_VERSION}")"
+	echo "ERROR: KERNEL_SRC_URL must be specified." >&2
+	exit 1
 fi
 
 if [ -z "${KERNEL_FLAVOR}" ]; then
@@ -44,64 +49,36 @@ if [ -z "${KERNEL_BUILD_JOBS}" ]; then
 	KERNEL_BUILD_JOBS="$((KERNEL_BUILD_JOBS + 1))"
 fi
 
-# In the case of a stable release, e.g. 6.10.7, this becomes 6.10.
-MAINLINE_VERSION="${KERNEL_VERSION%.*}"
-# In the case of a mainline release, e.g. 6.10, this will collapse to
-# 6 -> 6.  In that case, ${KERNEL_VERSION} is the mainline version.
-if [ "${MAINLINE_VERSION}" = "${MAINLINE_VERSION%.*}" ]; then
-	MAINLINE_VERSION="${KERNEL_VERSION}"
-fi
-
+# KERNEL_SRC_URL is one of:
+#   - a path to a local source archive (what CI uses: the Dockerfile ADDs the
+#     commit archive into the build container, and the compile step points here
+#     at that file),
+#   - an http(s) URL to a source archive,
+#   - "git::<url>[::<ref>]", which clones <ref> directly. Handy locally for
+#     building a work-in-progress branch without pushing it anywhere.
+#
+# No patches are applied either way: every Edera change is a commit on the
+# branch being built, so the tree that lands here is the tree that gets
+# compiled.
 if [ ! -f "${KERNEL_SRC}/Makefile" ]; then
 	rm -rf "${KERNEL_SRC}"
 	mkdir -p "${KERNEL_SRC}"
-	KERNEL_SRC_IS_TAR="1"
-	if [ ! -f "${KERNEL_SRC_URL}" ]; then
-		if echo "${KERNEL_SRC_URL}" | grep -E '^git::' >/dev/null; then
-			KERNEL_SRC_IS_TAR="0"
-			KERNEL_GIT_URL="$(echo "${KERNEL_SRC_URL}" | awk -F '::' '{print $2}')"
-			KERNEL_GIT_REF="$(echo "${KERNEL_SRC_URL}" | awk -F '::' '{print $3}')"
-			if [ -z "${KERNEL_GIT_REF}" ]; then
-				KERNEL_GIT_REF="master"
-			fi
-			git clone "${KERNEL_GIT_URL}" -b "${KERNEL_GIT_REF}" "${KERNEL_SRC}"
-		else
-			curl --progress-bar -Lf -o "${KERNEL_SRC}.txz" "${KERNEL_SRC_URL}"
+	if [ -f "${KERNEL_SRC_URL}" ]; then
+		mv "${KERNEL_SRC_URL}" "${KERNEL_SRC}.tar"
+		tar xf "${KERNEL_SRC}.tar" --strip-components 1 -C "${KERNEL_SRC}"
+		rm "${KERNEL_SRC}.tar"
+	elif echo "${KERNEL_SRC_URL}" | grep -E '^git::' >/dev/null; then
+		KERNEL_GIT_URL="$(echo "${KERNEL_SRC_URL}" | awk -F '::' '{print $2}')"
+		KERNEL_GIT_REF="$(echo "${KERNEL_SRC_URL}" | awk -F '::' '{print $3}')"
+		if [ -z "${KERNEL_GIT_REF}" ]; then
+			KERNEL_GIT_REF="master"
 		fi
+		git clone --depth 1 "${KERNEL_GIT_URL}" -b "${KERNEL_GIT_REF}" "${KERNEL_SRC}"
 	else
-		mv "${KERNEL_SRC_URL}" "${KERNEL_SRC}.txz"
+		curl --progress-bar -Lf -o "${KERNEL_SRC}.tar" "${KERNEL_SRC_URL}"
+		tar xf "${KERNEL_SRC}.tar" --strip-components 1 -C "${KERNEL_SRC}"
+		rm "${KERNEL_SRC}.tar"
 	fi
-
-	if [ "${KERNEL_SRC_IS_TAR}" = "1" ]; then
-		tar xf "${KERNEL_SRC}.txz" --strip-components 1 -C "${KERNEL_SRC}"
-		rm "${KERNEL_SRC}.txz"
-	fi
-
-	# Generate the patch list up front rather than piping it straight into the
-	# loop: in a pipeline the exit status of uv is discarded, so a failing
-	# patchlist.py would silently look like "no patches to apply".
-	if ! PATCH_LIST="$(uv run "hack/build/patchlist.py" "${KERNEL_VERSION}" "${KERNEL_FLAVOR}")"; then
-		echo "ERROR: failed to generate patch list for ${KERNEL_VERSION} (${KERNEL_FLAVOR})." >&2
-		exit 1
-	fi
-
-	while read -r PATCH_NAME; do
-		[ -n "${PATCH_NAME}" ] || continue
-		if [ ! -f "${KERNEL_DIR}/${PATCH_NAME}" ]; then
-			echo "ERROR: patch file not found: ${KERNEL_DIR}/${PATCH_NAME}" >&2
-			exit 1
-		fi
-		cd "${KERNEL_SRC}"
-		if [ "${KERNEL_SRC_IS_TAR}" = "1" ]; then
-			patch --verbose -p1 <"${KERNEL_DIR}/${PATCH_NAME}"
-		else
-			git --verbose apply "${KERNEL_DIR}/${PATCH_NAME}"
-		fi
-		cd "${KERNEL_DIR}"
-	done <<EOF
-${PATCH_LIST}
-EOF
-	cd "${KERNEL_DIR}"
 fi
 
 OUTPUT_DIR="${KERNEL_DIR}/target"
@@ -202,7 +179,7 @@ CONFIG_GZ_PATH="${OUTPUT_DIR}/config.gz"
 # shellcheck disable=SC2034
 SDK_PATH="${OUTPUT_DIR}/sdk.tar.gz"
 
-# we often build older kernels that have warnings
-# this will ensure they are logged but do not
-# prevent building of the kernel.
+# the trees we build (an -rc in particular) routinely carry warnings that
+# upstream has not swept up yet; this keeps them logged without failing the
+# build.
 export EXTRA_CFLAGS="-Wno-error"
