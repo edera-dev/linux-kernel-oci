@@ -17,13 +17,13 @@ KERNEL_REPO="${KERNEL_REPO:-$(cd -- "$BENCH_DIR/../.." && pwd)}"
 ARCH="${ARCH:-x86_64}"
 SERIES="${SERIES:-6.18}"
 FLAVORS="${FLAVORS:-zone zone-tiny}"
-REGISTRY="${REGISTRY:-127.0.0.1:5000}"           # build target, so we never touch ghcr
+REGISTRY="${REGISTRY:-127.0.0.1:5000}" # build target, so we never touch ghcr
 REG_NAME="${REG_NAME:-edera-local-registry}"
 # no sccache backend locally, and its wrapper can fail the kernel assembler probe
 export KERNEL_DISABLE_SCCACHE="${KERNEL_DISABLE_SCCACHE-1}"
 
 cd "$KERNEL_REPO"
-mb()   { awk -v b="${1:-0}" 'BEGIN { printf "%.3f", b / 1048576 }'; }
+mb() { awk -v b="${1:-0}" 'BEGIN { printf "%.3f", b / 1048576 }'; }
 fsize() { stat -c %s "$1" 2>/dev/null || echo 0; }
 
 # local registry so a publish flavor build doesn't try to reach ghcr

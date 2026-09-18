@@ -74,7 +74,9 @@ def main() -> None:
                 continue
             have = resolved.get(symbol)  # None: absent (off / unmet deps / unknown)
             if want in ("y", "m") and (have is None or have == "n"):
-                fails.append(f"STICK  {symbol}: asked {want}, resolved {have or 'ABSENT'}")
+                fails.append(
+                    f"STICK  {symbol}: asked {want}, resolved {have or 'ABSENT'}"
+                )
             elif want == "n" and have in ("y", "m"):
                 fails.append(f"STICK  {symbol}: asked n, resolved {have}")
             elif want not in ("y", "m", "n") and have is not None and have != want:
@@ -89,7 +91,9 @@ def main() -> None:
     for manifest in args.forbidden:
         for symbol in parse_list(manifest):
             if symbol not in whitelist and resolved.get(symbol) in ("y", "m"):
-                fails.append(f"FORBID {symbol}: must be off, resolved {resolved[symbol]}")
+                fails.append(
+                    f"FORBID {symbol}: must be off, resolved {resolved[symbol]}"
+                )
 
     if fails:
         print(f"verify-config: FAIL ({len(fails)} violations):", file=sys.stderr)

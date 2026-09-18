@@ -225,7 +225,9 @@ def docker_compile(
         if os.getenv("KERNEL_DISABLE_SCCACHE"):
             compile_command += [
                 "-e",
-                quoted("PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"),
+                quoted(
+                    "PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+                ),
             ]
         compile_command += [
             '"$(cat %s)"' % staged_iidfile,

@@ -25,13 +25,19 @@ RUNS="${RUNS:-100}"
 while getopts "n:" opt; do
 	case "$opt" in
 	n) RUNS="$OPTARG" ;;
-	*) echo "usage: $0 [-n RUNS] [kernel...]" >&2; exit 2 ;;
+	*)
+		echo "usage: $0 [-n RUNS] [kernel...]" >&2
+		exit 2
+		;;
 	esac
 done
 shift $((OPTIND - 1))
 
 for tool in hyperfine docker podman; do
-	command -v "$tool" >/dev/null 2>&1 || { echo "ERROR: '$tool' not found on the host." >&2; exit 3; }
+	command -v "$tool" >/dev/null 2>&1 || {
+		echo "ERROR: '$tool' not found on the host." >&2
+		exit 3
+	}
 done
 
 BENCH_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
@@ -54,14 +60,20 @@ if [ -z "$CHV" ]; then
 	else
 		CHV="$KCACHE/cloud-hypervisor"
 		if [ ! -x "$CHV" ]; then
-			command -v curl >/dev/null 2>&1 || { echo "ERROR: need cloud-hypervisor on PATH, CHV=/path, or curl to fetch it." >&2; exit 3; }
+			command -v curl >/dev/null 2>&1 || {
+				echo "ERROR: need cloud-hypervisor on PATH, CHV=/path, or curl to fetch it." >&2
+				exit 3
+			}
 			echo ">> fetching upstream cloud-hypervisor -> $CHV" >&2
 			curl -fsSL -o "$CHV" "$CHV_URL"
 			chmod +x "$CHV"
 		fi
 	fi
 fi
-[ -e /dev/kvm ] || { echo "ERROR: /dev/kvm not available; Cloud Hypervisor needs KVM." >&2; exit 3; }
+[ -e /dev/kvm ] || {
+	echo "ERROR: /dev/kvm not available; Cloud Hypervisor needs KVM." >&2
+	exit 3
+}
 
 WORK="$(mktemp -d)"
 CFG_BAK=""
@@ -97,7 +109,11 @@ ensure_build_env() {
 ORDER=()
 declare -A KPATH
 if [ "$#" -ge 1 ]; then
-	for k in "$@"; do l="$(basename "$k")"; ORDER+=("$l"); KPATH[$l]="$k"; done
+	for k in "$@"; do
+		l="$(basename "$k")"
+		ORDER+=("$l")
+		KPATH[$l]="$k"
+	done
 else
 	cd "$KERNEL_REPO"
 	for f in $FLAVORS; do
@@ -119,16 +135,24 @@ else
 			fi
 			cp target/kernel "$cache"
 		fi
-		valid_kernel "$cache" || { echo "   no valid kernel for $f, skipping" >&2; continue; }
-		ORDER+=("$f"); KPATH[$f]="$cache"
+		valid_kernel "$cache" || {
+			echo "   no valid kernel for $f, skipping" >&2
+			continue
+		}
+		ORDER+=("$f")
+		KPATH[$f]="$cache"
 	done
 	cd - >/dev/null
 fi
-[ "${#ORDER[@]}" -ge 1 ] || { echo "no kernels to measure" >&2; exit 1; }
+[ "${#ORDER[@]}" -ge 1 ] || {
+	echo "no kernels to measure" >&2
+	exit 1
+}
 
 # ---- initramfs: busybox + a /init that samples uptime and powers off. Built
 # entirely inside the container (no host bind-mount) and streamed out. ----
-INIT_B64=$(base64 -w0 <<'EOF'
+INIT_B64=$(
+	base64 -w0 <<'EOF'
 #!/bin/sh
 mount -t proc none /proc 2>/dev/null
 read -r up _ < /proc/uptime
@@ -147,7 +171,11 @@ if ! podman run --rm docker.io/library/busybox:musl sh -c '
 	cat "$WORK/initramfs.err" >&2
 	exit 4
 fi
-[ -s "$WORK/initrd.cpio.gz" ] || { echo "ERROR: empty initrd.cpio.gz:" >&2; cat "$WORK/initramfs.err" >&2; exit 4; }
+[ -s "$WORK/initrd.cpio.gz" ] || {
+	echo "ERROR: empty initrd.cpio.gz:" >&2
+	cat "$WORK/initramfs.err" >&2
+	exit 4
+}
 
 # ---- cloud-hypervisor PVH boot; guest serial -> a file we can read.
 # cmdline matches protect's default container-zone boot (earlyprintk + console on
