@@ -2,37 +2,21 @@ import json
 import sys
 
 import matrix
-from util import parse_text_constraint, maybe, get_branch_tag_suffix
-from packaging.version import Version, parse
+from util import get_branch_tag_suffix, parse_text_constraint
 
-
-def construct_stable_matrix():
-    stable_matrix = matrix.generate_stable_matrix()
-    return stable_matrix
-
-
-def construct_lts_matrix():
-    lts_matrix = matrix.generate_lts_matrix()
-    return lts_matrix
-
-
-def construct_backbuild_matrix():
-    backbuild_matrix = matrix.generate_backbuild_matrix()
-    return backbuild_matrix
-
-
-def construct_all_matrix():
-    stable_matrix = construct_stable_matrix()
-    backbuild_matrix = construct_backbuild_matrix()
-    all_matrix = matrix.merge_matrix([stable_matrix, backbuild_matrix])
-    return all_matrix
-
-
-def construct_manual_matrix(exact_versions):
-    return matrix.generate_matrix(matrix.build_release_tags(exact_versions))
-
-
+# A build spec is "<type>" or "<type>:<constraints>", where constraints are
+# semicolon-separated key=value pairs over `branch`, `flavor` and `arch`
+# (e.g. "rebuild:branch=mainline;flavor=zone,host").
+#
+#   new      - build only what the registry does not already have. Because every
+#              build carries an immutable <version>-g<commit> tag, this means
+#              "build each branch that has moved since it was last built".
+#   rebuild  - build everything the config selects, published or not. Use this
+#              when something other than the kernel source changed: a kconfig
+#              fragment, the buildenv, the packaging.
 DEFAULT_BUILD_SPEC = "new"
+
+BUILD_SPEC_TYPES = ["new", "rebuild"]
 
 if len(sys.argv) > 1:
     build_spec = sys.argv[1]
@@ -48,70 +32,37 @@ if ":" in build_spec:
 else:
     build_spec_data = ""
 
-constraint = {}
-if len(build_spec_data) > 0:
-    constraint = parse_text_constraint(build_spec_data)
-
-apply_config_versions = True
-
-if build_spec_type == "new":
-    first_matrix = matrix.filter_new_builds(construct_all_matrix())
-elif build_spec_type == "rebuild":
-    first_matrix = construct_all_matrix()
-elif build_spec_type == "unsafe-all":
-    first_matrix = construct_all_matrix()
-    apply_config_versions = False
-elif build_spec_type == "stable":
-    first_matrix = construct_stable_matrix()
-elif build_spec_type == "lts":
-    first_matrix = construct_lts_matrix()
-elif build_spec_type == "only-latest-lts":
-    first_matrix = construct_lts_matrix()
-    apply_config_versions = False
-    matrix.sort_matrix(first_matrix)
-    last_version = parse(first_matrix[-1]["version"]).base_version
-    last_version_builds = list(
-        filter(lambda build: last_version in build["version"], first_matrix)
+if build_spec_type not in BUILD_SPEC_TYPES:
+    raise Exception(
+        "unknown build spec type: %s (expected one of %s)"
+        % (build_spec_type, ", ".join(BUILD_SPEC_TYPES))
     )
-    first_matrix = last_version_builds
-elif build_spec_type == "only-latest":
-    first_matrix = construct_stable_matrix()
-    apply_config_versions = False
-    matrix.sort_matrix(first_matrix)
-    last_version = parse(first_matrix[-1]["version"]).base_version
-    last_version_builds = list(
-        filter(lambda build: last_version in build["version"], first_matrix)
-    )
-    first_matrix = last_version_builds
-elif build_spec_type == "override":
-    first_matrix = construct_all_matrix()
-    apply_config_versions = False
-elif build_spec_type == "manual":
-    versions = maybe(constraint, "exact")
-    if versions is None:
-        versions = []
-    first_matrix = construct_manual_matrix(versions)
-    apply_config_versions = False
-else:
-    raise Exception("unknown build spec type: %s" % build_spec_type)
 
-if apply_config_versions:
-    final_matrix = matrix.filter_config_versions(first_matrix)
-else:
-    final_matrix = first_matrix
+final_matrix = matrix.generate_full_matrix()
 
-if len(build_spec_data) > 0:
-    constraint = parse_text_constraint(build_spec_data)
-    final_matrix = matrix.filter_matrix(final_matrix, constraint)
-
-matrix.validate_produce_conflicts(final_matrix)
-matrix.fill_runners(final_matrix)
-
+# Builds from a branch of *this* repo (not of the kernel tree) publish under
+# suffixed tags so they cannot overwrite the canonical ones. Applied before the
+# `new` filter so that filter asks the registry about the tags this run would
+# actually push, rather than about the canonical ones it will never touch.
 branch_suffix = get_branch_tag_suffix()
 if branch_suffix:
     for build in final_matrix:
         build["tags"] = ["%s-%s" % (t, branch_suffix) for t in build["tags"]]
         build["produces"] = ["%s-%s" % (p, branch_suffix) for p in build["produces"]]
+
+if len(build_spec_data) > 0:
+    # Filter before consulting the registry so `new` only spends crane calls on
+    # the images the spec actually asked about.
+    final_matrix = matrix.filter_matrix(
+        final_matrix, parse_text_constraint(build_spec_data)
+    )
+
+if build_spec_type == "new":
+    final_matrix = matrix.filter_new_builds(final_matrix)
+
+matrix.validate_produce_conflicts(final_matrix)
+matrix.fill_runners(final_matrix)
+matrix.sort_matrix(final_matrix)
 
 merges = matrix.generate_merges(final_matrix)
 
