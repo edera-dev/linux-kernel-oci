@@ -31,7 +31,7 @@ Sort the change into one of these before going further:
 For each behaviour that changed, write down the concrete ways it could be wrong in this codebase. Not "edge cases" in general. Ask:
 
 - What input would make the new code do the wrong thing? Where does it come from: `config.yaml`, a kconfig fragment, a kernel branch's own Makefile, a driver version, a runner label, a workflow input?
-- Does the change behave differently per flavor, per architecture, or per branch? `zone` is the only flavor published for `aarch64`, and some flavors are constrained to one branch, so a change that looks uniform often is not.
+- Does the change behave differently per flavor, per architecture, or per branch? `zone` is the only flavor published for `aarch64`, and some flavors are constrained to one branch, so a change that looks uniform often is not. The PR build covers the `zone` aarch64 leg; it does not cover flavors outside its spec.
 - What happens on the failure path: the symbol that does not exist on that branch, the driver that does not compile, the download that 404s, the runner that does not match?
 - If this is a bug fix, what exactly was the bug, and what would have failed before the fix?
 - If the change affects what gets published — a tag, an alias, a digest record, an SBOM — who is already pinned to the thing it changes?

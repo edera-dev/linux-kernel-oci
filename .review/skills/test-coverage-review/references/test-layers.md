@@ -18,9 +18,14 @@ out of scope for a review.
 `.github/workflows/test.yml` is the only thing on a pull request that executes
 the build. It calls `matrix.yml` with a fixed specification and
 `publish: false`, so it builds and throws the result away. Read the spec in
-that file before deciding a change is covered: it names one branch and a subset
-of flavors, and anything outside that — another branch, another flavor, the
-`aarch64` leg — is not built by this pull request at all.
+that file before deciding a change is covered.
+
+The spec constrains branches and flavors only. `matches_constraints` in
+`hack/build/util.py` ignores any key the constraint does not mention, so every
+architecture a selected flavor declares in `config.yaml` is built — which means
+the `zone` flavor's `aarch64` leg does run on a pull request. What the spec
+leaves out is other branches and the flavors it does not name; a change that
+only affects one of those is not built here at all.
 
 `test.yml` also has `paths-ignore` for `configs/**` on push, because config
 merges are built and published by `build.yml` instead. That does not apply to
@@ -58,8 +63,10 @@ input is the cheapest place to assert something about it.
 
 ## Where a gap usually is
 
-- The change affects a flavor, architecture or branch the PR build does not
-  cover. This is the common one.
+- The change affects a branch or a flavor the PR build's spec does not name.
+  This is the common one. Architecture is usually not the gap: the spec sets no
+  architecture constraint, so each selected flavor builds every architecture it
+  declares.
 - The failure is silent by construction — a kconfig symbol that does not apply,
   a matrix leg that produces nothing, a publish step a constraint skipped — so a
   green run proves nothing about it.
