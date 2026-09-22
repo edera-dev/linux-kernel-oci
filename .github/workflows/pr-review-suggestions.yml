@@ -1,0 +1,166 @@
+name: PR review suggestions
+
+# Reviews every PR for a short verdict on the diff, plus any serious defects,
+# work quietly skipped, and missing or hollow tests. The result is the
+# "PR Review" section of the one review the two checks share on a PR; the
+# pr-test-coverage workflow fills the other section.
+#
+# This never blocks a merge. It is not a required check, and the shared review
+# is comment-only: the model publishes through
+# .github/scripts/post-pr-review.sh, which fixes the review event to COMMENT,
+# so it can never approve and never request changes. The step that runs the
+# model is continue-on-error, so a failure here can never turn a PR red. Every
+# suggestion it makes is the author's to accept or ignore.
+
+on:
+  pull_request:
+    types: [opened, synchronize, ready_for_review]
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pr-review-suggestions-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  suggest:
+    # Same-repo, non-draft PRs only. Fork PRs are skipped deliberately: this
+    # runs on the PR's own code, so it must never hold a writable token while
+    # doing so.
+    if: >-
+      github.event.pull_request.head.repo.full_name == github.repository
+      && github.event.pull_request.draft == false
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    permissions:
+      contents: read
+      pull-requests: write
+      id-token: write
+    steps:
+      - name: Harden runner
+        uses: step-security/harden-runner@05e31511f85b41b11d1cf0ef85d0992719546e2c # v2.21.0
+        with:
+          egress-policy: audit
+
+      - name: Checkout
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      # Values pasted into repository or org variables can pick up stray line
+      # endings, which reach the action as part of the value and fail auth in a
+      # way that is hard to read. Strip whitespace before use.
+      - name: Normalize identifiers
+        id: ids
+        env:
+          RULE: ${{ vars.PR_REVIEW_FEDERATION_RULE_ID }}
+          ORG: ${{ vars.PR_REVIEW_ORGANIZATION_ID }}
+          SVC: ${{ vars.PR_REVIEW_SERVICE_ACCOUNT_ID }}
+          WS: ${{ vars.PR_REVIEW_WORKSPACE_ID }}
+        run: |
+          set -euo pipefail
+          strip() { printf '%s' "$1" | tr -d '[:space:]'; }
+          {
+            echo "rule=$(strip "$RULE")"
+            echo "org=$(strip "$ORG")"
+            echo "svc=$(strip "$SVC")"
+            echo "ws=$(strip "$WS")"
+          } >> "$GITHUB_OUTPUT"
+          for n in RULE ORG SVC WS; do
+            eval "v=\$$n"
+            if [ -z "$(strip "$v")" ]; then
+              echo "::warning::PR_REVIEW_*_$n is empty; the review step will be skipped."
+            fi
+          done
+
+      - name: Suggest
+        id: suggest
+        continue-on-error: true
+        uses: anthropics/claude-code-action@e8c2d7c16c018cf1e694711c1c07a5f5db2b5eb1 # v1
+        env:
+          GH_TOKEN: ${{ github.token }}
+        with:
+          anthropic_federation_rule_id: '${{ steps.ids.outputs.rule }}'
+          anthropic_organization_id:    '${{ steps.ids.outputs.org }}'
+          anthropic_service_account_id: '${{ steps.ids.outputs.svc }}'
+          anthropic_workspace_id:       '${{ steps.ids.outputs.ws }}'
+          prompt: |
+            Review pull request #${{ github.event.pull_request.number }} in
+            ${{ github.repository }} by following the pr-review skill at
+            .review/skills/pr-review/SKILL.md exactly.
+
+            Read the diff with:
+              git diff ${{ github.event.pull_request.base.sha }}...${{ github.event.pull_request.head.sha }}
+
+            If the supply-chain step needs a file from another repository at a
+            given ref, fetch it with git rather than the API:
+              git fetch --depth 1 https://github.com/<owner>/<repo> <ref>
+              git show FETCH_HEAD:<path>
+
+            Then publish the result as the PR Review section of the one
+            review the review checks share on this PR:
+
+            1. Always publish, including when you found nothing — the skill's
+               output already covers the clean case in one line.
+            2. Write your section to a file at /tmp/pr-review-body.md: the
+               skill's output, nothing else. Lead with any serious findings;
+               do not bury them under smaller items. Do not add a heading or a
+               footer of your own. The publisher adds the heading, and the
+               review carries no disclaimer.
+            3. Publish it with exactly this command, and nothing else:
+                 bash .github/scripts/post-pr-review.sh ${{ github.repository }} ${{ github.event.pull_request.number }} pr-review-suggestions /tmp/pr-review-body.md ${{ github.event.pull_request.head.sha }}
+               It merges your section into the shared comment-only review,
+               replacing your earlier section if there is one, and prints the
+               review id. If it exits non-zero, publishing failed; say so in
+               your final message and stop.
+
+            That script is the only way you publish. Never approve, never
+            request changes, and never leave an issue comment.
+          claude_args: |
+            --max-turns 150
+            --allowedTools "Read,Grep,Glob,Write,Bash(git:*),Bash(gh pr view:*),Bash(gh pr diff:*),Bash(gh search:*),Bash(bash .github/scripts/post-pr-review.sh:*),Bash(jq:*),Bash(ls:*),Bash(cat:*),Bash(head:*),Bash(tail:*)"
+
+      # A run that ends before the model publishes leaves this check's section
+      # reading as if the check had never started. Say what happened there
+      # instead, unless the model did publish for this commit before it failed.
+      # This step is continue-on-error for the same reason the model step is:
+      # neither can be allowed to turn a PR red.
+      - name: Note the unfinished review
+        if: steps.suggest.outcome == 'failure'
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          printf '%s\n' "This check did not finish, so it has nothing to say about the diff. The [run log]($RUN_URL) has the reason." >/tmp/pr-review-unfinished.md
+          bash .github/scripts/post-pr-review.sh ${{ github.repository }} ${{ github.event.pull_request.number }} pr-review-suggestions /tmp/pr-review-unfinished.md ${{ github.event.pull_request.head.sha }} --only-if-unstamped
+
+      # Three outcomes to tell apart. The action declines to run on any PR that
+      # changes this file and exits 0 doing it; a run that started and failed
+      # exits non-zero; a run that finished sets its conclusion output. The
+      # conclusion alone cannot separate the first two, since it is unset for
+      # both.
+      - name: Report outcome
+        if: always()
+        env:
+          OUTCOME: ${{ steps.suggest.outcome }}
+          CONCLUSION: ${{ steps.suggest.outputs.conclusion }}
+        run: |
+          {
+            echo "### PR review suggestions"
+            if [ "$OUTCOME" = "failure" ]; then
+              echo "**The review started but did not finish**, so it posted nothing about the diff. Hitting \`--max-turns\` looks like this, and so does an API failure. The \`Suggest\` step log has the cause."
+            elif [ -z "$CONCLUSION" ]; then
+              echo "**The review did not run.** Expected on a PR that changes this workflow file — the action requires the workflow to match the copy on the default branch. Any other cause is in the \`Suggest\` step log."
+            elif [ "$CONCLUSION" = "success" ]; then
+              echo "Review ran."
+            else
+              echo "Review ran but reported \`$CONCLUSION\` (step outcome: \`$OUTCOME\`). See the \`Suggest\` step log."
+            fi
+            echo ""
+            echo "_Advisory only. This job never blocks a merge._"
+          } >> "$GITHUB_STEP_SUMMARY"
