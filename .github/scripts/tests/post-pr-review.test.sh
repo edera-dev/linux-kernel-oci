@@ -262,6 +262,10 @@ for wf in "${WORKFLOWS[@]}"; do
   check "$name: allowlist has no gh pr review" bash -c "! grep -q 'gh pr review' '$wf'"
   check "$name: allowlist has no open gh api" bash -c "! grep -q 'Bash(gh api:\*)' '$wf'"
   check "$name: allowlist has no gh api write method" bash -c "! grep -q -E 'Bash\(gh api -X (PATCH|POST|PUT|DELETE)' '$wf'"
+  # gh switches to POST as soon as a parameter is passed, so an allowlisted
+  # `gh api` entry without the method pinned to GET is a write path.
+  check "$name: every allowlisted gh api entry pins GET" \
+    bash -c "! grep -o -E 'Bash\(gh api [^)]*' '$wf' | grep -q -v -- '-X GET'"
   check "$name: allowlist reaches no review endpoint" bash -c "! grep -q -E 'Bash\([^)]*/reviews' '$wf'"
   check "$name: never approves or requests changes" bash -c "! grep -q -E 'APPROVE|REQUEST_CHANGES|--approve|--request-changes' '$wf'"
   check "$name: prompt does not promise a footer the skills no longer emit" bash -c "! grep -q -E 'carries a footer|nothing here blocks the merge' '$wf'"
@@ -277,6 +281,21 @@ for name in pr-review-suggestions pr-test-coverage; do
   check "publisher knows section $name" grep -q "^SECTIONS=(.*\b$name\b" "$SCRIPT"
   check "a workflow writes section $name" grep -q -- "post-pr-review.sh .* $name " "${WORKFLOWS[@]}"
 done
+
+echo "# the self-test workflow runs this file"
+SELFTEST="$ROOT/.github/workflows/pr-review-selftest.yml"
+check "the self-test workflow exists" test -f "$SELFTEST"
+check "and it runs this test script" \
+  grep -q 'bash .github/scripts/tests/post-pr-review.test.sh' "$SELFTEST"
+check "and it runs on pull_request" grep -q '^  pull_request:$' "$SELFTEST"
+check "and it holds no write permission" \
+  bash -c "! grep -q -E '^  *[a-z-]+: write$' '$SELFTEST'"
+check "and it is not continue-on-error" \
+  bash -c "! grep -q 'continue-on-error' '$SELFTEST'"
+check "and a change to either review workflow triggers it" \
+  bash -c "grep -q 'pr-review-suggestions.yml' '$SELFTEST' && grep -q 'pr-test-coverage.yml' '$SELFTEST'"
+check "and a change to the publisher or its tests triggers it" \
+  bash -c "grep -q '.github/scripts/post-pr-review.sh' '$SELFTEST' && grep -q '.github/scripts/tests/' '$SELFTEST'"
 
 check "pr-review-suggestions still follows its skill" grep -q '\.review/skills/pr-review/SKILL.md exactly' "${WORKFLOWS[0]}"
 check "pr-test-coverage still follows its skill" grep -q '\.review/skills/test-coverage-review/SKILL.md exactly' "${WORKFLOWS[1]}"

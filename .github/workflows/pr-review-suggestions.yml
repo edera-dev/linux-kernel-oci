@@ -50,6 +50,9 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
 
+      # `gh api` switches to POST as soon as a parameter is passed, so every
+      # allowlisted `gh api` entry pins the method to GET. The publisher script
+      # is the only write path either check has.
       # Values pasted into repository or org variables can pick up stray line
       # endings, which reach the action as part of the value and fail auth in a
       # way that is hard to read. Strip whitespace before use.

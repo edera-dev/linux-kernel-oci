@@ -52,6 +52,9 @@ jobs:
       # The model reads PR comments, so the tools it can run are limited to
       # reading the PR and one script that submits a comment-only review.
       # Nothing here can approve, request changes, or reach any other endpoint.
+      # The two comment endpoints are allowed only with the method pinned to
+      # GET: `gh api` switches to POST as soon as a parameter is passed, so an
+      # entry without `-X GET` would let the same endpoint create a comment.
       # Values pasted into repository or org variables can pick up stray line
       # endings, which reach the action as part of the value and fail auth in a
       # way that is hard to read. Strip whitespace before use.
@@ -101,7 +104,7 @@ jobs:
             Before writing anything, read what has already been said on the PR
             so you do not repeat it:
               gh pr view ${{ github.event.pull_request.number }} --repo ${{ github.repository }} --json body,comments,reviews
-              gh api repos/${{ github.repository }}/pulls/${{ github.event.pull_request.number }}/comments --jq '.[].body'
+              gh api -X GET repos/${{ github.repository }}/pulls/${{ github.event.pull_request.number }}/comments --jq '.[].body'
             The review carrying <!-- pr-review --> is shared by the two
             review checks. Its Test Coverage section is this check's own
             earlier output. It is not "already said"; you are replacing it.
@@ -129,7 +132,7 @@ jobs:
             request changes, and never leave an issue comment.
           claude_args: |
             --max-turns 150
-            --allowedTools "Read,Grep,Glob,Write,Bash(git:*),Bash(gh pr view:*),Bash(gh pr diff:*),Bash(gh api repos/${{ github.repository }}/pulls/${{ github.event.pull_request.number }}/comments:*),Bash(gh api repos/${{ github.repository }}/issues/${{ github.event.pull_request.number }}/comments:*),Bash(bash .github/scripts/post-pr-review.sh:*),Bash(jq:*),Bash(ls:*),Bash(cat:*),Bash(head:*),Bash(tail:*)"
+            --allowedTools "Read,Grep,Glob,Write,Bash(git:*),Bash(gh pr view:*),Bash(gh pr diff:*),Bash(gh api -X GET repos/${{ github.repository }}/pulls/${{ github.event.pull_request.number }}/comments:*),Bash(gh api -X GET repos/${{ github.repository }}/issues/${{ github.event.pull_request.number }}/comments:*),Bash(bash .github/scripts/post-pr-review.sh:*),Bash(jq:*),Bash(ls:*),Bash(cat:*),Bash(head:*),Bash(tail:*)"
 
       # A run that ends before the model publishes leaves this check's section
       # reading as if the check had never started. Say what happened there
