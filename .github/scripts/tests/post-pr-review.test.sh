@@ -212,10 +212,19 @@ check "no blocking event ever sent" only_comment_events
 echo "# a review that cannot be updated falls back to a new comment review"
 reset_state
 first=$(publish pr-review-suggestions "PR review text.")
-# shellcheck disable=SC2034  # read from the environment by tests/fake-gh/gh.
-FAKE_GH_PUT_FAIL_IDS="$first" id=$(publish pr-test-coverage "Coverage text." 2>/dev/null)
+# Exported, not a command prefix: the publisher runs in a child process and the
+# fake gh reads this from its environment. `VAR=x id=$(...)` would set a shell
+# variable the child never sees, and the case would pass without exercising the
+# fallback at all.
+export FAKE_GH_PUT_FAIL_IDS="$first"
+id=$(publish pr-test-coverage "Coverage text." 2>/dev/null)
+unset FAKE_GH_PUT_FAIL_IDS
 check "publish still succeeds" test -n "$id"
+check "the fallback made a new review" test "$id" != "$first"
 check "new review is COMMENTED" test "$(state_of "$id")" = COMMENTED
+check "it carries this run's section" grep -q 'Coverage text' <(section_of "$id" pr-test-coverage)
+check "it carried the other section over" grep -q 'PR review text' <(section_of "$id" pr-review-suggestions)
+check "the fallback submitted exactly one extra review" test "$(review_count)" = 2
 check "no blocking event ever sent" only_comment_events
 
 echo "# bad input never reaches gh"
@@ -248,8 +257,12 @@ for wf in "${WORKFLOWS[@]}"; do
   check "$name: model step is continue-on-error" grep -q '^        continue-on-error: true$' "$wf"
   check "$name: a run that fails before publishing explains itself in its section" \
     grep -q -- '--only-if-unstamped' "$wf"
-  check "$name: and does that only when the model step failed" \
-    grep -qE "if: steps\.[a-z]+\.outcome == 'failure'" "$wf"
+  check "$name: and does that whenever the model step did not succeed" \
+    grep -qE "if: always\(\) && steps\.[a-z]+\.outcome != 'success'" "$wf"
+  # A gate on failure alone is skipped when the job is cancelled by its own
+  # timeout, which is exactly when the section would otherwise read as unstarted.
+  check "$name: the note is not gated on failure alone" \
+    bash -c "! grep -qE \"if: steps\\.[a-z]+\\.outcome == 'failure'\" '$wf'"
   check "$name: the step that writes it cannot turn the PR red either" \
     test "$(grep -c '^        continue-on-error: true$' "$wf")" = 2
   # shellcheck disable=SC2016  # matching the literal shell in the workflow.

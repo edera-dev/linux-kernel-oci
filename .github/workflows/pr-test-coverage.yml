@@ -134,13 +134,18 @@ jobs:
             --max-turns 150
             --allowedTools "Read,Grep,Glob,Write,Bash(git:*),Bash(gh pr view:*),Bash(gh pr diff:*),Bash(gh api -X GET repos/${{ github.repository }}/pulls/${{ github.event.pull_request.number }}/comments:*),Bash(gh api -X GET repos/${{ github.repository }}/issues/${{ github.event.pull_request.number }}/comments:*),Bash(bash .github/scripts/post-pr-review.sh:*),Bash(jq:*),Bash(ls:*),Bash(cat:*),Bash(head:*),Bash(tail:*)"
 
-      # A run that ends before the model publishes leaves this check's section
-      # reading as if the check had never started. Say what happened there
-      # instead, unless the model did publish for this commit before it failed.
+      # A run that ends before the model publishes — an error, or the job
+      # hitting its own timeout — leaves this check's section reading as if
+      # the check had never started. Say what happened there instead, unless
+      # the model did publish for this commit before it stopped.
       # This step is continue-on-error for the same reason the model step is:
       # neither can be allowed to turn a PR red.
       - name: Note the unfinished review
-        if: steps.review.outcome == 'failure'
+        # always(), not just a failure check: hitting the job's own
+        # timeout-minutes cancels the job, and a step gated on the model
+        # step's outcome alone would be skipped, leaving the section
+        # reading as if this check had never started.
+        if: always() && steps.review.outcome != 'success'
         continue-on-error: true
         env:
           GH_TOKEN: ${{ github.token }}

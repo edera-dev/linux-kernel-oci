@@ -50,6 +50,7 @@ SECTIONS=(pr-review-suggestions pr-test-coverage)
 PLACEHOLDER='_This check has not posted for this pull request yet._'
 VERIFY_DELAY=${POST_PR_REVIEW_VERIFY_DELAY:-5}
 ATTEMPTS=${POST_PR_REVIEW_ATTEMPTS:-3}
+FELL_BACK=
 
 usage='usage: post-pr-review.sh <owner/repo> <pr-number> <pr-review-suggestions|pr-test-coverage> <body-file> <head-sha> [--only-if-unstamped]'
 REPO=${1:?$usage}
@@ -217,9 +218,12 @@ while :; do
     read_body "$id" >"$TMP/existing.md"
     compose "$TMP/existing.md" >"$TMP/body.md"
     if ! gh api -X PUT "${REVIEWS}/${id}" -F body=@"$TMP/body.md" --jq .id >/dev/null; then
-      echo "could not update review ${id}; submitting a new one" >&2
+      echo "could not update review ${id}; submitting a new one." \
+        "That review still carries the marker, so a later run will land here" \
+        "again until someone removes or replaces it." >&2
       CREATED=$(submit_new "$TMP/body.md")
       id=$CREATED
+      FELL_BACK=1
     fi
   fi
 
@@ -228,6 +232,13 @@ while :; do
   sleep "$VERIFY_DELAY"
   canonical=$(list_reviews | head -n 1)
   canonical=${canonical:-$id}
+  # A review that could not be written is not a usable canonical: comparing
+  # against it would never match, so the loop would submit a new review on
+  # every attempt and still exit 1. The one this run created holds the merged
+  # body, so verify against that.
+  if [ -n "${FELL_BACK:-}" ]; then
+    canonical=$id
+  fi
   # Compared without the stamp, which this script renders rather than the check.
   if [ "$(read_body "$canonical" | extract_section "$SECTION" | strip_stamp)" = "$WANT" ]; then
     break

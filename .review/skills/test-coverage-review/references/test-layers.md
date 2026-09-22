@@ -34,6 +34,15 @@ each one carries at `/usr/share/buildenv/packages.tsv`, and posts the
 difference to the check summary. On a digest bump this is the evidence about
 what actually changed in the toolchain.
 
+## The review checks themselves
+
+Three workflows belong to the advisory review checks rather than to this
+repository's own validation: `pr-review-suggestions.yml` and
+`pr-test-coverage.yml`, which produce this review, and
+`pr-review-selftest.yml`, which runs the publisher's tests when that machinery
+changes. They build, lint and test nothing this repository ships. Never count
+them as coverage for a change.
+
 ## Everything else
 
 `build.yml`, `buildenv.yml`, `refresh-nvidia.yml` and `digestabot.yml` are
