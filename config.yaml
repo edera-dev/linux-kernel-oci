@@ -41,7 +41,18 @@ flavors:
   # zone kernel built with kvm and nbd enabled for e2e testing in the protect repo
   architectures:
   - x86_64
+  constraints:
+    lower: '6.1'
+- name: zone-tiny
+  # Experimental minimal microVM kernel: a tinyconfig base + an explicit allowlist
+  # (configs/x86_64/zone-tiny.config), gated by zone-tiny.{required,forbidden}.conf.
+  architectures:
+  - x86_64
+  constraints:
+    lower: '6.18'
 - name: zone-amdgpu
+  constraints:
+    lower: '6.1'
 - name: zone-nvidiagpu
   # we will generate distinct images for each of these
   # local tags. For `zone-nvidiagpu` specifically,

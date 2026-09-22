@@ -106,6 +106,17 @@ KCONFIG_FRAGMENT_DEST="${KERNEL_SRC}/arch/${KERNEL_ARCH_STANDARD}/configs/"
 # Copy out our custom kconfig - if we are building for a <flavor>-<variant>, merge the variant fragment with the flavor baseconfig
 # by copying the fragment into the kernel src tree and letting the kernel's `make` merge them
 case "${KERNEL_FLAVOR}" in
+zone-tiny)
+	# Standalone minimal flavor with its own complete config (not a flavor-variant,
+	# despite the dash). Resolved on a tinyconfig base further below.
+	BASE_FLAVOR_CONFIG="${KERNEL_DIR}/configs/${TARGET_ARCH_STANDARD}/${KERNEL_FLAVOR}.config"
+	if [ ! -f "${BASE_FLAVOR_CONFIG}" ]; then
+		echo "ERROR: kernel flavor base config file not found for ${TARGET_ARCH_STANDARD}: ${BASE_FLAVOR_CONFIG}" >&2
+		exit 1
+	fi
+	cp "${BASE_FLAVOR_CONFIG}" "${KCONFIG_FRAGMENT_DEST}"
+	MAKE_CONFIG_FRAGMENTS="${KERNEL_FLAVOR}.config"
+	;;
 *-*)
 	# Looks like we are dealing with <flavor>-<variant>.config, versus <flavor>.config, so we have 2 fragments
 	FLAVOR=$(echo "${KERNEL_FLAVOR}" | cut -d'-' -f1)
@@ -150,8 +161,30 @@ case "${KERNEL_FLAVOR}" in
 	;;
 esac
 
-# shellcheck disable=SC2086
-make -C "${KERNEL_SRC}" O="${KERNEL_OBJ}" ARCH="${TARGET_ARCH_KERNEL}" "${CROSS_COMPILE_MAKE}" olddefconfig $MAKE_CONFIG_FRAGMENTS
+# zone-tiny is the experimental minimal flavor: a tinyconfig base plus its own
+# allowlist, so only what it lists ships and upstream defconfig churn cannot leak
+# in. It is gated by its criteria manifests before the expensive compile. Every
+# other flavor keeps the original arch-defconfig path, unchanged.
+case "${KERNEL_FLAVOR}" in
+zone-tiny)
+	make -C "${KERNEL_SRC}" O="${KERNEL_OBJ}" ARCH="${TARGET_ARCH_KERNEL}" "${CROSS_COMPILE_MAKE}" tinyconfig
+	# shellcheck disable=SC2086
+	make -C "${KERNEL_SRC}" O="${KERNEL_OBJ}" ARCH="${TARGET_ARCH_KERNEL}" "${CROSS_COMPILE_MAKE}" $MAKE_CONFIG_FRAGMENTS
+	# Runs on the patched tree with the real toolchain, so patched-in and
+	# toolchain-gated symbols (XEN_IOMMU, DEBUG_INFO_BTF via pahole) resolve.
+	CRIT_DIR="${KERNEL_DIR}/configs/${TARGET_ARCH_STANDARD}"
+	uv run "${KERNEL_DIR}/hack/build/verify-config.py" \
+		--config "${KERNEL_OBJ}/.config" \
+		--whitelist "${CRIT_DIR}/zone-tiny.whitelist.conf" \
+		--fragment "${BASE_FLAVOR_CONFIG}" \
+		--required "${CRIT_DIR}/zone-tiny.required.conf" \
+		--forbidden "${CRIT_DIR}/zone-tiny.forbidden.conf"
+	;;
+*)
+	# shellcheck disable=SC2086
+	make -C "${KERNEL_SRC}" O="${KERNEL_OBJ}" ARCH="${TARGET_ARCH_KERNEL}" "${CROSS_COMPILE_MAKE}" olddefconfig $MAKE_CONFIG_FRAGMENTS
+	;;
+esac
 
 # shellcheck disable=SC2034
 IMAGE_TARGET="bzImage"
