@@ -140,8 +140,9 @@ check "the carried-over findings are kept" \
 
 echo "# re-running a section at the new head clears its staleness"
 id=$(HEAD_SHA=$new_sha publish pr-review-suggestions "Serious: still wrong at the new head.")
+section_of "$id" pr-review-suggestions >"$WORK/restamped.md"
 check "no longer marked stale" \
-  bash -c '! grep -q "STALE" <(section_of "'"$id"'" pr-review-suggestions)'
+  bash -c "! grep -q 'STALE' '$WORK/restamped.md'"
 check "marked current instead" \
   grep -qF "_Reviewed at \`${new_sha:0:7}\`._" <(section_of "$id" pr-review-suggestions)
 
@@ -229,11 +230,19 @@ check "no blocking event ever sent" only_comment_events
 
 echo "# bad input never reaches gh"
 reset_state
-check "unknown section rejected" bash -c "! bash '$SCRIPT' edera-dev/linux-kernel-oci 42 nope '$WORK/body-pr-test-coverage.md' 2>/dev/null"
-check "non-numeric pr rejected" bash -c "! bash '$SCRIPT' edera-dev/linux-kernel-oci abc pr-test-coverage '$WORK/body-pr-test-coverage.md' 2>/dev/null"
-check "empty body rejected" bash -c "! bash '$SCRIPT' edera-dev/linux-kernel-oci 42 pr-test-coverage /dev/null 2>/dev/null"
+# Each of these passes a valid head sha, so the run reaches the guard the case
+# is named for. Without it every one of them exits at the required-argument
+# check instead and the guard it claims to cover could be deleted unnoticed.
+check "unknown section rejected" bash -c "! bash '$SCRIPT' edera-dev/linux-kernel-oci 42 nope '$WORK/body-pr-test-coverage.md' '$HEAD_SHA' 2>/dev/null"
+check "non-numeric pr rejected" bash -c "! bash '$SCRIPT' edera-dev/linux-kernel-oci abc pr-test-coverage '$WORK/body-pr-test-coverage.md' '$HEAD_SHA' 2>/dev/null"
+check "non-owner-repo rejected" bash -c "! bash '$SCRIPT' notaslug 42 pr-test-coverage '$WORK/body-pr-test-coverage.md' '$HEAD_SHA' 2>/dev/null"
+check "empty body rejected" bash -c "! bash '$SCRIPT' edera-dev/linux-kernel-oci 42 pr-test-coverage /dev/null '$HEAD_SHA' 2>/dev/null"
 printf '<!-- section:pr-test-coverage -->\nx\n' >"$WORK/marked.md"
-check "body with markers rejected" bash -c "! bash '$SCRIPT' edera-dev/linux-kernel-oci 42 pr-test-coverage '$WORK/marked.md' 2>/dev/null"
+check "body with a section marker rejected" bash -c "! bash '$SCRIPT' edera-dev/linux-kernel-oci 42 pr-test-coverage '$WORK/marked.md' '$HEAD_SHA' 2>/dev/null"
+printf 'text\n<!-- stamp -->\n' >"$WORK/stamped.md"
+check "body with a stamp marker rejected" bash -c "! bash '$SCRIPT' edera-dev/linux-kernel-oci 42 pr-test-coverage '$WORK/stamped.md' '$HEAD_SHA' 2>/dev/null"
+printf 'text\n<!-- pr-review -->\n' >"$WORK/review-marked.md"
+check "body with the review marker rejected" bash -c "! bash '$SCRIPT' edera-dev/linux-kernel-oci 42 pr-test-coverage '$WORK/review-marked.md' '$HEAD_SHA' 2>/dev/null"
 check "no gh call was made" test ! -s "$FAKE_GH_STATE/calls.log"
 
 echo "# the publisher itself"
@@ -310,6 +319,13 @@ check "and a change to either review workflow triggers it" \
 check "and a change to the publisher or its tests triggers it" \
   bash -c "grep -q '.github/scripts/post-pr-review.sh' '$SELFTEST' && grep -q '.github/scripts/tests/' '$SELFTEST'"
 
+check "the skill each workflow names exists" \
+  bash -c "test -f '$ROOT/.review/skills/pr-review/SKILL.md' && test -f '$ROOT/.review/skills/test-coverage-review/SKILL.md'"
+check "and so do the references they share" \
+  bash -c "test -f '$ROOT/.review/skills/references/review-writing.md' && test -f '$ROOT/.review/skills/references/finding-impact.md'"
+check "and the coverage skill's own reference" \
+  test -f "$ROOT/.review/skills/test-coverage-review/references/test-layers.md"
+check "the self-test runs when a skill changes" grep -q "'.review/\*\*'" "$SELFTEST"
 check "pr-review-suggestions still follows its skill" grep -q '\.review/skills/pr-review/SKILL.md exactly' "${WORKFLOWS[0]}"
 check "pr-test-coverage still follows its skill" grep -q '\.review/skills/test-coverage-review/SKILL.md exactly' "${WORKFLOWS[1]}"
 check "pr-review-suggestions writes its own section" grep -q 'pr-review-suggestions /tmp/pr-review-body.md' "${WORKFLOWS[0]}"

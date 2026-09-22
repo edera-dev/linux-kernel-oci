@@ -22,6 +22,9 @@ on:
       - '.github/workflows/pr-review-suggestions.yml'
       - '.github/workflows/pr-test-coverage.yml'
       - '.github/workflows/pr-review-selftest.yml'
+      # The workflows name skill files by path and the suite asserts they are
+      # there, so a rename or deletion under .review/ has to run this.
+      - '.review/**'
 
 permissions:
   contents: read
