@@ -120,6 +120,12 @@ rm -rf "${SDK_OUTPUT_PATH}"
 	echo "KERNEL_VERSION=${KERNEL_VERSION}"
 	echo "KERNEL_UNAME_R=${KERNEL_MODULES_VER}"
 	echo "KERNEL_FLAVOR=${KERNEL_FLAVOR}"
+	# The exact tree this kernel was built from. There is no patch series on top
+	# of it -- every Edera change is a commit on that branch -- so this plus the
+	# config hash below fully describes what is in the image.
+	echo "KERNEL_SRC_REPO=${KERNEL_SRC_REPO}"
+	echo "KERNEL_SRC_REF=${KERNEL_SRC_REF}"
+	echo "KERNEL_SRC_COMMIT=${KERNEL_SRC_COMMIT}"
 	sha256sum "${KERNEL_OBJ}/.config" | awk '{print "KERNEL_CONFIG=sha256:"$1}'
 } >"${METADATA_PATH}"
 gzip -9 <"${KERNEL_OBJ}/.config" >"${CONFIG_GZ_PATH}"

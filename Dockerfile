@@ -1,6 +1,9 @@
+# KERNEL_SRC_URL is an archive of one commit of the Edera Linux tree (see
+# config.yaml and hack/build/matrix.py). It is addressed by commit, so this
+# ADD's buildkit cache entry can never go stale against a moving branch.
 FROM --platform=$BUILDPLATFORM scratch AS kernelsrc
 ARG KERNEL_SRC_URL=
-ADD ${KERNEL_SRC_URL} /src.tar.xz
+ADD ${KERNEL_SRC_URL} /src.tar.gz
 
 FROM --platform=$BUILDPLATFORM scratch AS firmware
 ARG FIRMWARE_URL=
@@ -24,7 +27,7 @@ WORKDIR /build
 RUN chmod +x hack/build/docker-build-internal.sh
 
 FROM buildenv AS build-staged
-COPY --from=kernelsrc --chown=build:build /src.tar.xz /build/override-kernel-src.tar.xz
+COPY --from=kernelsrc --chown=build:build /src.tar.gz /build/override-kernel-src.tar.gz
 
 FROM build-staged AS build-staged-amdgpu
 COPY --from=firmware --chown=build:build /firmware.tar.xz /build/override-firmware.tar.xz

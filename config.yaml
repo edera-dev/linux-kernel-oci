@@ -1,7 +1,34 @@
 imageNameFormat: "ghcr.io/edera-dev/[image]:[tag]"
+
+# Kernel sources come from Edera's downstream Linux tree. Every branch listed
+# below carries the full Edera patch stack as commits, so this repo no longer
+# fetches kernel.org tarballs and no longer carries a patch series of its own:
+# what the branch says is what gets built. Adding or dropping a patch is a
+# commit on edera-dev/linux, not a change here.
+source:
+  repo: https://github.com/edera-dev/linux
+
+# Each branch produces one build per (flavor, architecture). The kernel version
+# comes from the branch's Makefile at the resolved commit, so it tracks whatever
+# the branch has been rebased onto without anything here needing an edit.
+#
+# Every build publishes an immutable `<version>-g<short commit>` tag plus moving
+# aliases: `<version>`, the `<major>.<minor>` series (release kernels only -- a
+# prerelease must not claim the series tag its final release will want), the
+# branch name, and anything in `aliases`.
+branches:
+- name: 6.18-lts
+  ref: edera/6.18-lts
+  # The LTS branch is what a consumer that pins nothing should get.
+  aliases:
+  - latest
+- name: mainline
+  ref: edera/mainline
+
 # Default set of architectures applied to any flavor that does not override it.
 architectures:
 - x86_64
+
 flavors:
 - name: zone
   # zone is the only flavor we currently publish for aarch64. Other flavors fall
@@ -10,8 +37,6 @@ flavors:
   architectures:
   - x86_64
   - aarch64
-  constraints:
-    lower: '6.1'
 - name: zone-kvm
   # zone kernel built with kvm and nbd enabled for e2e testing in the protect repo
   architectures:
@@ -42,156 +67,20 @@ flavors:
   - 'nvidia-595.45.04'    # Nvidia: "Latest Beta Version"
   - 'nvidia-595.91.07'   # Nvidia: "Latest Production Branch Version"
   constraints:
-    lower: '6.18'
-- name: zone-openpax
-  constraints:
-    series:
-    - '6.10'
-    - '6.11'
+    # NVIDIA's open kernel modules trail mainline, so this flavor is pinned to
+    # the LTS branch -- which is also the only place it has ever actually built.
+    # Add `mainline` here once the driver series in local_tags compiles against
+    # whatever edera/mainline is currently rebased onto.
+    branches:
+    - 6.18-lts
 - name: host
-versions:
-- current: true
-- lower: '5.15'
-patches:
-- patch: hvc-xen-idm-support-1.patch
-  series:
-  - '5.10'
-  upper: 5.10.210
-- patch: hvc-xen-idm-support-2.patch
-  series:
-  - '5.10'
-  lower: '5.10.211'
-- patch: 0001-Revert-ALSA-memalloc-Workaround-for-Xen-PV.patch
-  series:
-  - '6.6'
-  - '6.7'
-  - '6.8'
-  - '6.9'
-  - '6.10'
-  - '6.11'
-- patch: openpax-6.10-20240913112548.patch
-  series: '6.10'
-  flavors:
-  - zone-openpax
-- patch: openpax-6.11.2-20241009165538.patch
-  series: '6.11'
-  flavors:
-  - zone-openpax
-- patch: 0001-x86-topology-Tolerate-lack-of-APIC-when-booting-as-X_01.patch
-  lower: '6.10'
-  upper: '6.12.4'
-- patch: 0001-x86-topology-Tolerate-lack-of-APIC-when-booting-as-X_02.patch
-  lower: '6.12.5'
-  upper: '6.13.999'
-- patch: 0001-x86-topology-Tolerate-lack-of-APIC-when-booting-as-X_03.patch
-  lower: '6.14'
-- patches:
-  - 9pfs-xen-hotplug-1.patch
-  - 9pfs-xen-hotplug-2.patch
-  any:
-  - series: '6.6'
-    upper: '6.6.63'
-  - series: '6.12'
-    upper: '6.12.1'
-- patch: hack-around-pci-msix-restore-bugs-in-pv-domu.patch
-  lower: '6.1'
-  flavors:
-  - zone-amdgpu
-- patch: 0001-x86-CPU-AMD-avoid-printing-reset-reasons-on-Xen-domU.patch
-  lower: '6.16'
-- patch: 0001-9p-xen-mark-9p-transport-device-as-closing-when-remo.patch
-  lower: '6.1'
-  upper: '6.12.74'
-# Share one Xen 9pfs frontend across many mounts (each with its own aname) and
-# advertise it as edera_multi_attach_v1 in /sys/fs/9p/features, so zones can
-# mount each volume as an independent 9p mount and df resolves per volume.
-# The 9p mount API became fs_context-based in 6.19, so 6.18.x needs the
-# separate old-API backport below.
-- patch: 9pfs-xen-multi-attach.patch
-  lower: '6.19'
-- patch: 9pfs-xen-multi-attach-6.18.patch
-  series: '6.18'
-- patch: 0002-x86-amd_node-fix-integer-divide-by-zero-during-init.patch
-  lower: '6.17'
-- patch: 0003-x86-amd_node-fix-null-pointer-dereference-if-amd_smn.patch
-  lower: '6.17'
-- patches:
-  - 0001-xen-evtchn-diagnose-ring_overflow-with-post-barrier-.patch
-  - 0002-xen-add-xen_mfn_to_node-to-resolve-a-foreign-frame-s.patch
-  - 0003-xen-make-xen_alloc_unpopulated_pages-NUMA-aware.patch
-  - 0004-xen-grant-table-add-gnttab_alloc_pages_node.patch
-  - 0005-xen-events-add-_on_node-variants-of-the-lateeoi-bind.patch
-  - 0006-xen-xenbus-home-ring-mappings-on-the-foreign-frame-s.patch
-  - 0007-xen-xenbus-add-xenbus_setup_ring_node-for-per-node-r.patch
-  - 0008-xen-netback-place-per-queue-kthreads-and-IRQs-near-t.patch
-  - 0009-xen-blkback-place-per-ring-kthread-and-IRQ-near-the-.patch
-  - 0010-xen-netfront-place-per-queue-rings-on-per-queue-node.patch
-  - 0011-xen-blkfront-place-per-ring-buffers-on-per-hctx-node.patch
-  - 0012-xen-gntdev-home-grant-map-placeholder-pages-on-the-f.patch
-  lower: '6.18'
-- patches:
-  - 0001-xen-xlate_mmu-relocate-remap_pfn-utils.patch
-  - 0002-xen-xlate_mmu-batch-gfn-mappings.patch
-  lower: '6.10'
-- patches:
-  - hyperv/0001-x86-hyperv-enable-a-Xen-PV-dom0-to-use-the-L0-Hyper-.patch
-  - hyperv/0002-Drivers-hv-use-host-frames-for-GPADLs-and-SynIC-page.patch
-  - hyperv/0003-drivers-hv-deliver-the-VMBus-interrupt-via-a-Xen-VIR.patch
-  - hyperv/0004-hv_netvsc-DMA-map-transmit-pages-when-nested-on-Xen.patch
-  - hyperv/0005-x86-hyperv-take-vPCI-device-interrupts-through-Xen-w.patch
-  - hyperv/0006-drivers-hv-refuse-to-balloon-when-nested-on-Xen.patch
-  series: '6.18'
-# Xen PV-IOMMU: let a PV guest program IOMMU contexts through the PV-IOMMU
-# hypercall interface, so passed-through devices DMA through a real translation
-# context instead of relying on an identity map. Includes the parallel
-# io-pgtable used for iova_to_phys, the pcifront machine-BDF lookup the
-# hypercalls need, and the PV MSI/MSI-X fixes that go with it.
-#
-# Pinned to the 6.18 series, not `lower`. iommu_domain_ops::attach_dev gained a
-# third `struct iommu_domain *old` argument in 6.19, so this backport only
-# compiles against 6.18.x. It is not enough to let the range run open-ended:
-# `patch -p1` still applies these to 6.19 with fuzz and the build then fails on
-# the incompatible function pointer, so the upper bound has to be explicit. A
-# forward-port for 6.19+ wants the three-argument attach_dev and belongs in a
-# separate patches/pv-iommu/ directory alongside this one.
-#
-# These files are trimmed relative to the edera/azenla/feat/pv-iommu branch they
-# come from: commit 1 there also carries stray hunks belonging to two other
-# series -- the VIRQ_HYPERV_* defines in include/xen/interface/xen.h and the
-# XENMEM_get_mfn_pxms block in include/xen/interface/memory.h -- which this tree
-# already supplies from patches/hyperv/ and
-# 0002-xen-add-xen_mfn_to_node-to-resolve-a-foreign-frame-s.patch. Both are
-# dropped here. If you regenerate these patches from that branch, drop them
-# again or the 6.18 stack collides on those two headers.
-- patches:
-  - pv-iommu-6.18/0001-iommu-xen-Add-Xen-PV-IOMMU-driver.patch
-  - pv-iommu-6.18/0002-iommu-xen-Allow-the-PV-IOMMU-driver-in-a-guest.patch
-  - pv-iommu-6.18/0003-iommu-xen-Give-the-identity-domain-a-type-and-ops.patch
-  - pv-iommu-6.18/0004-iommu-dma-Don-t-reserve-PCI-windows-under-a-paravirt.patch
-  - pv-iommu-6.18/0005-xen-pcifront-Let-callers-ask-for-a-device-s-machine-.patch
-  - pv-iommu-6.18/0006-iommu-xen-Default-a-PV-guest-to-the-identity-context.patch
-  - pv-iommu-6.18/0007-PCI-MSI-don-t-write-the-MSI-X-table-in-a-Xen-PV-gues.patch
-  - pv-iommu-6.18/0008-iommu-xen-batch-map-subops-over-contiguous-runs.patch
-  - pv-iommu-6.18/0009-iommu-xen-do-not-claim-the-IOMMU-itself.patch
-  - pv-iommu-6.18/0010-x86-xen-disable-the-right-interrupt-type-when-tearin.patch
-  - pv-iommu-6.18/0011-iommu-xen-flush-the-IOTLB-once-per-mapping-not-once-.patch
-  series: '6.18'
-- patch: 0001-feat-xen-deflate-balloon-via-oom-notifier.patch
-  lower: '6.18'
-# virtio-gpu decides between DMA and guest-physical addresses on its own,
-# without the xen_domain() case vring_use_dma_api() has, so a Xen PV domain
-# hands the host addresses that resolve to somebody else's memory and the
-# display scans out garbage. This adds the xen_domain() check to fix that.
-- patch: 0001-drm-virtio-use-the-DMA-API-for-resource-backing-on-X.patch
-  series: '6.18'
-# qemu_fw_cfg's DMA interface hands the device a virt_to_phys() address, which a
-# Xen PV domain's pseudo-physical address is not. The device never clears the
-# control word and the probe spins in fw_cfg_wait_for_control() forever, in a
-# loop that never dequeues a signal, so the udev worker cannot be killed and
-# burns a CPU until the domain is reset. Refuse the DMA interface on PV; reads
-# use the data register and still work.
-- patch: 0001-firmware-qemu_fw_cfg-do-not-use-the-DMA-interface-on.patch
-  series: '6.18'
+
+# zone-openpax is parked: the openpax series has not been restored on the Edera
+# branches yet. Its kconfig fragments are still in configs/, so re-enabling it
+# is a matter of uncommenting this entry once the series lands (and constraining
+# it to the branches that carry it).
+# - name: zone-openpax
+
 images:
 - target: kernelsrc
   name: kernel-src
@@ -210,6 +99,7 @@ images:
 - target: sdk
   name: "[flavor]-kernel-sdk"
   format: kernel.sdk
+
 runners:
 # Match order matters: first runner whose constraints match wins.
 - name: ubuntu-24.04-arm

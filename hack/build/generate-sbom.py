@@ -6,21 +6,24 @@ artifacts, so scanning them yields nothing, and scanning the debian build
 container yields hundreds of toolchain/base-OS packages that have no bearing on
 the kernel that ships. Instead we describe what actually defines the kernel:
 
-  - the upstream linux source version it was built from,
-  - the patches applied to that source (the authoritative, arch-union list from
-    patchlist.py), and
+  - the exact commit of the Edera Linux tree it was built from (there is no
+    separate patch series: every Edera change is a commit on that branch, so
+    the commit is the complete statement of what is in this kernel), and
   - for GPU flavors, the firmware / nvidia module versions baked in.
 
-All of this is architecture-independent -- the same source, patches, and module
-versions apply to every arch in the manifest -- so a single SBOM correctly
-describes the whole multi-arch image and stays correct as new arches (e.g.
-arm64) are added. There are deliberately NO per-arch / package filter rules.
+All of this is architecture-independent -- the same source and module versions
+apply to every arch in the manifest -- so a single SBOM correctly describes the
+whole multi-arch image and stays correct as new arches (e.g. arm64) are added.
+There are deliberately NO per-arch / package filter rules.
 
 Reads from the environment (set by the merge job):
-  KERNEL_VERSION   e.g. "6.18.35" or "6.18.35+nvidia-610.43.02"
-  KERNEL_FLAVOR    e.g. "zone", "host", "zone-amdgpu", "zone-nvidiagpu"
-  KERNEL_SRC_URL   upstream linux source tarball URL
-  FIRMWARE_URL     linux-firmware tarball URL (only used for zone-amdgpu)
+  KERNEL_VERSION     e.g. "6.18.52" or "6.18.52+nvidia-610.43.02"
+  KERNEL_FLAVOR      e.g. "zone", "host", "zone-amdgpu", "zone-nvidiagpu"
+  KERNEL_SRC_URL     source archive URL for the commit that was built
+  KERNEL_SRC_REPO    Edera Linux repository URL
+  KERNEL_SRC_REF     branch built, e.g. "edera/6.18-lts"
+  KERNEL_SRC_COMMIT  commit built
+  FIRMWARE_URL       linux-firmware tarball URL (only used for zone-amdgpu)
 
 Writes sbom.cdx.json (CycloneDX 1.6) in the current directory.
 
@@ -30,25 +33,6 @@ This was created with Claude.
 import json
 import os
 import re
-import subprocess
-import sys
-
-
-def applied_patches(version, flavor):
-    """The patch files applied to this (version, flavor).
-
-    Delegates to patchlist.py so the SBOM lists exactly the patches the build
-    applies. patchlist.py matches constraints WITHOUT an arch argument, so this
-    is the union across architectures -- correct for a manifest-level SBOM and
-    forward-compatible with future arch-specific patches.
-    """
-    out = subprocess.run(
-        [sys.executable, "hack/build/patchlist.py", version, flavor],
-        check=True,
-        stdout=subprocess.PIPE,
-        text=True,
-    ).stdout
-    return [line.strip() for line in out.splitlines() if line.strip()]
 
 
 def firmware_version_from_url(url):
@@ -61,6 +45,9 @@ def main():
     version = os.environ["KERNEL_VERSION"]
     flavor = os.environ["KERNEL_FLAVOR"]
     src_url = os.environ.get("KERNEL_SRC_URL", "")
+    src_repo = os.environ.get("KERNEL_SRC_REPO", "")
+    src_ref = os.environ.get("KERNEL_SRC_REF", "")
+    src_commit = os.environ.get("KERNEL_SRC_COMMIT", "")
     firmware_url = os.environ.get("FIRMWARE_URL", "")
 
     # Strip any "+nvidia-<ver>" local suffix to get the upstream kernel version.
@@ -74,18 +61,22 @@ def main():
         "version": kernel_version,
         "purl": kernel_ref,
     }
+    external_references = []
     if src_url:
-        linux_component["externalReferences"] = [
-            {"type": "distribution", "url": src_url}
-        ]
+        external_references.append({"type": "distribution", "url": src_url})
+    if src_repo:
+        external_references.append({"type": "vcs", "url": src_repo})
+    if external_references:
+        linux_component["externalReferences"] = external_references
 
-    patches = applied_patches(version, flavor)
-    if patches:
-        linux_component["pedigree"] = {
-            "patches": [
-                {"type": "unofficial", "diff": {"url": patch}} for patch in patches
-            ]
-        }
+    # The downstream commit is the pedigree. CycloneDX models that as a commit
+    # ancestry rather than a patch list, which is the honest shape here: there
+    # are no out-of-tree diffs to enumerate, just the branch this was cut from.
+    if src_commit:
+        commit_entry = {"uid": src_commit}
+        if src_repo:
+            commit_entry["url"] = "%s/commit/%s" % (src_repo.rstrip("/"), src_commit)
+        linux_component["pedigree"] = {"commits": [commit_entry]}
 
     components = [linux_component]
     depends_on = [kernel_ref]
@@ -142,6 +133,9 @@ def main():
             },
             "properties": [
                 {"name": "dev.edera.kernel.flavor", "value": flavor},
+                {"name": "dev.edera.kernel.source.repo", "value": src_repo},
+                {"name": "dev.edera.kernel.source.ref", "value": src_ref},
+                {"name": "dev.edera.kernel.source.commit", "value": src_commit},
             ],
         },
         "components": components,
@@ -159,7 +153,7 @@ def main():
                 "flavor": flavor,
                 "version": version,
                 "kernel": kernel_version,
-                "patches": len(patches),
+                "source": "%s@%s" % (src_ref, src_commit),
                 "components": len(components),
             },
             indent=2,

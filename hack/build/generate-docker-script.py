@@ -132,6 +132,7 @@ def docker_compile(
     archs: list[str],
     firmware_url: str,
     firmware_sig_url: str,
+    source: dict[str, str],
 ) -> list[str]:
     """Generate docker run commands to compile the kernel with sccache."""
     lines = []
@@ -180,7 +181,15 @@ def docker_compile(
             "-e",
             quoted("KERNEL_FLAVOR=%s" % flavor),
             "-e",
-            quoted("KERNEL_SRC_URL=/build/override-kernel-src.tar.xz"),
+            quoted("KERNEL_SRC_URL=/build/override-kernel-src.tar.gz"),
+            # Recorded in the image metadata so a published kernel names the
+            # exact tree it was built from; the SBOM reads it back from there.
+            "-e",
+            quoted("KERNEL_SRC_REPO=%s" % source.get("repo", "")),
+            "-e",
+            quoted("KERNEL_SRC_REF=%s" % source.get("ref", "")),
+            "-e",
+            quoted("KERNEL_SRC_COMMIT=%s" % source.get("commit", "")),
             # The Azure sccache env is passed through by name only (no values),
             # so the generated script stays free of secrets; docker omits any
             # that are unset on the host. Without Azure config sccache falls
@@ -420,6 +429,7 @@ def generate_builds(
     kernel_archs: list[str],
     firmware_url: str,
     firmware_sig_url: str,
+    source: dict[str, str],
     tag_suffix: Optional[str] = None,
 ) -> list[str]:
     lines = []
@@ -444,6 +454,7 @@ def generate_builds(
         archs=kernel_archs,
         firmware_url=firmware_url,
         firmware_sig_url=firmware_sig_url,
+        source=source,
     )
 
     # Phase 3: Package kernel and SDK images from the compiled artifacts.
@@ -489,6 +500,11 @@ def generate_build_from_env() -> list[str]:
     root_firmware_url = os.getenv("FIRMWARE_URL")
     root_firmware_sig_url = os.getenv("FIRMWARE_SIG_URL")
     root_kernel_tags = os.getenv("KERNEL_TAGS", "").split(",")
+    root_source = {
+        "repo": os.getenv("KERNEL_SRC_REPO", ""),
+        "ref": os.getenv("KERNEL_SRC_REF", ""),
+        "commit": os.getenv("KERNEL_SRC_COMMIT", ""),
+    }
 
     archs_env = os.getenv("KERNEL_ARCHITECTURES", "")
     arch_env = os.getenv("KERNEL_ARCH", "")
@@ -510,6 +526,7 @@ def generate_build_from_env() -> list[str]:
         kernel_archs=root_kernel_archs,
         firmware_url=root_firmware_url,
         firmware_sig_url=root_firmware_sig_url,
+        source=root_source,
         tag_suffix=get_branch_tag_suffix(),
     )
 
@@ -536,6 +553,11 @@ def generate_builds_from_matrix(matrix) -> list[str]:
             kernel_archs=build_archs,
             firmware_url=firmware_url,
             firmware_sig_url=firmware_sig_url,
+            source={
+                "repo": build["repo"],
+                "ref": build["ref"],
+                "commit": build["commit"],
+            },
             tag_suffix=tag_suffix,
         )
     return lines
