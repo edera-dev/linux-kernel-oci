@@ -133,11 +133,13 @@ jobs:
       # This step is continue-on-error for the same reason the model step is:
       # neither can be allowed to turn a PR red.
       - name: Note the unfinished review
-        # always(), not just a failure check: hitting the job's own
-        # timeout-minutes cancels the job, and a step gated on the model
-        # step's outcome alone would be skipped, leaving the section
-        # reading as if this check had never started.
-        if: always() && steps.suggest.outcome != 'success'
+        # always(), with no outcome check: the job's own timeout cancels
+        # the job, and the action also exits zero when the model reports a
+        # failed publish and stops. Both leave the section reading as if
+        # this check had never started. --only-if-unstamped makes this a
+        # no-op whenever the section is already stamped at this head, so
+        # running it unconditionally is safe.
+        if: always()
         continue-on-error: true
         env:
           GH_TOKEN: ${{ github.token }}

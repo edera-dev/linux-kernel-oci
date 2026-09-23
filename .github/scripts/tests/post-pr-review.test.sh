@@ -245,6 +245,24 @@ printf 'text\n<!-- pr-review -->\n' >"$WORK/review-marked.md"
 check "body with the review marker rejected" bash -c "! bash '$SCRIPT' edera-dev/linux-kernel-oci 42 pr-test-coverage '$WORK/review-marked.md' '$HEAD_SHA' 2>/dev/null"
 check "no gh call was made" test ! -s "$FAKE_GH_STATE/calls.log"
 
+echo "# the discussion is read through a script that cannot write"
+READER="$ROOT/.github/scripts/read-pr-discussion.sh"
+check "the read script is shipped" test -f "$READER"
+# Skip the header comment, which quotes the very command shape these assert
+# against so the reason for the script is recorded next to the script.
+check "it pins the method on every api call" \
+  bash -c "! grep -v '^[[:space:]]*#' '$READER' | grep -o -E 'gh api [^|]*' | grep -q -v -- '--method GET'"
+check "it never passes a field" \
+  bash -c "! grep -v '^[[:space:]]*#' '$READER' | grep -qE ' -(f|F|--field|--raw-field) '"
+check "it rejects a non-numeric pr" \
+  bash -c "! bash '$READER' edera-dev/linux-kernel-oci abc 2>/dev/null"
+check "it rejects a non-owner-repo" \
+  bash -c "! bash '$READER' notaslug 42 2>/dev/null"
+check "it rejects an extra argument" \
+  bash -c "! bash '$READER' edera-dev/linux-kernel-oci 42 extra 2>/dev/null"
+check "the coverage prompt reads through it" \
+  grep -q 'bash .github/scripts/read-pr-discussion.sh' "${WORKFLOWS[1]}"
+
 echo "# the publisher itself"
 check "COMMENT is the only review event in the script" test "$(grep -c 'event=' "$SCRIPT")" = 1
 check "and it is COMMENT" grep -q 'event=COMMENT' "$SCRIPT"
@@ -266,12 +284,14 @@ for wf in "${WORKFLOWS[@]}"; do
   check "$name: model step is continue-on-error" grep -q '^        continue-on-error: true$' "$wf"
   check "$name: a run that fails before publishing explains itself in its section" \
     grep -q -- '--only-if-unstamped' "$wf"
-  check "$name: and does that whenever the model step did not succeed" \
-    grep -qE "if: always\(\) && steps\.[a-z]+\.outcome != 'success'" "$wf"
-  # A gate on failure alone is skipped when the job is cancelled by its own
-  # timeout, which is exactly when the section would otherwise read as unstarted.
-  check "$name: the note is not gated on failure alone" \
-    bash -c "! grep -qE \"if: steps\\.[a-z]+\\.outcome == 'failure'\" '$wf'"
+  # Any outcome gate is wrong here: the action exits zero both when the job is
+  # cancelled by its own timeout and when the model reports a failed publish and
+  # stops. --only-if-unstamped makes the note a no-op once the section is
+  # stamped at this head, so it runs unconditionally.
+  check "$name: the note runs on every end of the job" \
+    grep -qF "        if: always()" "$wf"
+  check "$name: and is not gated on the model step's outcome" \
+    bash -c "! grep -qE \"if: always\\(\\) && steps\\.[a-z]+\\.outcome\" '$wf'"
   check "$name: the step that writes it cannot turn the PR red either" \
     test "$(grep -c '^        continue-on-error: true$' "$wf")" = 2
   # shellcheck disable=SC2016  # matching the literal shell in the workflow.
@@ -282,12 +302,13 @@ for wf in "${WORKFLOWS[@]}"; do
   check "$name: allowlist has the script" grep -q 'Bash(bash .github/scripts/post-pr-review.sh:\*)' "$wf"
   check "$name: allowlist has no gh pr comment" bash -c "! grep -q 'gh pr comment' '$wf'"
   check "$name: allowlist has no gh pr review" bash -c "! grep -q 'gh pr review' '$wf'"
-  check "$name: allowlist has no open gh api" bash -c "! grep -q 'Bash(gh api:\*)' '$wf'"
-  check "$name: allowlist has no gh api write method" bash -c "! grep -q -E 'Bash\(gh api -X (PATCH|POST|PUT|DELETE)' '$wf'"
-  # gh switches to POST as soon as a parameter is passed, so an allowlisted
-  # `gh api` entry without the method pinned to GET is a write path.
-  check "$name: every allowlisted gh api entry pins GET" \
-    bash -c "! grep -o -E 'Bash\(gh api [^)]*' '$wf' | grep -q -v -- '-X GET'"
+  # A `gh api` entry cannot be made read-only by naming the endpoint: the
+  # allowlist matches a prefix and gh takes the last --method on the line, so
+  # `gh api -X GET <endpoint> -X POST -f body=...` matches and writes. The
+  # discussion is read through a committed script instead.
+  check "$name: allowlist has no gh api entry at all" bash -c "! grep -q 'Bash(gh api' '$wf'"
+  check "$name: allowlist reaches the API only through a committed script" \
+    bash -c "! grep -o -E 'Bash\([^)]*gh api[^)]*' '$wf' | grep -q -v 'read-pr-discussion.sh'"
   check "$name: allowlist reaches no review endpoint" bash -c "! grep -q -E 'Bash\([^)]*/reviews' '$wf'"
   check "$name: never approves or requests changes" bash -c "! grep -q -E 'APPROVE|REQUEST_CHANGES|--approve|--request-changes' '$wf'"
   check "$name: prompt does not promise a footer the skills no longer emit" bash -c "! grep -q -E 'carries a footer|nothing here blocks the merge' '$wf'"

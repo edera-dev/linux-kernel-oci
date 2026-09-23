@@ -56,5 +56,6 @@ jobs:
       - name: Shellcheck
         run: |
           shellcheck .github/scripts/post-pr-review.sh \
+                     .github/scripts/read-pr-discussion.sh \
                      .github/scripts/tests/post-pr-review.test.sh \
                      .github/scripts/tests/fake-gh/gh

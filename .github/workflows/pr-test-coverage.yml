@@ -52,9 +52,12 @@ jobs:
       # The model reads PR comments, so the tools it can run are limited to
       # reading the PR and one script that submits a comment-only review.
       # Nothing here can approve, request changes, or reach any other endpoint.
-      # The two comment endpoints are allowed only with the method pinned to
-      # GET: `gh api` switches to POST as soon as a parameter is passed, so an
-      # entry without `-X GET` would let the same endpoint create a comment.
+      # The discussion is read through a committed script, not through a
+      # `gh api` entry naming the endpoint. An allowlist entry is a prefix
+      # match and `gh api` takes the last `--method` on the line, so
+      # `gh api -X GET <endpoint> -X POST -f body=...` would match such an
+      # entry and create a comment. Fixing the command in the script is what
+      # keeps the read read-only.
       # Values pasted into repository or org variables can pick up stray line
       # endings, which reach the action as part of the value and fail auth in a
       # way that is hard to read. Strip whitespace before use.
@@ -103,8 +106,7 @@ jobs:
 
             Before writing anything, read what has already been said on the PR
             so you do not repeat it:
-              gh pr view ${{ github.event.pull_request.number }} --repo ${{ github.repository }} --json body,comments,reviews
-              gh api -X GET repos/${{ github.repository }}/pulls/${{ github.event.pull_request.number }}/comments --jq '.[].body'
+              bash .github/scripts/read-pr-discussion.sh ${{ github.repository }} ${{ github.event.pull_request.number }}
             The review carrying <!-- pr-review --> is shared by the two
             review checks. Its Test Coverage section is this check's own
             earlier output. It is not "already said"; you are replacing it.
@@ -132,7 +134,7 @@ jobs:
             request changes, and never leave an issue comment.
           claude_args: |
             --max-turns 150
-            --allowedTools "Read,Grep,Glob,Write,Bash(git:*),Bash(gh pr view:*),Bash(gh pr diff:*),Bash(gh api -X GET repos/${{ github.repository }}/pulls/${{ github.event.pull_request.number }}/comments:*),Bash(gh api -X GET repos/${{ github.repository }}/issues/${{ github.event.pull_request.number }}/comments:*),Bash(bash .github/scripts/post-pr-review.sh:*),Bash(jq:*),Bash(ls:*),Bash(cat:*),Bash(head:*),Bash(tail:*)"
+            --allowedTools "Read,Grep,Glob,Write,Bash(git:*),Bash(gh pr view:*),Bash(gh pr diff:*),Bash(bash .github/scripts/read-pr-discussion.sh:*),Bash(bash .github/scripts/post-pr-review.sh:*),Bash(jq:*),Bash(ls:*),Bash(cat:*),Bash(head:*),Bash(tail:*)"
 
       # A run that ends before the model publishes — an error, or the job
       # hitting its own timeout — leaves this check's section reading as if
@@ -141,11 +143,13 @@ jobs:
       # This step is continue-on-error for the same reason the model step is:
       # neither can be allowed to turn a PR red.
       - name: Note the unfinished review
-        # always(), not just a failure check: hitting the job's own
-        # timeout-minutes cancels the job, and a step gated on the model
-        # step's outcome alone would be skipped, leaving the section
-        # reading as if this check had never started.
-        if: always() && steps.review.outcome != 'success'
+        # always(), with no outcome check: the job's own timeout cancels
+        # the job, and the action also exits zero when the model reports a
+        # failed publish and stops. Both leave the section reading as if
+        # this check had never started. --only-if-unstamped makes this a
+        # no-op whenever the section is already stamped at this head, so
+        # running it unconditionally is safe.
+        if: always()
         continue-on-error: true
         env:
           GH_TOKEN: ${{ github.token }}
