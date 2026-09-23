@@ -31,9 +31,6 @@ architectures:
 
 flavors:
 - name: zone
-  # zone is the only flavor we currently publish for aarch64. Other flavors fall
-  # back to the global `architectures` list above; add an `architectures:` entry
-  # here to opt them in.
   architectures:
   - x86_64
   - aarch64
@@ -74,6 +71,9 @@ flavors:
     branches:
     - 6.18-lts
 - name: host
+  architectures:
+  - x86_64
+  - aarch64
 
 # zone-openpax is parked: the openpax series has not been restored on the Edera
 # branches yet. Its kconfig fragments are still in configs/, so re-enabling it
