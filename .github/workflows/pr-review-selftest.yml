@@ -1,0 +1,61 @@
+name: Review check self-test
+
+# Tests the publisher the two advisory review checks share, and the static
+# assertions that test file makes about the review workflows themselves: that
+# fork pull requests are skipped, that the jobs hold exactly three permissions,
+# that the model step cannot turn a pull request red, that the review event is
+# fixed to COMMENT, and that the tool allowlist reaches no write endpoint.
+#
+# Unlike the two review checks, this is an ordinary test and is meant to fail
+# when it fails. Without it, an edit that removes the fork gate or opens the
+# allowlist would merge with nothing to object.
+#
+# It runs only when the review machinery itself changes.
+
+on:
+  pull_request:
+    types: [opened, synchronize, ready_for_review]
+    branches: [main]
+    paths:
+      - '.github/scripts/post-pr-review.sh'
+      - '.github/scripts/tests/**'
+      - '.github/workflows/pr-review-suggestions.yml'
+      - '.github/workflows/pr-test-coverage.yml'
+      - '.github/workflows/pr-review-selftest.yml'
+      # The workflows name skill files by path and the suite asserts they are
+      # there, so a rename or deletion under .review/ has to run this.
+      - '.review/**'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pr-review-selftest-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  selftest:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Harden runner
+        uses: step-security/harden-runner@05e31511f85b41b11d1cf0ef85d0992719546e2c # v2.21.0
+        with:
+          egress-policy: audit
+
+      - name: Checkout
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+
+      # The suite runs the publisher against a fake gh on PATH and never
+      # reaches the network or this pull request.
+      - name: Publisher tests
+        run: bash .github/scripts/tests/post-pr-review.test.sh
+
+      - name: Shellcheck
+        run: |
+          shellcheck .github/scripts/post-pr-review.sh \
+                     .github/scripts/read-pr-discussion.sh \
+                     .github/scripts/tests/post-pr-review.test.sh \
+                     .github/scripts/tests/fake-gh/gh
