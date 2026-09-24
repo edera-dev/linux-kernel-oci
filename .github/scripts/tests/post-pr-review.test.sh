@@ -284,14 +284,18 @@ for wf in "${WORKFLOWS[@]}"; do
   check "$name: model step is continue-on-error" grep -q '^        continue-on-error: true$' "$wf"
   check "$name: a run that fails before publishing explains itself in its section" \
     grep -q -- '--only-if-unstamped' "$wf"
-  # Any outcome gate is wrong here: the action exits zero both when the job is
-  # cancelled by its own timeout and when the model reports a failed publish and
-  # stops. --only-if-unstamped makes the note a no-op once the section is
-  # stamped at this head, so it runs unconditionally.
-  check "$name: the note runs on every end of the job" \
-    grep -qF "        if: always()" "$wf"
-  check "$name: and is not gated on the model step's outcome" \
-    bash -c "! grep -qE \"if: always\\(\\) && steps\\.[a-z]+\\.outcome\" '$wf'"
+  # The note has to survive a cancelled job and a zero-exit run that never
+  # published, and it has to stay silent when the action never ran at all --
+  # otherwise every pull request on a repository without the identifiers gets a
+  # review saying a check did not finish. Scoped to the note step, because the
+  # summary step below it is legitimately a bare always().
+  note="sed -n '/- name: Note the unfinished review/,/- name: Report outcome/p' '$wf'"
+  check "$name: the note survives a cancelled or failed step" \
+    bash -c "$note | grep -q \"outcome == 'cancelled'\" && $note | grep -q \"outcome == 'failure'\""
+  check "$name: and still fires when the action ran and published nothing" \
+    bash -c "$note | grep -qF \"outputs.conclusion != ''\""
+  check "$name: and is silent when the action never ran" \
+    bash -c "! $note | grep -qE '^        if: always\\(\\)\$'"
   check "$name: the step that writes it cannot turn the PR red either" \
     test "$(grep -c '^        continue-on-error: true$' "$wf")" = 2
   # shellcheck disable=SC2016  # matching the literal shell in the workflow.

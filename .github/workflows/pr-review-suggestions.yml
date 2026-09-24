@@ -133,13 +133,21 @@ jobs:
       # This step is continue-on-error for the same reason the model step is:
       # neither can be allowed to turn a PR red.
       - name: Note the unfinished review
-        # always(), with no outcome check: the job's own timeout cancels
-        # the job, and the action also exits zero when the model reports a
-        # failed publish and stops. Both leave the section reading as if
-        # this check had never started. --only-if-unstamped makes this a
-        # no-op whenever the section is already stamped at this head, so
-        # running it unconditionally is safe.
-        if: always()
+        # Three ways a run ends without publishing, and only two of them
+        # are an unfinished review. The action sets its conclusion output
+        # when it ran, so a set conclusion covers the case where the model
+        # reported a failed publish and stopped, which exits zero. A
+        # cancelled or failed step covers the job hitting its own timeout.
+        # An empty conclusion with the step still green means the action
+        # never ran at all -- the identifiers are unset on this repository,
+        # or the pull request changes this file -- and saying a review did
+        # not finish would be wrong and would land on every pull request.
+        # --only-if-unstamped makes this a no-op once the section is
+        # stamped at this head.
+        if: >-
+          always() && (steps.suggest.outputs.conclusion != ''
+          || steps.suggest.outcome == 'failure'
+          || steps.suggest.outcome == 'cancelled')
         continue-on-error: true
         env:
           GH_TOKEN: ${{ github.token }}
@@ -165,7 +173,7 @@ jobs:
             if [ "$OUTCOME" = "failure" ]; then
               echo "**The review started but did not finish**, so it posted nothing about the diff. Hitting \`--max-turns\` looks like this, and so does an API failure. The \`Suggest\` step log has the cause."
             elif [ -z "$CONCLUSION" ]; then
-              echo "**The review did not run.** Expected on a PR that changes this workflow file — the action requires the workflow to match the copy on the default branch. Any other cause is in the \`Suggest\` step log."
+              echo "**The review did not run.** Expected when `PR_REVIEW_FEDERATION_RULE_ID`, `PR_REVIEW_ORGANIZATION_ID`, `PR_REVIEW_SERVICE_ACCOUNT_ID` and `PR_REVIEW_WORKSPACE_ID` are not set as variables on this repository, and on a PR that changes this workflow file — the action requires the workflow to match the copy on the default branch. Any other cause is in the \`Suggest\` step log."
             elif [ "$CONCLUSION" = "success" ]; then
               echo "Review ran."
             else
