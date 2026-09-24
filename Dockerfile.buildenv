@@ -75,6 +75,24 @@ RUN case "${TARGETARCH}" in \
     install -m 0755 "/tmp/${UV_DIST}/uvx" /usr/local/bin/uvx && \
     rm -rf /tmp/uv.tar.gz "/tmp/${UV_DIST}"
 
+# The build and merge jobs sign published images with cosign. Baking it in
+# (instead of sigstore/cosign-installer fetching it from GitHub releases at
+# job start) makes it a reviewed input like the compilers, and removes a
+# per-job download that has flaked with release-CDN 500s outlasting the
+# installer's retries. The workflow jobs extract this binary from the image.
+ARG COSIGN_VERSION=3.0.6
+ARG COSIGN_SHA256_AMD64=c956e5dfcac53d52bcf058360d579472f0c1d2d9b69f55209e256fe7783f4c74
+ARG COSIGN_SHA256_ARM64=bedac92e8c3729864e13d4a17048007cfafa79d5deca993a43a90ffe018ef2b8
+RUN case "${TARGETARCH}" in \
+      amd64) COSIGN_SHA256="${COSIGN_SHA256_AMD64}" ;; \
+      arm64) COSIGN_SHA256="${COSIGN_SHA256_ARM64}" ;; \
+      *) echo "unsupported TARGETARCH ${TARGETARCH}" >&2; exit 1 ;; \
+    esac && \
+    curl -Lf -o /tmp/cosign "https://github.com/sigstore/cosign/releases/download/v${COSIGN_VERSION}/cosign-linux-${TARGETARCH}" && \
+    echo "${COSIGN_SHA256}  /tmp/cosign" | sha256sum -c - && \
+    install -m 0755 /tmp/cosign /usr/local/bin/cosign && \
+    rm -f /tmp/cosign
+
 # pyproject.toml requires >=3.14 but bookworm ships 3.11, so uv would fetch a
 # managed CPython mid-build on every run. Bake it in for the same reason the
 # compilers are baked in: the toolchain stays a reviewed input rather than a
@@ -108,6 +126,7 @@ RUN cd /tmp/warm && uv sync --frozen && \
 # The buildenv-diff workflow uses this to summarize dependabot digest bumps.
 RUN mkdir -p /usr/share/buildenv && \
     { dpkg-query -W -f '${Package}\t${Version}\t${Architecture}\n' | sort; \
+      printf 'cosign\t%s\tgithub-release\n' "${COSIGN_VERSION}"; \
       printf 'sccache\t%s\tgithub-release\n' "${SCCACHE_VERSION}"; \
       printf 'uv\t%s\tgithub-release\n' "${UV_VERSION}"; \
       printf 'python\t%s\tuv-managed\n' "${UV_PYTHON_VERSION}"; } \
