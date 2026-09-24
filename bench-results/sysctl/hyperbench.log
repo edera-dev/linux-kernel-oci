@@ -1,0 +1,17 @@
+>> reusing cached zone  (/home/luca-linux/Projects/edera/.claude/ef43b7/kcache/zone-6.18.bzImage)
+>> measuring zone (30 runs) ...
+>> measuring zone:prof=compute (30 runs) ...
+
+== hyperbench: elapsed microseconds, lower is better (N=30 boots/arm) ==
+   delta% is vs baseline 'zone'; negative = faster
+
+metric                                                  zone                        zone:prof=compute           
+SHA512-crypt password verification                      1918889+-34501              1906737+-45662 (-0.6%)      
+Integer math (prime solving up to 10000000, 20 rounds)  164580+-20667               164425+-18034 (-0.1%)       
+Pipe copy (1GiB)                                        933743+-15468               927549+-8276 (-0.7%)        
+Socketpair copy (1GiB)                                  1405216+-17374              1394553+-9106 (-0.8%)       
+Final score                                             1105607+-14007              1098316+-14443 (-0.7%)      
+
+== in-guest CPU-vulnerability state (spectre_v2, last run) ==
+zone                   Mitigation: Enhanced / Automatic IBRS; IBPB: conditional; STIBP: disabled; PBRSB-eIBRS: Not affected; BHI: Not affected
+zone:prof=compute      Mitigation: Enhanced / Automatic IBRS; IBPB: conditional; STIBP: disabled; PBRSB-eIBRS: Not affected; BHI: Not affected

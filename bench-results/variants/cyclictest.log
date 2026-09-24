@@ -1,0 +1,18 @@
+>> reusing cached zone  (/home/luca-linux/Projects/edera/.claude/ef43b7/kcache/zone-6.18.bzImage)
+>> reusing cached zone-rt  (/home/luca-linux/Projects/edera/.claude/ef43b7/kcache/zone-rt-6.18.bzImage)
+>> measuring zone (50 runs, 2 vCPU, 30s) ...
+>> measuring zone:preempt=full (50 runs, 2 vCPU, 30s) ...
+>> measuring zone-rt (50 runs, 2 vCPU, 30s) ...
+
+== cyclictest: wake-up latency in microseconds under load, lower is better ==
+   N=50 boots/arm, 2 vCPU, 30s, prio 99, load=hackbench; delta% vs 'zone'
+
+metric                zone                        zone:preempt=full           zone-rt                     
+min(us)               4+-0                        3+-0 (-11.4%)               3+-0 (-14.3%)               
+avg(us)               19+-5                       18+-5 (-6.7%)               17+-1 (-13.5%)              
+max(us)               6000+-3665                  5278+-2612 (-12.0%)         4612+-1672 (-23.1%)         
+
+== in-guest RT state (PREEMPT_RT in uname, last run) ==
+zone                   realtime=0
+zone:preempt=full      realtime=0
+zone-rt                realtime=1

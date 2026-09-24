@@ -1,0 +1,16 @@
+>> reusing cached zone  (/home/luca-linux/Projects/edera/.claude/ef43b7/kcache/zone-6.18.bzImage)
+>> building Redis initramfs from docker.io/library/redis:alpine (once) ...
+   WORK=/home/luca-linux/Projects/edera/.claude/ef43b7/wk/tmp.L1yvlyozpY
+>> measuring zone (30 runs, 8 vCPU, n=20000 c=50 k=0) ...
+>> measuring zone:prof=mq (30 runs, 8 vCPU, n=20000 c=50 k=0) ...
+>> measuring zone:mitigations=off (30 runs, 8 vCPU, n=20000 c=50 k=0) ...
+>> measuring zone:mitigations=off,prof=mq (30 runs, 8 vCPU, n=20000 c=50 k=0) ...
+
+== redis-benchmark: requests/sec, HIGHER is better (N=30 boots/arm) ==
+   8 vCPU, n=20000 c=50 keepalive=0; delta% vs 'zone'
+
+op      zone                          zone:prof=mq                  zone:mitigations=off          zone:mitigations=off,prof=mq  
+SET     37738+-1302                   38824+-795 (+2.9%)            82176+-2451 (+117.8%)         82018+-2861 (+117.3%)         
+GET     37664+-1750                   38978+-688 (+3.5%)            83832+-2538 (+122.6%)         83683+-3184 (+122.2%)         
+LPUSH   38043+-1522                   38915+-812 (+2.3%)            84156+-2492 (+121.2%)         84014+-2975 (+120.8%)         
+LPOP    37723+-1308                   38893+-707 (+3.1%)            83165+-3130 (+120.5%)         84131+-2467 (+123.0%)         

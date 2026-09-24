@@ -50,7 +50,11 @@ REG_NAME="${REG_NAME:-edera-local-registry}"
 # no sccache backend locally, and its wrapper can fail the kernel assembler probe
 export KERNEL_DISABLE_SCCACHE="${KERNEL_DISABLE_SCCACHE-1}"
 KCACHE="${KCACHE:-${XDG_CACHE_HOME:-$HOME/.cache}/edera-kernel-bench}"
+export KCACHE # visible to hack/bench/chv-wrap-run.sh when $CHV points at it
 CHV_URL="${CHV_URL:-https://github.com/cloud-hypervisor/cloud-hypervisor/releases/latest/download/cloud-hypervisor-static}"
+# Extra args passed straight to cloud-hypervisor. Use e.g. "--seccomp false" when running
+# inside a sandbox that blocks the seccomp() syscall (see hack/bench/Dockerfile.runner).
+CHV_EXTRA_ARGS="${CHV_EXTRA_ARGS:-}"
 
 mkdir -p "$KCACHE"
 CHV="${CHV:-}"
@@ -70,12 +74,14 @@ if [ -z "$CHV" ]; then
 		fi
 	fi
 fi
-[ -e /dev/kvm ] || {
+[ -n "${SKIP_KVM_CHECK:-}" ] || [ -e /dev/kvm ] || {
 	echo "ERROR: /dev/kvm not available; Cloud Hypervisor needs KVM." >&2
+	echo "       (set SKIP_KVM_CHECK=1 when using hack/bench/chv-wrap-run.sh)" >&2
 	exit 3
 }
 
 WORK="$(mktemp -d)"
+export WORK # visible to hack/bench/chv-wrap-run.sh when $CHV points at it
 CFG_BAK=""
 cleanup() {
 	rm -rf "$WORK" 2>/dev/null || true
@@ -182,7 +188,7 @@ fi
 # ttyS0, quiet); protect also appends init.zone.memory.min=N and any caller args. ----
 APPEND="earlyprintk=ttyS0 console=ttyS0 quiet"
 chvcmd() { # $1 = kernel, $2 = serial output file
-	echo "timeout 60 '$CHV' --kernel '$1' --initramfs '$WORK/initrd.cpio.gz' --cmdline '$APPEND' --cpus boot=1 --memory size=512M --serial file='$2' --console off"
+	echo "timeout 60 '$CHV' $CHV_EXTRA_ARGS --kernel '$1' --initramfs '$WORK/initrd.cpio.gz' --cmdline '$APPEND' --cpus boot=1 --memory size=512M --serial file='$2' --console off"
 }
 
 # ---- preflight: confirm a boot actually reaches /init, else numbers are noise ----

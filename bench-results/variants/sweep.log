@@ -1,0 +1,9 @@
+[2026-09-23T07:26:19Z] BEGIN hyperbench (4 arms, RUNS=50)
+[2026-09-23T07:45:57Z] END hyperbench rc=0 in 1178s
+[2026-09-23T07:45:57Z] BEGIN cyclictest (3 arms, RUNS=50, LOAD=hackbench)
+[2026-09-23T09:03:14Z] END cyclictest rc=0 in 4637s
+[2026-09-23T09:03:14Z] BEGIN fio (4 arms, RUNS=50, randread 4k 15s)
+[2026-09-23T09:56:55Z] END fio rc=0 in 3221s
+[2026-09-23T09:56:55Z] BEGIN pgbench (5 arms, RUNS=50, scale=10 30s c=8)
+[2026-09-23T12:14:03Z] END pgbench rc=0 in 8228s
+[2026-09-23T12:14:03Z] SWEEP COMPLETE

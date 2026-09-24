@@ -1,0 +1,22 @@
+# CHV runner image: exec cloud-hypervisor inside a container that has /dev/kvm exposed,
+# used by hack/bench/chv-wrap-run.sh. The rest of the bench pipeline (kernel builds,
+# initramfs assembly, local OCI registry) still runs on the host, since those need docker/
+# podman access to the docker daemon that this image cannot reach from inside a container.
+# So this image is deliberately minimal -- just CHV + a libc.
+#
+# Usage: driven by hack/bench/chv-wrap-run.sh; a caller invokes the bench scripts as usual
+# on the host and sets CHV=hack/bench/chv-wrap-run.sh. The wrapper spawns this container
+# once per boot with the caller's args.
+#
+# Build (from repo root):  podman build -t edera-bench-runner -f hack/bench/Dockerfile.runner .
+FROM docker.io/library/debian:bookworm-slim
+
+RUN export DEBIAN_FRONTEND=noninteractive && \
+    apt-get update && apt-get install -y --no-install-recommends curl ca-certificates && \
+    rm -rf /var/lib/apt/lists/*
+
+ARG CHV_VERSION=v53.0
+RUN curl -fsSL -o /usr/local/bin/cloud-hypervisor \
+      "https://github.com/cloud-hypervisor/cloud-hypervisor/releases/download/${CHV_VERSION}/cloud-hypervisor-static" && \
+    chmod +x /usr/local/bin/cloud-hypervisor && \
+    /usr/local/bin/cloud-hypervisor --version

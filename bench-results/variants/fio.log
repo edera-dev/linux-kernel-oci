@@ -1,0 +1,18 @@
+>> reusing cached zone  (/home/luca-linux/Projects/edera/.claude/ef43b7/kcache/zone-6.18.bzImage)
+>> reusing cached zone-io  (/home/luca-linux/Projects/edera/.claude/ef43b7/kcache/zone-io-6.18.bzImage)
+>> measuring zone:fio.sched=none (50 runs, 2 vCPU, randread bs=4k 15s) ...
+>> measuring zone:fio.sched=mq-deadline (50 runs, 2 vCPU, randread bs=4k 15s) ...
+>> measuring zone:fio.sched=bfq (50 runs, 2 vCPU, randread bs=4k 15s) ...
+>> measuring zone-io (50 runs, 2 vCPU, randread bs=4k 15s) ...
+
+== fio: randread bs=4k numjobs=1 on /dev/vda, HIGHER is better (N=50 boots/arm) ==
+   2 vCPU, 15s, --direct=1 psync; delta% vs 'zone:fio.sched=none' (positive = more)
+
+   zone:fio.sched=none            scheduler=none
+   zone:fio.sched=mq-deadline     scheduler=mq-deadline
+   zone:fio.sched=bfq             scheduler=bfq
+   zone-io                        scheduler=mq-deadline
+
+metric      zone:fio.sched=none           zone:fio.sched=mq-deadline    zone:fio.sched=bfq            zone-io                       
+iops        39610+-591                    38629+-571 (-2.5%)            37401+-536 (-5.6%)            38216+-630 (-3.5%)            
+bw(KB/s)    158440+-2366                  154518+-2282 (-2.5%)          149605+-2142 (-5.6%)          152864+-2520 (-3.5%)          

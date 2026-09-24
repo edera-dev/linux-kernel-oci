@@ -47,6 +47,51 @@ flavors:
   - x86_64
   constraints:
     lower: '6.18'
+- name: zone-nomit
+  # zone kernel with all CPU speculative-execution mitigations compiled out
+  # (CONFIG_CPU_MITIGATIONS=n). Sound only when the whole zone is a single trust
+  # domain running no untrusted in-guest code; the hypervisor is the isolation
+  # boundary. Deliberate security downgrade -- do not publish or wire into e2e
+  # without security sign-off. Kernel >= 6.9 (CPU_MITIGATIONS master-switch name).
+  architectures:
+  - x86_64
+  constraints:
+    lower: '6.9'
+- name: zone-rt
+  # zone kernel built PREEMPT_RT (fully preemptible, real-time). Latency variant:
+  # bounds worst-case wake-up latency under load. none/voluntary/full preemption
+  # are already runtime-switchable via PREEMPT_DYNAMIC, so only RT needs a build.
+  architectures:
+  - x86_64
+  constraints:
+    lower: '6.12'
+- name: zone-thru
+  # CPU-throughput compute flavor: static PREEMPT_NONE, 100Hz tick, NUMA balancing off.
+  architectures:
+  - x86_64
+  constraints:
+    lower: '6.1'
+- name: zone-io
+  # Token IO-throughput flavor: BFQ removed (wrong for a virtio guest; real tuning is the
+  # runtime 'none' scheduler, see hack/bench/run-fio.sh).
+  architectures:
+  - x86_64
+  constraints:
+    lower: '6.1'
+- name: zone-db
+  # Database flavor: static PREEMPT_NONE + NUMA balancing off (THP stays madvise).
+  architectures:
+  - x86_64
+  constraints:
+    lower: '6.1'
+- name: zone-lto
+  # ThinLTO/Clang codegen flavor. Built under LLVM=1 (clang/lld) -- see the LLVM_MAKE gate
+  # in hack/build/common.sh + build.sh and clang/lld/llvm in Dockerfile.buildenv; other
+  # flavors stay GCC. Kernel >= 6.13 (GENDWARFKSYMS for MODVERSIONS+LTO).
+  architectures:
+  - x86_64
+  constraints:
+    lower: '6.13'
 - name: zone-amdgpu
   constraints:
     lower: '6.1'

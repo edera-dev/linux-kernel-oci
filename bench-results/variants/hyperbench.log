@@ -1,0 +1,24 @@
+>> reusing cached zone  (/home/luca-linux/Projects/edera/.claude/ef43b7/kcache/zone-6.18.bzImage)
+>> reusing cached zone-nomit  (/home/luca-linux/Projects/edera/.claude/ef43b7/kcache/zone-nomit-6.18.bzImage)
+>> reusing cached zone-thru  (/home/luca-linux/Projects/edera/.claude/ef43b7/kcache/zone-thru-6.18.bzImage)
+>> reusing cached zone-lto  (/home/luca-linux/Projects/edera/.claude/ef43b7/kcache/zone-lto-6.18.bzImage)
+>> measuring zone (50 runs) ...
+>> measuring zone-nomit (50 runs) ...
+>> measuring zone-thru (50 runs) ...
+>> measuring zone-lto (50 runs) ...
+
+== hyperbench: elapsed microseconds, lower is better (N=50 boots/arm) ==
+   delta% is vs baseline 'zone'; negative = faster
+
+metric                                                  zone                        zone-nomit                  zone-thru                   zone-lto                    
+SHA512-crypt password verification                      1925702+-45277              2014086+-140559 (+4.6%)     1919390+-72389 (-0.3%)      2213181+-103265 (+14.9%)    
+Integer math (prime solving up to 10000000, 20 rounds)  164705+-15087               146123+-26139 (-11.3%)      160313+-12840 (-2.7%)       210651+-31557 (+27.9%)      
+Pipe copy (1GiB)                                        930017+-15885               249653+-16473 (-73.2%)      899444+-25227 (-3.3%)       1086117+-67118 (+16.8%)     
+Socketpair copy (1GiB)                                  1374504+-27997              432464+-28956 (-68.5%)      1337540+-35346 (-2.7%)      1630720+-98284 (+18.6%)     
+Final score                                             1098732+-18871              710582+-48037 (-35.3%)      1079172+-31470 (-1.8%)      1285167+-61861 (+17.0%)     
+
+== in-guest CPU-vulnerability state (spectre_v2, last run) ==
+zone                   Mitigation: Enhanced / Automatic IBRS; IBPB: conditional; STIBP: disabled; PBRSB-eIBRS: Not affected; BHI: Not affected
+zone-nomit             Vulnerable; IBPB: disabled; STIBP: disabled; PBRSB-eIBRS: Not affected; BHI: Not affected
+zone-thru              Mitigation: Enhanced / Automatic IBRS; IBPB: conditional; STIBP: disabled; PBRSB-eIBRS: Not affected; BHI: Not affected
+zone-lto               Mitigation: Enhanced / Automatic IBRS; IBPB: conditional; STIBP: disabled; PBRSB-eIBRS: Not affected; BHI: Not affected

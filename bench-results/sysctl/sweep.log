@@ -1,0 +1,15 @@
+[2026-09-23T16:53:24Z] BEGIN hyperbench (RUNS=30, 8vCPU, prof=compute)
+[2026-09-23T17:00:15Z] END hyperbench rc=0 in 411s
+[2026-09-23T17:00:15Z] BEGIN cyclictest (RUNS=30, 8vCPU, LOAD=hackbench, prof=latency)
+[2026-09-23T17:31:30Z] END cyclictest rc=0 in 1875s
+[2026-09-23T17:31:30Z] BEGIN fio (RUNS=30, 8vCPU, numjobs=8, prof=io)
+[2026-09-23T17:47:48Z] END fio rc=0 in 978s
+[2026-09-23T17:47:48Z] BEGIN pgbench (RUNS=30, 8vCPU, prof=db + prof=db-thponly)
+[2026-09-23T18:38:18Z] END pgbench rc=0 in 3030s
+[2026-09-23T18:38:18Z] BEGIN redis (RUNS=30, 8vCPU, prof=mq + mitigations arms)
+[2026-09-23T18:38:23Z] END redis rc=4 in 5s
+[2026-09-23T18:38:23Z] SWEEP COMPLETE
+[2026-09-23T18:44:10Z] BEGIN redis retry
+[2026-09-23T18:44:11Z] END redis retry rc=0 in 1s
+[2026-09-23T19:02:52Z] BEGIN redis (4 arms, RUNS=30, 8vCPU, NREQ=20000, c=50)
+[2026-09-23T19:07:40Z] END redis rc=0 in 288s

@@ -1,0 +1,13 @@
+>> reusing cached zone  (/home/luca-linux/Projects/edera/.claude/ef43b7/kcache/zone-6.18.bzImage)
+>> measuring zone:fio.sched=none (30 runs, 8 vCPU, randread bs=4k 15s) ...
+>> measuring zone:fio.sched=none,prof=io (30 runs, 8 vCPU, randread bs=4k 15s) ...
+
+== fio: randread bs=4k numjobs=8 on /dev/vda, HIGHER is better (N=30 boots/arm) ==
+   8 vCPU, 15s, --direct=1 psync; delta% vs 'zone:fio.sched=none' (positive = more)
+
+   zone:fio.sched=none            scheduler=none
+   zone:fio.sched=none,prof=io    scheduler=none
+
+metric      zone:fio.sched=none           zone:fio.sched=none,prof=io   
+iops        57078+-1242                   54151+-727 (-5.1%)            
+bw(KB/s)    228311+-4969                  216606+-2910 (-5.1%)          
