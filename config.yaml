@@ -22,8 +22,10 @@ branches:
   # The LTS branch is what a consumer that pins nothing should get.
   aliases:
   - latest
-- name: mainline
-  ref: edera/mainline
+
+# Disable mainline for now to avoid long kernel build times.
+#- name: mainline
+#  ref: edera/mainline
 
 # Default set of architectures applied to any flavor that does not override it.
 architectures:
