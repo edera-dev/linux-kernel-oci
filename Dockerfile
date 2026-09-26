@@ -42,7 +42,7 @@ COPY --from=prebuilt config.gz /kernel/config.gz
 COPY --from=prebuilt addons.squashfs /kernel/addons.squashfs
 COPY --from=prebuilt metadata /kernel/metadata
 
-FROM alpine:3.24@sha256:28bd5fe8b56d1bd048e5babf5b10710ebe0bae67db86916198a6eec434943f8b AS sdkbuild-prebuilt
+FROM alpine:3.24@sha256:294b683cb724975bec92580e1e685676bd4b50bda910ddb8c51d4cabeaec77e6 AS sdkbuild-prebuilt
 ARG KERNEL_FLAVOR=zone
 COPY --from=prebuilt sdk.tar.gz /sdk.tar.gz
 COPY --from=prebuilt metadata /metadata
