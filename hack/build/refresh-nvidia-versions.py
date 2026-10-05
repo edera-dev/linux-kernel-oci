@@ -7,6 +7,7 @@ the three matching lines change. If no new versions found, should not update the
 Currently only supports amd64 drivers. A human must review the PR opened by the GH Action that runs this.
 """
 
+import json
 import re
 import sys
 import urllib.request
@@ -15,50 +16,51 @@ from pathlib import Path
 NVIDIA_URL = "https://www.nvidia.com/en-us/drivers/unix/"
 CONFIG_PATH = Path("config.yaml")
 
-# The three NVIDIA-page labels we care about, mapped to the literal text used
-# in the trailing comment of each local_tags line in config.yaml. The script
-# matches lines by the comment label, so the order in config.yaml is free.
-LABELS = [
-    "Latest Production Branch Version",
-    "Latest New Feature Branch Version",
-    "Latest Beta Version",
-]
-
-# Only match Linux x86_64 paragraph for now.
-LINUX_X86_64_BLOCK = re.compile(
-    r"<strong>Linux x86_64/AMD64/EM64T</strong>(?P<body>.*?)</p>",
-    re.DOTALL,
+# NVIDIA_URL fills its version table client-side from this lookup service, so
+# query it directly. Keep the per-label params in sync with the drvrLkupInputs
+# entries for osCode "linux64" in that page's inline JS.
+LOOKUP_URL = (
+    "https://gfwsl.geforce.com/services_toolkit/services/com/nvidia/services/"
+    "AjaxDriverService.php?func=DriverManualLookup"
+    "&psid=133&pfid=1075&osID=12&languageCode=1033&isWHQL=0&dltype=-1&dch=0"
+    "&upCRD=null&ctk=null&numberOfResults=1&"
 )
 
+# The three NVIDIA-page labels we care about, mapped to the lookup params for
+# each. The labels are the literal text used in the trailing comment of each
+# local_tags line in config.yaml. The script matches lines by the comment
+# label, so the order in config.yaml is free.
+LABELS = {
+    "Latest Production Branch Version": "beta=0&qnf=0&sort1=",
+    "Latest New Feature Branch Version": "beta=null&qnf=1&sort1=1",
+    "Latest Beta Version": "beta=1&qnf=0&sort1=1",
+}
 
-def fetch_latest_versions(url: str = NVIDIA_URL) -> dict[str, str]:
-    req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
-    with urllib.request.urlopen(req) as resp:
-        html = resp.read().decode("utf-8", errors="replace")
+VERSION_RE = re.compile(r"[0-9][0-9.]*[0-9]")
 
-    block_match = LINUX_X86_64_BLOCK.search(html)
-    if not block_match:
-        raise RuntimeError(
-            "Could not locate the Linux x86_64 block on %s — page layout may have changed."
-            % url
-        )
-    body = block_match.group("body")
 
+def fetch_latest_versions() -> dict[str, str]:
     versions = {}
-    for label in LABELS:
-        # The page uses `<span calss="title">LABEL:</span> <a href="...">VERSION</a>`
-        # (yes, "calss" — NVIDIA's typo). Match liberally on the label and the
-        # next <a>...</a> so the parser survives small markup tweaks.
-        pat = re.compile(
-            re.escape(label) + r":\s*</span>\s*<a[^>]*>([0-9][0-9.]*[0-9])</a>",
-            re.IGNORECASE,
+    for label, params in LABELS.items():
+        req = urllib.request.Request(
+            LOOKUP_URL + params, headers={"User-Agent": "Mozilla/5.0"}
         )
-        m = pat.search(body)
-        if not m:
+        with urllib.request.urlopen(req) as resp:
+            data = json.load(resp)
+        try:
+            assert data["Success"] == "1"
+            info = data["IDS"][0]["downloadInfo"]
+            assert info["OsCode"] == "linux64"
+            # Version is a mangled form (595.1040 for 595.104.02); the page
+            # itself prefers DisplayVersion.
+            version = info["DisplayVersion"]
+        except (AssertionError, KeyError, IndexError, TypeError):
             raise RuntimeError(
-                "Could not find version for %r in Linux x86_64 block." % label
+                "Unexpected NVIDIA lookup response for %r: %s" % (label, data)
             )
-        versions[label] = m.group(1)
+        if not VERSION_RE.fullmatch(version):
+            raise RuntimeError("Bad version %r for %r" % (version, label))
+        versions[label] = version
     return versions
 
 
