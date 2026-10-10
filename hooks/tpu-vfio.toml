@@ -1,0 +1,19 @@
+[[hooks.setup]]
+sysfs-module-parameters = [
+  { module = "vfio_iommu_type1", parameter = "allow_unsafe_interrupts", value = "Y" },
+]
+
+[[hooks.setup.bind-driver]]
+driver = "vfio-pci"
+pci.vendor = "0x1ae0"
+pci.class = "0x1200"
+
+[[hooks.hotplug]]
+sysfs-module-parameters = [
+  { module = "vfio_iommu_type1", parameter = "allow_unsafe_interrupts", value = "Y" },
+]
+
+[[hooks.hotplug.bind-driver]]
+driver = "vfio-pci"
+pci.vendor = "0x1ae0"
+pci.class = "0x1200"
