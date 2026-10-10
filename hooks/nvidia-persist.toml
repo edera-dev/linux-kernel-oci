@@ -1,0 +1,11 @@
+[[hooks.setup]]
+overlay = "nvidia-bootstrap"
+modules = ["nvidia", "nvidia_drm", "nvidia_uvm"]
+execute = ["/usr/bin/nvidia-smi", "-pm", "1"]
+ignore-failure = true
+
+[[hooks.hotplug]]
+overlay = "nvidia-bootstrap"
+modules = ["nvidia", "nvidia_drm", "nvidia_uvm"]
+execute = ["/usr/bin/nvidia-smi", "-pm", "1"]
+ignore-failure = true
