@@ -52,6 +52,12 @@ flavors:
 - name: zone-amdgpu
   constraints:
     lower: '6.1'
+- name: zone-tpu
+  # zone kernel for Google TPU passthrough: VFIO PCI, plus a hook that binds the TPU to vfio-pci
+  architectures:
+  - x86_64
+  constraints:
+    lower: '6.1'
 - name: zone-nvidiagpu
   # we will generate distinct images for each of these
   # local tags. For `zone-nvidiagpu` specifically,

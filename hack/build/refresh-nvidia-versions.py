@@ -54,7 +54,7 @@ def fetch_latest_versions() -> dict[str, str]:
             # Version is a mangled form (595.1040 for 595.104.02); the page
             # itself prefers DisplayVersion.
             version = info["DisplayVersion"]
-        except (AssertionError, KeyError, IndexError, TypeError):
+        except AssertionError, KeyError, IndexError, TypeError:
             raise RuntimeError(
                 "Unexpected NVIDIA lookup response for %r: %s" % (label, data)
             )
