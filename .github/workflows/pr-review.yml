@@ -1,0 +1,48 @@
+name: PR review
+
+# The two advisory review checks, run through the shared workflow in
+# edera-dev/actions: a review of the diff, and a review of whether the tests
+# would catch the change being wrong. Both are comment-only and never block a
+# merge. What they look for in this repository is in .github/review/.
+#
+# Each check needs the four PR_REVIEW_* variables set on this repository.
+# Without them both checks skip quietly.
+
+on:
+  pull_request:
+    types: [opened, synchronize, ready_for_review]
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pr-review-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  suggestions:
+    uses: edera-dev/actions/.github/workflows/advisory-review.yml@0c15ad17d0b4e52af066d268a249d6ac3c7ce3b8
+    permissions:
+      contents: read
+      pull-requests: write
+      id-token: write
+    with:
+      check: pr-review-suggestions
+      federation-rule-id: ${{ vars.PR_REVIEW_FEDERATION_RULE_ID }}
+      organization-id: ${{ vars.PR_REVIEW_ORGANIZATION_ID }}
+      service-account-id: ${{ vars.PR_REVIEW_SERVICE_ACCOUNT_ID }}
+      workspace-id: ${{ vars.PR_REVIEW_WORKSPACE_ID }}
+
+  coverage:
+    uses: edera-dev/actions/.github/workflows/advisory-review.yml@0c15ad17d0b4e52af066d268a249d6ac3c7ce3b8
+    permissions:
+      contents: read
+      pull-requests: write
+      id-token: write
+    with:
+      check: pr-test-coverage
+      federation-rule-id: ${{ vars.PR_REVIEW_FEDERATION_RULE_ID }}
+      organization-id: ${{ vars.PR_REVIEW_ORGANIZATION_ID }}
+      service-account-id: ${{ vars.PR_REVIEW_SERVICE_ACCOUNT_ID }}
+      workspace-id: ${{ vars.PR_REVIEW_WORKSPACE_ID }}
