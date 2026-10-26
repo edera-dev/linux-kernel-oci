@@ -19,7 +19,7 @@ jobs:
     name: Image digest update
     runs-on:
       group: Self Hosted
-      labels: edera-16
+      labels: edera-8
 
     permissions:
       contents: write # to push the updates
