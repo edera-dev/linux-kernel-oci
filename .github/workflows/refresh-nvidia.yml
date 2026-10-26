@@ -20,8 +20,12 @@ jobs:
           egress-policy: audit
       - name: checkout repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v4
+      - name: Install the latest version of uv
+        uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4 # v10.1.0
+        with:
+          python-version: "3.14"
       - name: scrape upstream and rewrite config.yaml
-        run: python3 ./hack/build/refresh-nvidia-versions.py
+        run: uv run ./hack/build/refresh-nvidia-versions.py
       - name: generate cultivator token
         uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
         id: generate-token
