@@ -37,7 +37,7 @@ flavors:
   - x86_64
   - aarch64
 - name: zone-kvm
-  # zone kernel built with kvm (AMD and Intel) and nbd enabled for e2e testing in the protect repo
+  # zone kernel built with kvm (AMD and Intel), nbd and tun enabled for e2e testing in the protect repo
   architectures:
   - x86_64
   constraints:
