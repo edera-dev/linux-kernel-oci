@@ -22,7 +22,7 @@ concurrency:
 
 jobs:
   suggestions:
-    uses: edera-dev/actions/.github/workflows/advisory-review.yml@672ae82792921575b4d9c28aff64eccb7c838c55
+    uses: edera-dev/actions/.github/workflows/advisory-review.yml@bcb1f6ef539096826f9c4446241c10d6adeb50bb
     permissions:
       contents: read
       pull-requests: write
@@ -35,7 +35,7 @@ jobs:
       workspace-id: ${{ vars.PR_REVIEW_WORKSPACE_ID }}
 
   coverage:
-    uses: edera-dev/actions/.github/workflows/advisory-review.yml@672ae82792921575b4d9c28aff64eccb7c838c55
+    uses: edera-dev/actions/.github/workflows/advisory-review.yml@bcb1f6ef539096826f9c4446241c10d6adeb50bb
     permissions:
       contents: read
       pull-requests: write
