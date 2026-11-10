@@ -83,6 +83,13 @@ flavors:
   architectures:
   - x86_64
   - aarch64
+- name: host-dom0
+  # host kernel for Xen installs, which only boot it as dom0: the host config
+  # without KVM, VFIO and vhost, and without the hardware, protocols and
+  # services a dom0 does not use
+  architectures:
+  - x86_64
+  - aarch64
 
 # zone-openpax is parked: the openpax series has not been restored on the Edera
 # branches yet. Its kconfig fragments are still in configs/, so re-enabling it
@@ -117,6 +124,7 @@ runners:
   arch: x86_64
   flavors:
   - host
+  - host-dom0
   - zone-amdgpu
   - zone-nvidiagpu
 - name: edera-8
