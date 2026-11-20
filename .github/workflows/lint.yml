@@ -18,6 +18,11 @@ jobs:
       SHFMT_VERSION: "3.12.0"
       SHELLCHECK_VERSION: "0.11.0"
     steps:
+      - name: Harden the runner (Audit all outbound calls)
+        uses: step-security/harden-runner@aebdcf6156ab6691adf63218240e476564a1ed4c # v2.23.0
+        with:
+          egress-policy: audit
+
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v4
       # Pin tool versions to match the local formatter; a version skew would
