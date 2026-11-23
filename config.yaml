@@ -60,6 +60,9 @@ flavors:
   constraints:
     lower: '6.1'
 - name: zone-nvidiagpu
+  architectures:
+  - x86_64
+  - aarch64
   # we will generate distinct images for each of these
   # local tags. For `zone-nvidiagpu` specifically,
   # we will build that distinct image with the nvidia driver
