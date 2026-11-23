@@ -5,8 +5,7 @@ set -e
 
 # For nvidia kernel, firmware is distributed via their out-of-tree .run userspace
 # package, which we need to fetch and extract.
-# TODO(BML) fix arm64 builds
-if [ "${KERNEL_FLAVOR}" = "zone-nvidiagpu" ] && [ "${TARGET_ARCH_STANDARD}" = "x86_64" ]; then
+if [ "${KERNEL_FLAVOR}" = "zone-nvidiagpu" ]; then
 	# Check that we already set NV_VERSION when building the out-of-tree kmod,
 	# naturally, we must fetch the matching runtime package.
 	if [ -z "${NV_VERSION}" ]; then
@@ -20,9 +19,21 @@ if [ "${KERNEL_FLAVOR}" = "zone-nvidiagpu" ] && [ "${TARGET_ARCH_STANDARD}" = "x
 	if [ "${TARGET_ARCH_STANDARD}" = "aarch64" ]; then
 		NV_RUN_FILE="NVIDIA-Linux-aarch64-${NV_VERSION}.run"
 		NV_RUN_URL="https://us.download.nvidia.com/XFree86/aarch64/${NV_VERSION}/${NV_RUN_FILE}"
+		NV_TRIPLET=aarch64-linux-gnu
+		NV_LOADER=/lib/ld-linux-aarch64.so.1
+		NV_LOADER_LINK=lib
 	elif [ "${TARGET_ARCH_STANDARD}" = "x86_64" ]; then
 		NV_RUN_FILE="NVIDIA-Linux-x86_64-${NV_VERSION}.run"
 		NV_RUN_URL="https://us.download.nvidia.com/XFree86/Linux-x86_64/${NV_VERSION}/${NV_RUN_FILE}"
+		NV_TRIPLET=x86_64-linux-gnu
+		NV_LOADER=/lib64/ld-linux-x86-64.so.2
+		NV_LOADER_LINK=lib64
+	fi
+	# A cross build takes the target's glibc from the cross toolchain.
+	NV_GLIBC="/lib/${NV_TRIPLET}"
+	if [ "${IS_CROSS_COMPILE}" = "1" ]; then
+		NV_GLIBC="/usr/${NV_TRIPLET}/lib"
+		NV_LOADER="${NV_GLIBC}/${NV_LOADER##*/}"
 	fi
 
 	NV_EXTRACT_PATH="$(mktemp -d)/extracted-${NV_VERSION}"
@@ -161,10 +172,14 @@ if [ "${KERNEL_FLAVOR}" = "zone-nvidiagpu" ] && [ "${TARGET_ARCH_STANDARD}" = "x
 		install -Dm755 "$LIBRARY" "$WORKLOAD_OVERLAY_PATH/usr/lib/$BN"
 	done
 
-	for BINARY in "$NV_EXTRACT_PATH/out/"nvidia-{cuda-mps-control,cuda-mps-server,debugdump,pcc,smi}; do
+	for BINARY in "$NV_EXTRACT_PATH/out/"nvidia-{cuda-mps-control,cuda-mps-server,debugdump,smi}; do
 		BN="$(basename "$BINARY")"
 		install -Dm755 "$BINARY" "$WORKLOAD_OVERLAY_PATH/usr/bin/$BN"
 	done
+	# Not every package ships nvidia-pcc or Vulkan SC: the aarch64 595 and 615 ones have neither.
+	if [ -e "$NV_EXTRACT_PATH/out/nvidia-pcc" ]; then
+		install -Dm755 "$NV_EXTRACT_PATH/out/nvidia-pcc" "$WORKLOAD_OVERLAY_PATH/usr/bin/nvidia-pcc"
+	fi
 
 	for MAN1 in "$NV_EXTRACT_PATH/out/"nvidia-{cuda-mps-control,smi}.1.gz; do
 		BN="$(basename "$MAN1")"
@@ -176,12 +191,14 @@ if [ "${KERNEL_FLAVOR}" = "zone-nvidiagpu" ] && [ "${TARGET_ARCH_STANDARD}" = "x
 	install -Dm644 "$NV_EXTRACT_PATH/out/"nvidia.icd "$WORKLOAD_OVERLAY_PATH/etc/OpenCL/vendors/nvidia.icd"
 	install -Dm644 "$NV_EXTRACT_PATH/out/"nvidia_icd.json "$WORKLOAD_OVERLAY_PATH/usr/share/vulkan/icd.d/nvidia_icd.json"
 	install -Dm644 "$NV_EXTRACT_PATH/out/"nvidia_layers.json "$WORKLOAD_OVERLAY_PATH/usr/share/vulkan/implicit_layer.d/nvidia_layers.json"
-	install -Dm644 "$NV_EXTRACT_PATH/out/"nvidia_icd_vksc.json "$WORKLOAD_OVERLAY_PATH/usr/share/vulkansc/icd.d/nvidia_icd_vksc.json"
+	if [ -e "$NV_EXTRACT_PATH/out/nvidia_icd_vksc.json" ]; then
+		install -Dm644 "$NV_EXTRACT_PATH/out/"nvidia_icd_vksc.json "$WORKLOAD_OVERLAY_PATH/usr/share/vulkansc/icd.d/nvidia_icd_vksc.json"
+	fi
 
 	create_links "$WORKLOAD_OVERLAY_PATH"
 
 	# For Debian-like distributions
-	multiarch_symlink_mirror "$WORKLOAD_OVERLAY_PATH" x86_64-linux-gnu
+	multiarch_symlink_mirror "$WORKLOAD_OVERLAY_PATH" "$NV_TRIPLET"
 
 	#
 	# Create NVIDIA persistence mode hook, ensures the driver is loaded and
@@ -199,14 +216,14 @@ if [ "${KERNEL_FLAVOR}" = "zone-nvidiagpu" ] && [ "${TARGET_ARCH_STANDARD}" = "x
 
 	# HACK: Just using the builder's glibc binaries so we can run nvidia-smi
 	# without a full workload image
-	for LIBRARY in "$NV_EXTRACT_PATH/out/"libnvidia-ml.so* /lib64/ld-linux-x86-64.so.2 /lib/x86_64-linux-gnu/lib{pthread,m,dl,c,rt}.so.*; do
+	for LIBRARY in "$NV_EXTRACT_PATH/out/"libnvidia-ml.so* "$NV_LOADER" "$NV_GLIBC"/lib{pthread,m,dl,c,rt}.so.*; do
 		BN="$(basename "$LIBRARY")"
 		install -Dm755 "$LIBRARY" "$NVIDIA_BOOTSTRAP_OVERLAY_PATH/usr/lib/$BN"
 	done
-	ln -s usr/lib "$NVIDIA_BOOTSTRAP_OVERLAY_PATH/lib64"
+	ln -s usr/lib "$NVIDIA_BOOTSTRAP_OVERLAY_PATH/$NV_LOADER_LINK"
 
 	create_links "$NVIDIA_BOOTSTRAP_OVERLAY_PATH"
-	multiarch_symlink_mirror "$NVIDIA_BOOTSTRAP_OVERLAY_PATH" x86_64-linux-gnu
+	multiarch_symlink_mirror "$NVIDIA_BOOTSTRAP_OVERLAY_PATH" "$NV_TRIPLET"
 
 	install -Dm644 "${KERNEL_DIR}/hooks/nvidia-persist.toml" "${ADDONS_OUTPUT_PATH}/hooks/nvidia-persist.toml"
 
