@@ -1,9 +1,9 @@
 # Changes to these paths require review from one of the listed owners.
 
-/.github/          @kaniini @azenla @bleggett @tycho @alexandermerritt
-/hack/             @kaniini @azenla @bleggett @tycho @alexandermerritt
-/patches/          @kaniini @azenla @bleggett @tycho @alexandermerritt
-/patches-nvidia/   @kaniini @azenla @bleggett @tycho @alexandermerritt 
-/configs/          @kaniini @azenla @bleggett @tycho @alexandermerritt
-/Dockerfile        @kaniini @azenla @bleggett @tycho @alexandermerritt
-/config.yaml       @kaniini @azenla @bleggett @tycho @alexandermerritt
+/.github/          @kaniini @azenla @bleggett @tycho @alexandermerritt @marly-edera @sveith @antoineco
+/hack/             @kaniini @azenla @bleggett @tycho @alexandermerritt @marly-edera @sveith @antoineco
+/patches/          @kaniini @azenla @bleggett @tycho @alexandermerritt @marly-edera @sveith @antoineco
+/patches-nvidia/   @kaniini @azenla @bleggett @tycho @alexandermerritt @marly-edera @sveith @antoineco
+/configs/          @kaniini @azenla @bleggett @tycho @alexandermerritt @marly-edera @sveith @antoineco
+/Dockerfile        @kaniini @azenla @bleggett @tycho @alexandermerritt @marly-edera @sveith @antoineco
+/config.yaml       @kaniini @azenla @bleggett @tycho @alexandermerritt @marly-edera @sveith @antoineco
